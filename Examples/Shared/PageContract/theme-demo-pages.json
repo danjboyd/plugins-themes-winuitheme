@@ -1,0 +1,186 @@
+{
+  "contractVersion": 1,
+  "pages": [
+    {
+      "id": "controls",
+      "title": "Controls",
+      "description": "Core WinUI-style controls for parity review.",
+      "sections": [
+        {
+          "id": "buttons",
+          "title": "Buttons",
+          "fixtures": [
+            { "id": "push-default", "kind": "button", "title": "Default button" },
+            { "id": "push-normal", "kind": "button", "title": "Normal button" },
+            { "id": "push-disabled", "kind": "button", "title": "Disabled button" }
+          ]
+        },
+        {
+          "id": "selection",
+          "title": "Selection Controls",
+          "fixtures": [
+            { "id": "checkbox", "kind": "toggle", "title": "Checkbox states" },
+            { "id": "radio", "kind": "toggle", "title": "Radio states" },
+            { "id": "switch", "kind": "toggle", "title": "Switch states" }
+          ]
+        },
+        {
+          "id": "range",
+          "title": "Range Controls",
+          "fixtures": [
+            { "id": "slider", "kind": "range", "title": "Slider" },
+            { "id": "progress", "kind": "range", "title": "Progress indicator" },
+            { "id": "stepper", "kind": "range", "title": "Stepper" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "text-input",
+      "title": "Text Input",
+      "description": "Fields, search, combo, and segmented input surfaces.",
+      "sections": [
+        {
+          "id": "fields",
+          "title": "Fields",
+          "fixtures": [
+            { "id": "text-field", "kind": "field", "title": "Text field" },
+            { "id": "search-field", "kind": "field", "title": "Search field" },
+            { "id": "disabled-field", "kind": "field", "title": "Disabled field" }
+          ]
+        },
+        {
+          "id": "compound",
+          "title": "Compound Inputs",
+          "fixtures": [
+            { "id": "popup-button", "kind": "popup", "title": "Popup button" },
+            { "id": "combo-box", "kind": "popup", "title": "Combo box" },
+            { "id": "segmented", "kind": "segmented", "title": "Segmented control" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "commands",
+      "title": "Commands",
+      "description": "Menu bar, popup menus, key equivalents, and toolbar-like surfaces.",
+      "sections": [
+        {
+          "id": "menu-bar",
+          "title": "Menu Bar",
+          "fixtures": [
+            { "id": "main-menu", "kind": "menu", "title": "Main menu bar" }
+          ]
+        },
+        {
+          "id": "popup-menu",
+          "title": "Popup Menus",
+          "fixtures": [
+            { "id": "context-menu", "kind": "menu", "title": "Context menu" },
+            { "id": "key-equivalents", "kind": "menu", "title": "Menu with shortcuts" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "data-views",
+      "title": "Data Views",
+      "description": "Tables, outline views, tabs, split views, and scrollers.",
+      "sections": [
+        {
+          "id": "tables",
+          "title": "Tables",
+          "fixtures": [
+            { "id": "table-basic", "kind": "table", "title": "Table view" },
+            { "id": "table-selection", "kind": "table", "title": "Active and inactive selection" }
+          ]
+        },
+        {
+          "id": "outline",
+          "title": "Outline",
+          "fixtures": [
+            { "id": "outline-basic", "kind": "outline", "title": "Outline view" }
+          ]
+        },
+        {
+          "id": "containers",
+          "title": "Containers",
+          "fixtures": [
+            { "id": "tabs", "kind": "tabs", "title": "Tab view" },
+            { "id": "split-view", "kind": "split", "title": "Split view" },
+            { "id": "scrollers", "kind": "scroll", "title": "Scroll view and scrollers" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dialogs",
+      "title": "Dialogs",
+      "description": "Dialog layouts and action rows before native integration.",
+      "sections": [
+        {
+          "id": "alerts",
+          "title": "Alerts",
+          "fixtures": [
+            { "id": "message-dialog", "kind": "dialog", "title": "Message dialog" }
+          ]
+        },
+        {
+          "id": "panels",
+          "title": "Panels",
+          "fixtures": [
+            { "id": "sheet-layout", "kind": "dialog", "title": "Sheet-style layout" },
+            { "id": "file-panel-preview", "kind": "dialog", "title": "Open/save panel placeholder" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "stress",
+      "title": "Stress",
+      "description": "Long labels, dense layouts, and edge-case states.",
+      "sections": [
+        {
+          "id": "density",
+          "title": "Density",
+          "fixtures": [
+            { "id": "dense-form", "kind": "stress", "title": "Dense form" },
+            { "id": "long-placeholder", "kind": "stress", "title": "Long placeholder" }
+          ]
+        },
+        {
+          "id": "labels",
+          "title": "Long Labels",
+          "fixtures": [
+            { "id": "long-button-label", "kind": "stress", "title": "Long button label" },
+            { "id": "long-menu-title", "kind": "stress", "title": "Long menu title" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "real-app",
+      "title": "Real App",
+      "description": "Fixtures intended to map later to ObjcMarkdown validation passes.",
+      "sections": [
+        {
+          "id": "document-shell",
+          "title": "Document Shell",
+          "fixtures": [
+            { "id": "main-window", "kind": "realapp", "title": "Document window shell" },
+            { "id": "toolbar-density", "kind": "realapp", "title": "Toolbar density" }
+          ]
+        },
+        {
+          "id": "content-bearing",
+          "title": "Content-Bearing Surfaces",
+          "fixtures": [
+            { "id": "table-preview", "kind": "realapp", "title": "Content table preview" },
+            { "id": "split-editor-preview", "kind": "realapp", "title": "Editor and preview split" }
+          ]
+        }
+      ]
+    }
+  ]
+}
+

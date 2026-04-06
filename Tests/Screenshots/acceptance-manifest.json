@@ -1,0 +1,47 @@
+﻿{
+    "generatedAt":  "2026-04-03T13:33:33",
+    "themeDemo":  [
+                      {
+                          "variant":  "light-100",
+                          "page":  "real-app",
+                          "path":  "C:\\Users\\Support\\git\\plugins-themes-winuitheme\\Tests\\Screenshots\\ThemeDemo\\light-100\\real-app.png"
+                      },
+                      {
+                          "variant":  "dark-100",
+                          "page":  "real-app",
+                          "path":  "C:\\Users\\Support\\git\\plugins-themes-winuitheme\\Tests\\Screenshots\\ThemeDemo\\dark-100\\real-app.png"
+                      },
+                      {
+                          "variant":  "high-contrast-100",
+                          "page":  "real-app",
+                          "path":  "C:\\Users\\Support\\git\\plugins-themes-winuitheme\\Tests\\Screenshots\\ThemeDemo\\high-contrast-100\\real-app.png"
+                      },
+                      {
+                          "variant":  "reduced-transparency-100",
+                          "page":  "real-app",
+                          "path":  "C:\\Users\\Support\\git\\plugins-themes-winuitheme\\Tests\\Screenshots\\ThemeDemo\\reduced-transparency-100\\real-app.png"
+                      },
+                      {
+                          "variant":  "light-125",
+                          "page":  "real-app",
+                          "path":  "C:\\Users\\Support\\git\\plugins-themes-winuitheme\\Tests\\Screenshots\\ThemeDemo\\light-125\\real-app.png"
+                      },
+                      {
+                          "variant":  "light-150",
+                          "page":  "real-app",
+                          "path":  "C:\\Users\\Support\\git\\plugins-themes-winuitheme\\Tests\\Screenshots\\ThemeDemo\\light-150\\real-app.png"
+                      },
+                      {
+                          "variant":  "light-200",
+                          "page":  "real-app",
+                          "path":  "C:\\Users\\Support\\git\\plugins-themes-winuitheme\\Tests\\Screenshots\\ThemeDemo\\light-200\\real-app.png"
+                      }
+                  ],
+    "reference":  [
+                      {
+                          "variant":  "default",
+                          "page":  "real-app",
+                          "path":  "C:\\Users\\Support\\git\\plugins-themes-winuitheme\\Tests\\Screenshots\\Reference\\default\\real-app.png"
+                      }
+                  ]
+}

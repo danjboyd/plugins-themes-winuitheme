@@ -1,0 +1,33 @@
+{
+  NSExecutable = "WinUITheme.dll";
+  NSPrincipalClass = "WinUITheme";
+  GSThemeAuthors = (
+    "Daniel Boyd"
+  );
+  GSThemeDetails = "WinUI 3-inspired GNUstep theme";
+  GSThemeImages = {
+    GSSwitch = "GSSwitch.png";
+    GSSwitchSelected = "GSSwitchSelected.png";
+    GSSwitchMixed = "GSSwitchMixed.png";
+    GSRadio = "GSRadio.png";
+    GSRadioSelected = "GSRadioSelected.png";
+    NSSwitch = "GSSwitch.png";
+    NSHighlightedSwitch = "GSSwitchSelected.png";
+    common_SwitchOff = "GSSwitch.png";
+    common_SwitchOn = "GSSwitchSelected.png";
+    NSRadioButton = "GSRadio.png";
+    NSHighlightedRadioButton = "GSRadioSelected.png";
+    common_RadioOff = "GSRadio.png";
+    common_RadioOn = "GSRadioSelected.png";
+  };
+  GSThemeVersion = "0.1.0-phase3";
+  GSThemeDomain = {
+    GSBackHandlesWindowDecorations = YES;
+    NSInterfaceStyleDefault = NSWindows95InterfaceStyle;
+    NSMenuInterfaceStyle = NSWindows95InterfaceStyle;
+    NSScrollViewInterfaceStyle = NSWindows95InterfaceStyle;
+    NSScrollerInterfaceStyle = NSWindows95InterfaceStyle;
+    GSScrollerButtonsOffset = 0;
+    GSScrollerArrowsSameEnd = NO;
+  };
+}

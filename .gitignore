@@ -1,0 +1,21 @@
+# Local IDE state
+.vs/
+*.suo
+*.user
+
+# OS cruft
+.DS_Store
+Thumbs.db
+
+# Repo-local build outputs
+/obj/
+/tmp/
+/WinUITheme.theme/
+/Examples/ThemeDemo/obj/
+/Examples/ThemeDemo/ThemeDemo.app/
+/Reference/WinUI3ReferenceApp/bin/
+/Reference/WinUI3ReferenceApp/obj/
+
+# Build and diagnostic leftovers
+*.log
+/Reference/WinUI3ReferenceApp/tmp-*.txt
