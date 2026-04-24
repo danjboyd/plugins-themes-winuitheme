@@ -47,12 +47,14 @@ WinUIThemeButtonImageLooksLikeSwitch(NSImage *image)
 {
   NSString *name = [image name];
 
-  return (image == [NSImage imageNamed: @"NSSwitch"]
+  return (image != nil
+          && (image == [NSImage imageNamed: @"NSSwitch"]
           || image == [NSImage imageNamed: @"NSHighlightedSwitch"]
           || image == [NSImage imageNamed: @"GSSwitch"]
           || image == [NSImage imageNamed: @"GSSwitchSelected"]
-          || [name rangeOfString: @"switch"
-                         options: NSCaseInsensitiveSearch].location != NSNotFound);
+          || (name != nil
+              && [name rangeOfString: @"switch"
+                              options: NSCaseInsensitiveSearch].location != NSNotFound)));
 }
 
 static BOOL
@@ -60,12 +62,14 @@ WinUIThemeButtonImageLooksLikeRadio(NSImage *image)
 {
   NSString *name = [image name];
 
-  return (image == [NSImage imageNamed: @"NSRadioButton"]
+  return (image != nil
+          && (image == [NSImage imageNamed: @"NSRadioButton"]
           || image == [NSImage imageNamed: @"NSHighlightedRadioButton"]
           || image == [NSImage imageNamed: @"GSRadio"]
           || image == [NSImage imageNamed: @"GSRadioSelected"]
-          || [name rangeOfString: @"radio"
-                         options: NSCaseInsensitiveSearch].location != NSNotFound);
+          || (name != nil
+              && [name rangeOfString: @"radio"
+                              options: NSCaseInsensitiveSearch].location != NSNotFound)));
 }
 
 static void

@@ -537,10 +537,12 @@ WinUIThemeButtonCellIsCheckbox(NSButtonCell *cell)
           || alternateImage == [NSImage imageNamed: @"NSHighlightedSwitch"]
           || image == [NSImage imageNamed: @"GSSwitch"]
           || alternateImage == [NSImage imageNamed: @"GSSwitchSelected"]
-          || [imageName rangeOfString: @"switch"
-                              options: NSCaseInsensitiveSearch].location != NSNotFound
-          || [alternateName rangeOfString: @"switch"
-                                  options: NSCaseInsensitiveSearch].location != NSNotFound);
+          || (imageName != nil
+              && [imageName rangeOfString: @"switch"
+                                   options: NSCaseInsensitiveSearch].location != NSNotFound)
+          || (alternateName != nil
+              && [alternateName rangeOfString: @"switch"
+                                      options: NSCaseInsensitiveSearch].location != NSNotFound));
 }
 
 BOOL
@@ -573,10 +575,12 @@ WinUIThemeButtonCellIsRadio(NSButtonCell *cell)
           || alternateImage == [NSImage imageNamed: @"NSHighlightedRadioButton"]
           || image == [NSImage imageNamed: @"GSRadio"]
           || alternateImage == [NSImage imageNamed: @"GSRadioSelected"]
-          || [imageName rangeOfString: @"radio"
-                              options: NSCaseInsensitiveSearch].location != NSNotFound
-          || [alternateName rangeOfString: @"radio"
-                                  options: NSCaseInsensitiveSearch].location != NSNotFound);
+          || (imageName != nil
+              && [imageName rangeOfString: @"radio"
+                                   options: NSCaseInsensitiveSearch].location != NSNotFound)
+          || (alternateName != nil
+              && [alternateName rangeOfString: @"radio"
+                                      options: NSCaseInsensitiveSearch].location != NSNotFound));
 }
 
 BOOL

@@ -32,6 +32,35 @@ As of `2026-04-03`:
 - A smoke launch left `MarkdownViewer` running and responding in the local
   desktop session.
 
+## Resolved Theme Issues
+
+### Image-less button cells misclassified as radio or switch controls
+
+Status: fixed in the working tree after the `914ee2d` initial import.
+
+`ObjcMarkdown` reported malformed toolbar, menu-adjacent, and Preferences-pane
+rendering when launched with `-GSTheme WinUITheme`. Ordinary text-only or
+image-less `NSButtonCell` instances were drawn as radio or switch controls.
+
+The bug was in WinUITheme's fallback control classifier. It compared the
+`.location` from `rangeOfString:` on image names against `NSNotFound` without
+first confirming that the image name existed. In Objective-C, sending that
+message to `nil` returns a zeroed `NSRange`, so the classifier treated missing
+names as substring matches.
+
+The fix guards all image and image-name fallback checks before substring
+matching:
+
+- `WinUIThemeButtonCellIsCheckbox`
+- `WinUIThemeButtonCellIsRadio`
+- `WinUIThemeButtonImageLooksLikeSwitch`
+- `WinUIThemeButtonImageLooksLikeRadio`
+
+Acceptance for this issue is that image-less push buttons and segmented-control
+cells continue through the normal button rendering path, while real
+`NSSwitchButton`, `NSOnOffButton`, and `NSRadioButton` cells still draw with
+WinUI-style indicators.
+
 ## Current Blockers
 
 The real-app gate is not fully closed yet because the sibling repo is not green.
