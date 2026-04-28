@@ -2,6 +2,8 @@
 
 #import "TDContractLoader.h"
 
+#import <GNUstepGUI/GSTheme.h>
+
 @interface TDFlippedView : NSView
 @end
 
@@ -10,6 +12,139 @@
 - (BOOL) isFlipped
 {
   return YES;
+}
+
+@end
+
+@interface TDMenuBarFixtureView : NSView
+{
+  NSMutableArray *_cells;
+  NSMenu *_fileMenu;
+  NSMenu *_editMenu;
+}
+@end
+
+@implementation TDMenuBarFixtureView
+
+- (id) initWithFrame: (NSRect)frame
+{
+  self = [super initWithFrame: frame];
+  if (self != nil)
+    {
+      NSMenuItem *fileItem = [[[NSMenuItem alloc] initWithTitle: @"File" action: NULL keyEquivalent: @""] autorelease];
+      NSMenuItem *editItem = [[[NSMenuItem alloc] initWithTitle: @"Edit" action: NULL keyEquivalent: @""] autorelease];
+      NSMenuItemCell *cell = nil;
+
+      _cells = [[NSMutableArray alloc] init];
+      _fileMenu = [[NSMenu alloc] initWithTitle: @"File"];
+      _editMenu = [[NSMenu alloc] initWithTitle: @"Edit"];
+
+      [_fileMenu addItemWithTitle: @"New" action: NULL keyEquivalent: @"n"];
+      [_fileMenu addItemWithTitle: @"Open" action: NULL keyEquivalent: @"o"];
+      [_fileMenu addItem: [NSMenuItem separatorItem]];
+      [_fileMenu addItemWithTitle: @"Export" action: NULL keyEquivalent: @""];
+
+      [_editMenu addItemWithTitle: @"Undo" action: NULL keyEquivalent: @"z"];
+      [_editMenu addItemWithTitle: @"Redo" action: NULL keyEquivalent: @"Z"];
+      [_editMenu addItem: [NSMenuItem separatorItem]];
+      [_editMenu addItemWithTitle: @"Find" action: NULL keyEquivalent: @"f"];
+
+      [fileItem setSubmenu: _fileMenu];
+      [editItem setSubmenu: _editMenu];
+
+      cell = [[[NSMenuItemCell alloc] initTextCell: @""] autorelease];
+      [cell setMenuItem: fileItem];
+      [cell setFont: [NSFont systemFontOfSize: 13.0]];
+      [_cells addObject: cell];
+
+      cell = [[[NSMenuItemCell alloc] initTextCell: @""] autorelease];
+      [cell setMenuItem: editItem];
+      [cell setFont: [NSFont systemFontOfSize: 13.0]];
+      [_cells addObject: cell];
+    }
+  return self;
+}
+
+- (void) dealloc
+{
+  RELEASE(_cells);
+  RELEASE(_fileMenu);
+  RELEASE(_editMenu);
+  [super dealloc];
+}
+
+- (BOOL) isFlipped
+{
+  return YES;
+}
+
+- (NSRect) rectForMenuItemAtIndex: (NSUInteger)index
+{
+  CGFloat x = 18.0;
+  NSUInteger current = 0;
+
+  for (current = 0; current < index; current++)
+    {
+      x += 52.0;
+    }
+
+  return NSMakeRect(x, 16.0, 52.0, 30.0);
+}
+
+- (NSUInteger) menuItemIndexAtPoint: (NSPoint)point
+{
+  NSUInteger index = 0;
+
+  for (index = 0; index < [_cells count]; index++)
+    {
+      if (NSMouseInRect(point, [self rectForMenuItemAtIndex: index], [self isFlipped]))
+        {
+          return index;
+        }
+    }
+
+  return NSNotFound;
+}
+
+- (void) drawRect: (NSRect)dirtyRect
+{
+  GSTheme *theme = [GSTheme theme];
+  NSUInteger index = 0;
+
+  (void)dirtyRect;
+
+  for (index = 0; index < [_cells count]; index++)
+    {
+      NSMenuItemCell *cell = [_cells objectAtIndex: index];
+      NSRect itemRect = [self rectForMenuItemAtIndex: index];
+
+      [theme drawBorderAndBackgroundForMenuItemCell: cell
+                                          withFrame: itemRect
+                                             inView: self
+                                              state: GSThemeNormalState
+                                       isHorizontal: YES];
+      [theme drawTitleForMenuItemCell: cell
+                             withFrame: itemRect
+                                inView: self
+                                 state: GSThemeNormalState
+                          isHorizontal: YES];
+    }
+}
+
+- (void) mouseDown: (NSEvent *)event
+{
+  NSPoint point = [self convertPoint: [event locationInWindow] fromView: nil];
+  NSUInteger index = [self menuItemIndexAtPoint: point];
+  NSMenu *menu = nil;
+
+  if (index == NSNotFound)
+    {
+      [super mouseDown: event];
+      return;
+    }
+
+  menu = (index == 0) ? _fileMenu : _editMenu;
+  [NSMenu popUpContextMenu: menu withEvent: event forView: self];
 }
 
 @end
@@ -143,6 +278,20 @@ TDSegmentedControl(NSRect frame, NSArray *labels)
   return control;
 }
 
+static NSView *
+TDMenuBarFixture(NSRect frame)
+{
+  NSBox *box = [[[NSBox alloc] initWithFrame: frame] autorelease];
+  NSView *menuView = nil;
+
+  [box setTitlePosition: NSNoTitle];
+
+  menuView = [[[TDMenuBarFixtureView alloc] initWithFrame: NSMakeRect(18.0, 8.0, 260.0, 62.0)] autorelease];
+  [[box contentView] addSubview: menuView];
+
+  return box;
+}
+
 @interface TDAppDelegate ()
 - (void) installMainMenu;
 - (void) buildWindow;
@@ -248,6 +397,7 @@ TDSegmentedControl(NSRect frame, NSArray *labels)
                            [NSDictionary dictionaryWithObjectsAndKeys: @"AppController.m", @"title", nil],
                            [NSDictionary dictionaryWithObjectsAndKeys: @"PreviewController.m", @"title", nil],
                            nil],
+                         @"children",
                          nil],
                        [NSDictionary dictionaryWithObjectsAndKeys:
                          @"Documentation", @"title",
@@ -255,8 +405,10 @@ TDSegmentedControl(NSRect frame, NSArray *labels)
                            [NSDictionary dictionaryWithObjectsAndKeys: @"IMPLEMENTATION_ROADMAP.md", @"title", nil],
                            [NSDictionary dictionaryWithObjectsAndKeys: @"NATIVE_INTEGRATION_AND_BOUNDARIES.md", @"title", nil],
                            nil],
+                         @"children",
                          nil],
                        nil],
+                     @"children",
                      nil],
                    [NSDictionary dictionaryWithObjectsAndKeys:
                      @"Recent Files", @"title",
@@ -264,6 +416,7 @@ TDSegmentedControl(NSRect frame, NSArray *labels)
                        [NSDictionary dictionaryWithObjectsAndKeys: @"Quarterly Plan.md", @"title", nil],
                        [NSDictionary dictionaryWithObjectsAndKeys: @"Release Notes.txt", @"title", nil],
                        nil],
+                     @"children",
                      nil],
                    nil];
   ASSIGN(_lastOpenPanelResult, @"No selection yet");
@@ -727,6 +880,7 @@ TDSegmentedControl(NSRect frame, NSArray *labels)
 {
   TDFlippedView *view = [[[TDFlippedView alloc] initWithFrame: NSMakeRect(0.0, 0.0, 1040.0, 760.0)] autorelease];
   NSFont *sectionFont = [NSFont boldSystemFontOfSize: 15.0];
+  NSView *menuFixture = nil;
   NSBox *toolbarBox = nil;
   NSButton *button = nil;
   NSPopUpButton *popup = nil;
@@ -741,12 +895,20 @@ TDSegmentedControl(NSRect frame, NSArray *labels)
                             [NSFont systemFontOfSize: 13.0],
                             [NSColor secondaryLabelColor])];
 
-  [view addSubview: TDLabel(@"Toolbar-Like Command Surfaces",
+  [view addSubview: TDLabel(@"Menu Bar",
                             NSMakeRect(20.0, 92.0, 320.0, 20.0),
                             sectionFont,
                             [NSColor controlTextColor])];
 
-  toolbarBox = [[[NSBox alloc] initWithFrame: NSMakeRect(20.0, 122.0, 820.0, 78.0)] autorelease];
+  menuFixture = TDMenuBarFixture(NSMakeRect(20.0, 122.0, 820.0, 78.0));
+  [view addSubview: menuFixture];
+
+  [view addSubview: TDLabel(@"Toolbar-Like Command Surfaces",
+                            NSMakeRect(20.0, 240.0, 320.0, 20.0),
+                            sectionFont,
+                            [NSColor controlTextColor])];
+
+  toolbarBox = [[[NSBox alloc] initWithFrame: NSMakeRect(20.0, 270.0, 820.0, 78.0)] autorelease];
   [toolbarBox setTitlePosition: NSNoTitle];
   [view addSubview: toolbarBox];
 
@@ -766,16 +928,16 @@ TDSegmentedControl(NSRect frame, NSArray *labels)
   [[toolbarBox contentView] addSubview: popup];
 
   [view addSubview: TDLabel(@"Menus",
-                            NSMakeRect(20.0, 240.0, 240.0, 20.0),
+                            NSMakeRect(20.0, 388.0, 240.0, 20.0),
                             sectionFont,
                             [NSColor controlTextColor])];
   [view addSubview: TDLabel(@"Use the button below to open a themed context menu with a checked item, submenu, disabled item, and visible shortcuts.",
-                            NSMakeRect(20.0, 270.0, 860.0, 20.0),
+                            NSMakeRect(20.0, 418.0, 860.0, 20.0),
                             [NSFont systemFontOfSize: 13.0],
                             [NSColor secondaryLabelColor])];
 
   button = TDButton(@"Show Context Menu",
-                    NSMakeRect(20.0, 304.0, 180.0, 34.0),
+                    NSMakeRect(20.0, 452.0, 180.0, 34.0),
                     NSMomentaryPushInButton,
                     NSRoundedBezelStyle);
   [button setTarget: self];
@@ -783,7 +945,7 @@ TDSegmentedControl(NSRect frame, NSArray *labels)
   [view addSubview: button];
 
   [view addSubview: TDLabel(@"Expected review points: menu bar density, menu row selection, separator weight, submenu arrow placement, and shortcut alignment.",
-                            NSMakeRect(20.0, 356.0, 900.0, 20.0),
+                            NSMakeRect(20.0, 504.0, 900.0, 20.0),
                             [NSFont systemFontOfSize: 13.0],
                             [NSColor secondaryLabelColor])];
 

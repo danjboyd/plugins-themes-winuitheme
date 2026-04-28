@@ -395,6 +395,50 @@ WinUIThemeDrawLegacySegmentedLabel(NSSegmentedCell *cell,
   [cell _drawText: label inFrame: textFrame];
 }
 
+static void
+WinUIThemeDrawSegmentedImage(NSImage *image,
+                             NSRect frame,
+                             NSView *view,
+                             BOOL enabled)
+{
+  NSSize imageSize = NSZeroSize;
+  CGFloat maxIconSize = 18.0;
+  CGFloat scale = 1.0;
+  NSRect destinationRect = NSZeroRect;
+  CGFloat fraction = enabled ? 1.0 : 0.45;
+
+  if (image == nil || NSIsEmptyRect(frame))
+    {
+      return;
+    }
+
+  imageSize = [image size];
+  if (imageSize.width <= 0.0 || imageSize.height <= 0.0)
+    {
+      return;
+    }
+
+  maxIconSize = MAX(10.0, MIN(22.0, MIN(frame.size.width - 8.0, frame.size.height - 6.0)));
+  scale = MIN(1.0, MIN(maxIconSize / imageSize.width, maxIconSize / imageSize.height));
+  imageSize.width = floor(imageSize.width * scale);
+  imageSize.height = floor(imageSize.height * scale);
+
+  destinationRect = NSMakeRect(floor(NSMidX(frame) - (imageSize.width / 2.0)),
+                               floor(NSMidY(frame) - (imageSize.height / 2.0)),
+                               imageSize.width,
+                               imageSize.height);
+
+  if (view != nil)
+    {
+      destinationRect = [view centerScanRect: destinationRect];
+    }
+
+  [image drawInRect: destinationRect
+           fromRect: NSZeroRect
+          operation: NSCompositeSourceOver
+           fraction: fraction];
+}
+
 @interface NSSegmentedCell (WinUIThemeTextCentering)
 @end
 
@@ -462,29 +506,10 @@ WinUIThemeDrawLegacySegmentedLabel(NSSegmentedCell *cell,
         }
     }
 
-  if (segmentImage != nil)
-    {
-      NSSize size = [segmentImage size];
-      NSPoint position = NSZeroPoint;
-      NSRect destinationRect = NSZeroRect;
-
-      position.x = MAX(NSMidX(frame) - (size.width / 2.0), 0.0);
-      position.y = MAX(NSMidY(frame) - (size.height / 2.0), 0.0);
-      destinationRect = NSMakeRect(position.x,
-                                   position.y,
-                                   size.width,
-                                   size.height);
-
-      if (view != nil)
-        {
-          destinationRect = [view centerScanRect: destinationRect];
-        }
-
-      [segmentImage drawInRect: destinationRect
-                      fromRect: NSZeroRect
-                     operation: NSCompositeSourceOver
-                      fraction: 1.0];
-    }
+  WinUIThemeDrawSegmentedImage(segmentImage,
+                               frame,
+                               view,
+                               [self isEnabledForSegment: seg]);
 }
 
 @end
@@ -1436,24 +1461,10 @@ WinUIThemePopupDisplayString(NSPopUpButtonCell *cell)
                                    roundedRight);
     }
 
-  if (segmentImage != nil)
-    {
-      NSSize size = [segmentImage size];
-      NSRect destinationRect = NSMakeRect(MAX(NSMidX(frame) - (size.width / 2.0), 0.0),
-                                          MAX(NSMidY(frame) - (size.height / 2.0), 0.0),
-                                          size.width,
-                                          size.height);
-
-      if (view != nil)
-        {
-          destinationRect = [view centerScanRect: destinationRect];
-        }
-
-      [segmentImage drawInRect: destinationRect
-                      fromRect: NSZeroRect
-                     operation: NSCompositeSourceOver
-                      fraction: 1.0];
-    }
+  WinUIThemeDrawSegmentedImage(segmentImage,
+                               frame,
+                               (controlView != nil) ? controlView : view,
+                               [cell isEnabledForSegment: segmentIndex]);
 }
 
 - (void) _overrideNSPopUpButtonCellMethod_drawInteriorWithFrame: (NSRect)cellFrame
@@ -1481,6 +1492,7 @@ WinUIThemePopupDisplayString(NSPopUpButtonCell *cell)
     }
 
   popupFont = WinUIThemePreferredControlFont(theme, originalFont, NO);
+
   if ([cell respondsToSelector: @selector(menuItem)])
     {
       menuItem = [(id)cell menuItem];

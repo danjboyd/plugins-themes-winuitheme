@@ -27,39 +27,22 @@ function Resolve-GNUstepUserRoot {
 }
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$compatDir = & (Join-Path $PSScriptRoot "Prepare-GNUstepCompat.ps1")
-$bash = "C:\msys64\usr\bin\bash.exe"
-$gnuStepMakefiles = "/clang64/share/GNUstep/Makefiles/GNUstep.sh"
 $gnuStepUserRoot = Resolve-GNUstepUserRoot
 $userThemePath = Join-Path $gnuStepUserRoot "Library\Themes\WinUITheme.theme"
 $runtimeThemeRoot = "C:\msys64\clang64\lib\GNUstep\Themes"
 $runtimeThemePath = Join-Path $runtimeThemeRoot "WinUITheme.theme"
+$builtThemePath = Join-Path $repoRoot "WinUITheme.theme"
 
-if (-not (Test-Path $bash)) {
-  throw "Missing bash at $bash"
+if (-not (Test-Path $builtThemePath)) {
+  throw "Missing built theme bundle at $builtThemePath. Build it first with Scripts/Build-ThemeBundle.ps1."
 }
 
-$compatUnix = $compatDir.Replace('\', '/').Replace('C:', '/c')
-$command = @"
-export PATH=/usr/bin:/clang64/bin:/mingw64/bin:`$PATH
-export LIBRARY_PATH=${compatUnix}:/clang64/lib
-source $gnuStepMakefiles
-cd /c/Users/Support/git/plugins-themes-winuitheme
-make install GNUSTEP_INSTALLATION_DOMAIN=USER
-"@
+$userThemeRoot = Split-Path -Parent $userThemePath
+New-Item -ItemType Directory -Force -Path $userThemeRoot | Out-Null
+Remove-Item $userThemePath -Recurse -Force -ErrorAction SilentlyContinue
+Copy-Item $builtThemePath $userThemeRoot -Recurse -Force
 
-& $bash -lc $command
-
-if ($LASTEXITCODE -ne 0) {
-  throw "Theme bundle install failed with exit code $LASTEXITCODE"
+if (Test-Path $runtimeThemeRoot) {
+  Remove-Item $runtimeThemePath -Recurse -Force -ErrorAction SilentlyContinue
+  Copy-Item $builtThemePath $runtimeThemeRoot -Recurse -Force
 }
-
-if (-not (Test-Path $userThemePath)) {
-  throw "Installed user theme bundle was not found at $userThemePath"
-}
-if (-not (Test-Path $runtimeThemeRoot)) {
-  throw "GNUstep runtime themes directory was not found at $runtimeThemeRoot"
-}
-
-Remove-Item $runtimeThemePath -Recurse -Force -ErrorAction SilentlyContinue
-Copy-Item $userThemePath $runtimeThemeRoot -Recurse -Force

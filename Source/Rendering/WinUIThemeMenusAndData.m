@@ -26,6 +26,41 @@
 
 #import <math.h>
 
+static void
+WinUIThemeMenuTrace(NSString *message)
+{
+  static NSUInteger traceCount = 0;
+  NSString *path = nil;
+  NSFileHandle *handle = nil;
+  NSData *data = nil;
+
+  if (message == nil || traceCount > 200)
+    {
+      return;
+    }
+
+  traceCount++;
+  path = [NSTemporaryDirectory() stringByAppendingPathComponent: @"WinUITheme-menu-trace.log"];
+  if ([[NSFileManager defaultManager] fileExistsAtPath: path] == NO)
+    {
+      [[NSData data] writeToFile: path atomically: YES];
+    }
+
+  handle = [NSFileHandle fileHandleForWritingAtPath: path];
+  if (handle == nil)
+    {
+      return;
+    }
+
+  [handle seekToEndOfFile];
+  data = [[message stringByAppendingString: @"\r\n"] dataUsingEncoding: NSUTF8StringEncoding];
+  if (data != nil)
+    {
+      [handle writeData: data];
+    }
+  [handle closeFile];
+}
+
 @interface NSMenuItemCell (WinUIThemeMenuCellPrivate)
 - (NSString *) _keyEquivalentString;
 - (void) _drawAttributedText: (NSAttributedString *)string
@@ -857,6 +892,11 @@ WinUIThemeScrollViewNeedsTrailingVerticalScrollerFix(NSScrollView *scrollView,
                          dirtyRect: (NSRect)dirtyRect
                         horizontal: (BOOL)horizontal
 {
+  WinUIThemeMenuTrace([NSString stringWithFormat: @"drawBackground horizontal=%d bounds=%@ dirty=%@ menuView=%@",
+                                                 horizontal,
+                                                 NSStringFromRect(bounds),
+                                                 NSStringFromRect(dirtyRect),
+                                                 menuView]);
   BOOL dark = [[self settings] prefersDarkAppearance];
   BOOL popupOwned = (horizontal == NO && WinUIThemeMenuViewOwnedByPopup(menuView));
   NSColor *background = WinUIThemeColorFromTheme(self,
@@ -1065,6 +1105,14 @@ WinUIThemeScrollViewNeedsTrailingVerticalScrollerFix(NSScrollView *scrollView,
                   : [cell font]);
   NSSize titleSize = NSZeroSize;
 
+  WinUIThemeMenuTrace([NSString stringWithFormat: @"drawTitle horizontal=%d title=%@ frame=%@ controlView=%@ titleRect=%@ state=%d",
+                                                 isHorizontal,
+                                                 title,
+                                                 NSStringFromRect(cellFrame),
+                                                 controlView,
+                                                 NSStringFromRect(titleRect),
+                                                 (int)state]);
+
   if ([title length] == 0)
     {
       return;
@@ -1160,6 +1208,14 @@ WinUIThemeScrollViewNeedsTrailingVerticalScrollerFix(NSScrollView *scrollView,
     {
       titleRect = NSInsetRect(titleRect, 2.0, 0.0);
       titleRect.size.width = MAX(0.0, titleRect.size.width - 4.0);
+    }
+  else if (isHorizontal)
+    {
+      titleRect = NSInsetRect(NSIntegralRect(cellFrame), 8.0, 0.0);
+      titleRect.origin.y = floor(NSMidY(cellFrame) - (titleSize.height / 2.0));
+      titleRect.size.height = ceil(titleSize.height) + 1.0;
+      [attributedTitle drawInRect: titleRect];
+      return;
     }
 
   titleRect.origin.y = floor(NSMidY(popupOwned ? popupCellFrame : titleRect)
