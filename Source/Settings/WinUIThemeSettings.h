@@ -23,6 +23,7 @@ typedef enum
   WinUIThemeColorScheme _colorScheme;
   BOOL _highContrast;
   BOOL _reducedTransparency;
+  BOOL _dynamicScrollbars;
   CGFloat _desktopScaleFactor;
   BOOL _systemSettingsAvailable;
 }
@@ -42,6 +43,9 @@ typedef enum
 - (BOOL) prefersDarkAppearance;
 - (BOOL) highContrastEnabled;
 - (BOOL) reducedTransparencyEnabled;
+/* Windows' "Automatically hide scroll bars" (Accessibility > Visual
+   effects): YES unless it's off. */
+- (BOOL) dynamicScrollbarsEnabled;
 - (CGFloat) desktopScaleFactor;
 - (BOOL) systemSettingsAvailable;
 

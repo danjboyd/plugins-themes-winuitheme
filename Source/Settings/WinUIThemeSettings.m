@@ -19,6 +19,7 @@ static CGFloat WinUIThemeMinimumResolvedInterfaceFontSize = 13.0;
 static CGFloat WinUIThemeMinimumResolvedMenuFontSize = 13.0;
 static NSString *WinUIThemePersonalizeRegistryPath = @"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize";
 static NSString *WinUIThemeAccentRegistryPath = @"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Accent";
+static NSString *WinUIThemeAccessibilityRegistryPath = @"Control Panel\\Accessibility";
 /* Windows' default blue. */
 static NSString *WinUIThemeDefaultAccentHex = @"0078D4";
 
@@ -424,6 +425,7 @@ WinUIThemeAccentPaletteFromSystem(void)
   CGFloat desktopScaleFactor = 1.0;
   BOOL highContrast = NO;
   BOOL reducedTransparency = NO;
+  BOOL dynamicScrollbars = YES;
   BOOL systemSettingsAvailable = NO;
   WinUIThemeColorScheme colorScheme = WinUIThemeColorSchemePreferLight;
   NSColor *accentColor = nil;
@@ -449,6 +451,16 @@ WinUIThemeAccentPaletteFromSystem(void)
         reducedTransparency = (enableTransparency == 0);
         systemSettingsAvailable = YES;
       }
+    {
+      DWORD dynamic = 1;
+
+      if (WinUIThemeReadRegistryDWORD(WinUIThemeAccessibilityRegistryPath,
+                                      @"DynamicScrollbars",
+                                      &dynamic) == YES)
+        {
+          dynamicScrollbars = (dynamic != 0);
+        }
+    }
     if (WinUIThemeReadRegistryDWORD(WinUIThemePersonalizeRegistryPath,
                                     @"AppsUseLightTheme",
                                     &appsUseLightTheme) == YES)
@@ -701,6 +713,7 @@ WinUIThemeAccentPaletteFromSystem(void)
   _colorScheme = colorScheme;
   _highContrast = highContrast;
   _reducedTransparency = reducedTransparency;
+  _dynamicScrollbars = dynamicScrollbars;
   _desktopScaleFactor = desktopScaleFactor > 0.0 ? desktopScaleFactor : 1.0;
   _systemSettingsAvailable = systemSettingsAvailable;
 }
@@ -759,6 +772,11 @@ WinUIThemeAccentPaletteFromSystem(void)
 - (BOOL) reducedTransparencyEnabled
 {
   return _reducedTransparency;
+}
+
+- (BOOL) dynamicScrollbarsEnabled
+{
+  return _dynamicScrollbars;
 }
 
 - (CGFloat) desktopScaleFactor

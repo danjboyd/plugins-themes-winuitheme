@@ -40,6 +40,9 @@
 CGFloat WinUIThemeControlCornerRadius(WinUITheme *theme);
 CGFloat WinUIThemeOverlayCornerRadius(WinUITheme *theme);
 
+/* YES when scroll bars overlay the content and hide (WinUIThemeScrollers.m). */
+BOOL WinUIThemeUsesOverlayScrollers(void);
+
 /* Pointer-over state (WinUIThemeHover.m). */
 void WinUIThemeTrackHover(NSView *view);
 BOOL WinUIThemeViewIsHovered(NSView *view);

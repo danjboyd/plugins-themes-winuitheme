@@ -298,11 +298,32 @@ QuirkProbeModuleOfAddress(void *address)
 - (void) checkTemplateImages;
 - (void) checkButtonChrome;
 - (void) checkMenuFlyout;
+- (void) checkOverlayScrollers;
 - (void) createLateWindow: (NSTimer *)timer;
 - (void) checkLateWindow: (NSTimer *)timer;
 - (void) checkMenuBarTitles: (NSWindow *)window;
 - (void) checkThemeSwitchRestoresMethods;
 - (void) finish;
+@end
+
+/* A document view in mid grey, 128 in each channel, for telling a scroll
+   bar from what's under it. */
+@interface QuirkProbeFillView : NSView
+@end
+
+@implementation QuirkProbeFillView
+
+- (void) drawRect: (NSRect)rect
+{
+  [[NSColor colorWithCalibratedRed: 128.0 / 255.0 green: 128.0 / 255.0 blue: 128.0 / 255.0 alpha: 1.0] set];
+  NSRectFill(rect);
+}
+
+- (BOOL) isOpaque
+{
+  return YES;
+}
+
 @end
 
 @implementation QuirkProbe
@@ -670,7 +691,9 @@ objectValueForTableColumn: (NSTableColumn *)column
   content = [[scrollView contentView] frame];
   scroller = [[scrollView verticalScroller] frame];
   [self saveView: scrollView named: @"scroller-edge"];
-  if (NSMinX(scroller) >= NSMaxX(content) - 1.0)
+  /* Beside the content, or over its trailing edge where scroll bars
+     overlay it (#29). */
+  if (NSMaxX(scroller) >= NSMaxX(content) - 1.0 && NSMinX(scroller) > NSMidX(content))
     {
       [self pass: @"scroller-trailing-edge" detail:
         [NSString stringWithFormat: @"scroller at x=%.0f, content ends at %.0f",
@@ -1897,6 +1920,156 @@ QuirkProbeMenuRows(NSMenuView *view, NSBitmapImageRep *rep, NSInteger index,
   [window orderOut: nil];
 }
 
+/* The sum of red, green and blue down the middle of a scroll view's
+   vertical scroller strip, `inset` px in from its trailing edge, that
+   differ from `fill` by more than 30: how much of the scroll bar shows. */
+static NSUInteger
+QuirkProbeStripInk(NSScrollView *scrollView, NSUInteger fill, CGFloat inset)
+{
+  NSBitmapImageRep *rep = QuirkProbeRender(scrollView);
+  CGFloat scale = QuirkProbeScale(rep, scrollView);
+  NSRect strip = [[scrollView verticalScroller] frame];
+  NSInteger x = (NSInteger)((NSMaxX(strip) - inset) * scale);
+  NSInteger y;
+  NSUInteger ink = 0;
+
+  for (y = [rep pixelsHigh] / 4; y < 3 * [rep pixelsHigh] / 4; y++)
+    {
+      NSUInteger red, green, blue;
+
+      QuirkProbePixel(rep, x, y, &red, &green, &blue);
+      if (llabs((long long)(red + green + blue) - (long long)fill) > 30)
+        {
+          ink++;
+        }
+    }
+  return ink;
+}
+
+/* WinUI's ScrollBar (issue #29): the content runs under the scroll bar,
+   which shows nothing at rest, a thin indicator while the content
+   scrolls, then fades; WinUIThemeOverlayScrollbars NO keeps a classic
+   strip; and freeing a scroll view while its indicator fades is safe. */
+- (void) checkOverlayScrollers
+{
+  NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+  NSWindow *window = nil;
+  NSScrollView *scrollView = nil;
+  QuirkProbeFillView *document = nil;
+  NSRect clip, strip;
+  NSUInteger fill = 3 * 128;
+  NSUInteger ink;
+
+  if (QuirkProbeHasArgument(@"--high-contrast", nil))
+    {
+      [self skip: @"scroller-content-under" detail: @"high contrast keeps classic scroll bars"];
+      [self skip: @"scroller-hidden-at-rest" detail: @"high contrast keeps classic scroll bars"];
+      [self skip: @"scroller-indicator-fades" detail: @"high contrast keeps classic scroll bars"];
+      [self skip: @"scroller-classic-setting" detail: @"high contrast keeps classic scroll bars"];
+      [self skip: @"scroller-freed-mid-fade" detail: @"high contrast keeps classic scroll bars"];
+      return;
+    }
+
+  /* Whatever the Windows setting here. */
+  [defaults setBool: YES forKey: @"WinUIThemeOverlayScrollbars"];
+  window = [self windowWithFrame: NSMakeRect(80, 360, 260, 200) title: @"QuirkProbe Scrollers"];
+  scrollView = AUTORELEASE([[NSScrollView alloc] initWithFrame: NSMakeRect(20, 20, 200, 150)]);
+  /* As wide as the scroll view, as a table or text view tracks it. */
+  document = AUTORELEASE([[QuirkProbeFillView alloc] initWithFrame: NSMakeRect(0, 0, 200, 600)]);
+  [document setAutoresizingMask: NSViewWidthSizable];
+  [scrollView setBorderType: NSBezelBorder];
+  [scrollView setHasVerticalScroller: YES];
+  [scrollView setDocumentView: document];
+  [[window contentView] addSubview: scrollView];
+  [window orderFront: nil];
+  [scrollView tile];
+  [window display];
+
+  clip = [[scrollView contentView] frame];
+  strip = [[scrollView verticalScroller] frame];
+  if (NSMaxX(clip) > NSMidX(strip))
+    {
+      [self pass: @"scroller-content-under" detail: @"the content runs under the scroll bar"];
+    }
+  else
+    {
+      [self fail: @"scroller-content-under" detail: [NSString stringWithFormat:
+        @"the content stops at %.0f, the scroll bar at %.0f", NSMaxX(clip), NSMaxX(strip)]];
+    }
+
+  [self saveView: scrollView named: @"scroller-rest"];
+  ink = QuirkProbeStripInk(scrollView, fill, 3.0) + QuirkProbeStripInk(scrollView, fill, NSWidth(strip) / 2.0);
+  if (ink == 0)
+    {
+      [self pass: @"scroller-hidden-at-rest" detail: @"nothing over the content at rest"];
+    }
+  else
+    {
+      [self fail: @"scroller-hidden-at-rest" detail: [NSString stringWithFormat:
+        @"%lu px of scroll bar over the content at rest", (unsigned long)ink]];
+    }
+
+  [document scrollPoint: NSMakePoint(0, 200)];
+  [window display];
+  [self saveView: scrollView named: @"scroller-scrolled"];
+  ink = QuirkProbeStripInk(scrollView, fill, 4.0);
+  QuirkProbeDispatchEvents(1.6);
+  [window display];
+  [self saveView: scrollView named: @"scroller-faded"];
+  if (ink > 0 && QuirkProbeStripInk(scrollView, fill, 4.0) == 0)
+    {
+      [self pass: @"scroller-indicator-fades" detail: [NSString stringWithFormat:
+        @"scrolling shows %lu px of indicator, gone 1.6s later", (unsigned long)ink]];
+    }
+  else
+    {
+      [self fail: @"scroller-indicator-fades" detail: [NSString stringWithFormat:
+        @"%lu px of indicator while scrolling, %lu px 1.6s later",
+        (unsigned long)ink, (unsigned long)QuirkProbeStripInk(scrollView, fill, 4.0)]];
+    }
+
+  /* Classic: the content stops at the strip, which is always drawn. */
+  [defaults setBool: NO forKey: @"WinUIThemeOverlayScrollbars"];
+  [scrollView tile];
+  [window display];
+  clip = [[scrollView contentView] frame];
+  strip = [[scrollView verticalScroller] frame];
+  ink = QuirkProbeStripInk(scrollView, fill, NSWidth(strip) / 2.0);
+  if (NSMaxX(clip) <= NSMinX(strip) + 0.5 && ink > 0)
+    {
+      [self pass: @"scroller-classic-setting" detail: @"WinUIThemeOverlayScrollbars NO keeps the strip"];
+    }
+  else
+    {
+      [self fail: @"scroller-classic-setting" detail: [NSString stringWithFormat:
+        @"with WinUIThemeOverlayScrollbars NO the content stops at %.0f, the strip starts at %.0f, %lu px drawn",
+        NSMaxX(clip), NSMinX(strip), (unsigned long)ink]];
+    }
+  [defaults setBool: YES forKey: @"WinUIThemeOverlayScrollbars"];
+  [scrollView removeFromSuperview];
+
+  /* Freed while its indicator fades: the fade timer mustn't touch it. */
+  {
+    CREATE_AUTORELEASE_POOL(pool);
+    NSScrollView *doomed = AUTORELEASE([[NSScrollView alloc] initWithFrame: NSMakeRect(20, 20, 200, 150)]);
+    QuirkProbeFillView *content = AUTORELEASE([[QuirkProbeFillView alloc] initWithFrame: NSMakeRect(0, 0, 180, 600)]);
+
+    [doomed setHasVerticalScroller: YES];
+    [doomed setDocumentView: content];
+    [[window contentView] addSubview: doomed];
+    [doomed tile];
+    [window display];
+    [content scrollPoint: NSMakePoint(0, 200)];
+    [doomed removeFromSuperview];
+    RELEASE(pool);
+  }
+  QuirkProbeDispatchEvents(1.6);
+  [self pass: @"scroller-freed-mid-fade" detail: @"a scroll view freed while its indicator faded"];
+
+  [defaults removeObjectForKey: @"WinUIThemeOverlayScrollbars"];
+  [window orderOut: nil];
+}
+
 - (void) checkLateWindow: (NSTimer *)timer
 {
   NSMenu *mainMenu = [NSApp mainMenu];
@@ -2197,6 +2370,7 @@ QuirkProbeLastItemOfMenu(NSString *title)
   [self checkTemplateImages];
   [self checkButtonChrome];
   [self checkMenuFlyout];
+  [self checkOverlayScrollers];
   [self checkPopUpClick];
   [self after: QuirkProbeSettleDelay perform: @selector(createLateWindow:)];
 }

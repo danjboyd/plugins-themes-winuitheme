@@ -1392,9 +1392,6 @@ WinUIThemePreparePopupMenuTypography(WinUITheme *theme, NSMenuView *menuView)
   NSColor *surface = WinUIThemeColorFromTheme(self,
                                               @"surfaceColor",
                                               [NSColor controlBackgroundColor]);
-  NSColor *separator = WinUIThemeColorFromTheme(self,
-                                                @"gridColor",
-                                                [NSColor gridColor]);
   NSColor *borderColor = WinUIThemeDataViewBorderColor(self);
   NSColor *railColor = WinUIThemeDataViewRailColor(self);
   NSRect bounds = NSInsetRect(NSIntegralRect([view bounds]), 0.5, 0.5);
@@ -1418,156 +1415,21 @@ WinUIThemePreparePopupMenuTypography(WinUITheme *theme, NSMenuView *menuView)
   [path setLineWidth: 1.0];
   [path stroke];
 
+  /* Scroll bars over the content have no rail (#29); always shown, they
+     sit on one, as WinUI's do, without a dividing line. */
+  if (WinUIThemeUsesOverlayScrollers())
+    {
+      return;
+    }
   if ([scrollView hasVerticalScroller] && verticalScroller != nil)
     {
-      NSRect scrollerFrame = [verticalScroller frame];
-      CGFloat x = scrollerFrame.origin.x - 1.0;
-
       [railColor set];
-      NSRectFill(scrollerFrame);
-      [separator set];
-      NSRectFill(NSMakeRect(x,
-                            scrollerFrame.origin.y,
-                            1.0,
-                            scrollerFrame.size.height));
+      NSRectFill([verticalScroller frame]);
     }
   if ([scrollView hasHorizontalScroller] && horizontalScroller != nil)
     {
-      NSRect scrollerFrame = [horizontalScroller frame];
-      CGFloat y = [scrollView isFlipped] ? scrollerFrame.origin.y - 1.0 : NSMaxY(scrollerFrame);
-
       [railColor set];
-      NSRectFill(scrollerFrame);
-      [separator set];
-      NSRectFill(NSMakeRect(scrollerFrame.origin.x,
-                            y,
-                            scrollerFrame.size.width,
-                            1.0));
-    }
-}
-
-- (void) drawScrollerRect: (NSRect)rect
-                   inView: (NSView *)view
-                  hitPart: (NSScrollerPart)hitPart
-             isHorizontal: (BOOL)isHorizontal
-{
-  NSScroller *scroller = (NSScroller *)view;
-  BOOL dark = [[self settings] prefersDarkAppearance];
-  BOOL enabled = [scroller isEnabled];
-  NSRect slotRect = [scroller rectForPart: NSScrollerKnobSlot];
-  NSRect knobRect = [scroller rectForPart: NSScrollerKnob];
-  NSRect decrementRect = [scroller rectForPart: NSScrollerDecrementLine];
-  NSRect incrementRect = [scroller rectForPart: NSScrollerIncrementLine];
-  NSColor *surface = WinUIThemeColorFromTheme(self,
-                                              @"surfaceColor",
-                                              [NSColor controlBackgroundColor]);
-  NSColor *separator = WinUIThemeColorFromTheme(self,
-                                                @"separatorColor",
-                                                [NSColor controlShadowColor]);
-  NSColor *gridColor = WinUIThemeColorFromTheme(self,
-                                                @"gridColor",
-                                                [NSColor gridColor]);
-  NSColor *accent = WinUIThemeColorFromTheme(self,
-                                             @"accentColor",
-                                             [NSColor selectedControlColor]);
-  NSColor *labelColor = WinUIThemeColorFromTheme(self,
-                                                 @"secondaryLabelColor",
-                                                 [NSColor controlTextColor]);
-  NSColor *railColor = WinUIThemeDataViewRailColor(self);
-  NSColor *trackColor = WinUIThemeBlendColor(railColor, surface, dark ? 0.20 : 0.24);
-  NSColor *knobColor = enabled
-    ? WinUIThemeBlendColor(labelColor, surface, dark ? 0.24 : 0.42)
-    : WinUIThemeBlendColor(separator, surface, dark ? 0.34 : 0.54);
-  NSColor *knobBorder = WinUIThemeColorWithAlpha(WinUIThemeDataViewBorderColor(self),
-                                                 dark ? 0.70 : 0.85);
-  NSColor *buttonColor = railColor;
-
-  [railColor set];
-  NSRectFill(rect);
-
-  if (NSIsEmptyRect(slotRect) == NO)
-    {
-      NSRect slotDrawRect = NSInsetRect(slotRect, isHorizontal ? 3.0 : 4.0, isHorizontal ? 4.0 : 3.0);
-      NSBezierPath *slotPath = WinUIThemeRoundedPath(slotDrawRect,
-                                                     MIN(slotDrawRect.size.width,
-                                                         slotDrawRect.size.height) / 2.0);
-
-      [trackColor set];
-      [slotPath fill];
-    }
-
-  if (NSIsEmptyRect(knobRect) == NO)
-    {
-      NSRect knobDrawRect = NSInsetRect(knobRect, 3.0, 3.0);
-      NSBezierPath *knobPath = WinUIThemeRoundedPath(knobDrawRect,
-                                                     MIN(knobDrawRect.size.width,
-                                                         knobDrawRect.size.height) / 2.0);
-
-      if (hitPart == NSScrollerKnob || hitPart == NSScrollerKnobSlot)
-        {
-          knobColor = WinUIThemeBlendColor(knobColor, accent, dark ? 0.12 : 0.08);
-        }
-
-      [knobColor set];
-      [knobPath fill];
-
-      [WinUIThemeColorWithAlpha(knobBorder, 0.65) set];
-      [knobPath setLineWidth: 1.0];
-      [knobPath stroke];
-    }
-
-  if (NSIsEmptyRect(decrementRect) == NO)
-    {
-      NSColor *fillColor = hitPart == NSScrollerDecrementLine
-        ? WinUIThemeBlendColor(buttonColor, accent, dark ? 0.14 : 0.08)
-        : buttonColor;
-
-      WinUIThemeDrawSelectionFill(NSInsetRect(decrementRect, 1.0, 1.0), 7.0, fillColor, nil);
-      [gridColor set];
-      if (isHorizontal)
-        {
-          NSRectFill(NSMakeRect(NSMaxX(decrementRect) - 1.0,
-                                decrementRect.origin.y + 2.0,
-                                1.0,
-                                MAX(0.0, decrementRect.size.height - 4.0)));
-        }
-      else
-        {
-          NSRectFill(NSMakeRect(decrementRect.origin.x + 2.0,
-                                decrementRect.origin.y,
-                                MAX(0.0, decrementRect.size.width - 4.0),
-                                1.0));
-        }
-      WinUIThemeDrawMenuChevron(NSInsetRect(decrementRect, 2.0, 2.0),
-                                isHorizontal ? WinUIThemeMenuChevronLeft : WinUIThemeMenuChevronUp,
-                                enabled ? labelColor : WinUIThemeColorWithAlpha(labelColor, 0.45));
-    }
-
-  if (NSIsEmptyRect(incrementRect) == NO)
-    {
-      NSColor *fillColor = hitPart == NSScrollerIncrementLine
-        ? WinUIThemeBlendColor(buttonColor, accent, dark ? 0.14 : 0.08)
-        : buttonColor;
-
-      WinUIThemeDrawSelectionFill(NSInsetRect(incrementRect, 1.0, 1.0), 7.0, fillColor, nil);
-      [gridColor set];
-      if (isHorizontal)
-        {
-          NSRectFill(NSMakeRect(incrementRect.origin.x,
-                                incrementRect.origin.y + 2.0,
-                                1.0,
-                                MAX(0.0, incrementRect.size.height - 4.0)));
-        }
-      else
-        {
-          NSRectFill(NSMakeRect(incrementRect.origin.x + 2.0,
-                                NSMaxY(incrementRect) - 1.0,
-                                MAX(0.0, incrementRect.size.width - 4.0),
-                                1.0));
-        }
-      WinUIThemeDrawMenuChevron(NSInsetRect(incrementRect, 2.0, 2.0),
-                                isHorizontal ? WinUIThemeMenuChevronRight : WinUIThemeMenuChevronDown,
-                                enabled ? labelColor : WinUIThemeColorWithAlpha(labelColor, 0.45));
+      NSRectFill([horizontalScroller frame]);
     }
 }
 
