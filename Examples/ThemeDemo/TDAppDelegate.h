@@ -3,7 +3,7 @@
 
 #import <AppKit/AppKit.h>
 
-@interface TDAppDelegate : NSObject <NSApplicationDelegate>
+@interface TDAppDelegate : NSObject <NSApplicationDelegate, NSToolbarDelegate, NSBrowserDelegate>
 {
   NSDictionary *_contract;
   NSArray *_pages;
@@ -20,6 +20,7 @@
   NSString *_lastSavePanelResult;
   NSString *_lastPrintPanelResult;
   NSString *_lastPageLayoutResult;
+  NSString *_lastAlertResult;
 }
 
 @end

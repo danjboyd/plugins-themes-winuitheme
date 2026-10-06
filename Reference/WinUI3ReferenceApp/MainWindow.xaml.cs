@@ -118,6 +118,7 @@ public sealed partial class MainWindow : Window
         _pages.Add(new ReferencePage("data-views", "Data Views", "Tables, outline views, tabs, split layouts, and scroll-heavy surfaces.", BuildDataPage));
         _pages.Add(new ReferencePage("dialogs", "Dialogs", "Feedback, confirmation, and file-panel previews for shell-value surfaces.", BuildDialogsPage));
         _pages.Add(new ReferencePage("real-app", "Real App", "A document-oriented shell and editor preview for ObjcMarkdown-style review.", BuildRealAppPage));
+        _pages.Add(new ReferencePage("surfaces", "More Surfaces", "Colour, date and level controls, groups, forms, column browsing, tool tips and icons.", BuildSurfacesPage));
     }
 
     private void PageSelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -212,10 +213,18 @@ public sealed partial class MainWindow : Window
             "File Panel Preview",
             "Sidebar, location field, file list, and action row for open/save panel review.",
             BuildFilePanelCard()));
+        host.Children.Add(CreateCard(
+            "Content Dialog",
+            "The real ContentDialog that a GNUstep NSAlert (modal or sheet) is compared against.",
+            BuildContentDialogCard()));
     }
 
     private void BuildRealAppPage(StackPanel host)
     {
+        host.Children.Add(CreateCard(
+            "Window Toolbar",
+            "The CommandBar that ThemeDemo's NSToolbar (New, Open, Save, Share, then search) is compared against.",
+            BuildWindowToolbarCard()));
         host.Children.Add(CreateCard(
             "Document Shell",
             "A real-window composition target rather than a settings-shell imitation.",
@@ -417,6 +426,163 @@ public sealed partial class MainWindow : Window
         commandBar.PrimaryCommands.Add(new AppBarButton { Label = "Save", Icon = new SymbolIcon(Symbol.Save) });
         commandBar.PrimaryCommands.Add(new AppBarToggleButton { Label = "Preview", Icon = new SymbolIcon(Symbol.ShowResults), IsChecked = true });
         stack.Children.Add(commandBar);
+        return stack;
+    }
+
+    private UIElement BuildWindowToolbarCard()
+    {
+        var grid = new Grid { ColumnSpacing = 12 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(260) });
+
+        var commandBar = new CommandBar
+        {
+            DefaultLabelPosition = CommandBarDefaultLabelPosition.Bottom,
+            HorizontalAlignment = HorizontalAlignment.Left
+        };
+        commandBar.PrimaryCommands.Add(ToolbarButton("New", Symbol.Add, "New document (Ctrl+N)"));
+        commandBar.PrimaryCommands.Add(ToolbarButton("Open", Symbol.OpenFile, "Open a document (Ctrl+O)"));
+        commandBar.PrimaryCommands.Add(ToolbarButton("Save", Symbol.Save, "Save the document (Ctrl+S)"));
+        commandBar.PrimaryCommands.Add(new AppBarSeparator());
+        commandBar.PrimaryCommands.Add(ToolbarButton("Share", Symbol.Share, "Share the document"));
+        grid.Children.Add(commandBar);
+
+        var search = new AutoSuggestBox
+        {
+            PlaceholderText = "Search",
+            QueryIcon = new SymbolIcon(Symbol.Find),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        Grid.SetColumn(search, 1);
+        ToolTipService.SetToolTip(search, "Search the review pages");
+        grid.Children.Add(search);
+        return grid;
+    }
+
+    private static AppBarButton ToolbarButton(string label, Symbol symbol, string toolTip)
+    {
+        var button = new AppBarButton { Label = label, Icon = new SymbolIcon(symbol) };
+        ToolTipService.SetToolTip(button, toolTip);
+        return button;
+    }
+
+    private UIElement BuildContentDialogCard()
+    {
+        var result = new TextBlock { Text = "No dialog shown yet", Opacity = 0.76, VerticalAlignment = VerticalAlignment.Center };
+        var show = new Button { Content = "Show dialog" };
+        show.Click += async (sender, args) =>
+        {
+            var dialog = new ContentDialog
+            {
+                XamlRoot = RootLayout.XamlRoot,
+                Title = "Save changes to \"Release notes\"?",
+                Content = "Your changes will be lost if you don't save them.",
+                PrimaryButtonText = "Save",
+                SecondaryButtonText = "Don't Save",
+                CloseButtonText = "Cancel",
+                DefaultButton = ContentDialogButton.Primary
+            };
+            var choice = await dialog.ShowAsync();
+            result.Text = "Dialog: " + choice switch
+            {
+                ContentDialogResult.Primary => "Save",
+                ContentDialogResult.Secondary => "Don't Save",
+                _ => "Cancel"
+            };
+        };
+        return Row(show, result);
+    }
+
+    private void BuildSurfacesPage(StackPanel host)
+    {
+        host.Children.Add(CreateCard(
+            "Pickers And Indicators",
+            "A colour button opening ColorPicker, DatePicker, and a capacity bar for NSLevelIndicator.",
+            BuildPickersCard()));
+        host.Children.Add(CreateCard(
+            "Groups And Forms",
+            "A titled group, labelled entries for NSForm, and columns for NSBrowser.",
+            BuildGroupsCard()));
+        host.Children.Add(CreateCard(
+            "Tool Tips And Icons",
+            "A ToolTip, an icon-only button, an icon and label button, and icon segments.",
+            BuildIconsCard()));
+    }
+
+    private UIElement BuildPickersCard()
+    {
+        var swatch = new Border
+        {
+            Width = 32,
+            Height = 18,
+            CornerRadius = new CornerRadius(4),
+            Background = new SolidColorBrush(Color.FromArgb(255, 0, 120, 212))
+        };
+        var colorButton = new DropDownButton
+        {
+            Content = swatch,
+            Flyout = new Flyout { Content = new ColorPicker { Color = Color.FromArgb(255, 0, 120, 212) } }
+        };
+        var datePicker = new DatePicker { Date = new DateTimeOffset(2026, 10, 6, 0, 0, 0, TimeSpan.Zero) };
+        var level = new ProgressBar { Minimum = 0, Maximum = 10, Value = 6, Width = 200, VerticalAlignment = VerticalAlignment.Center };
+        return Row(Labelled("Colour button", colorButton), Labelled("Date picker", datePicker), Labelled("Level", level));
+    }
+
+    private UIElement BuildGroupsCard()
+    {
+        var group = new StackPanel { Spacing = 8, Width = 360 };
+        group.Children.Add(new TextBlock { Text = "Export Options", FontWeight = FontWeights.SemiBold });
+        var form = new StackPanel { Spacing = 8 };
+        form.Children.Add(new TextBox { Header = "Title", Text = "Release notes" });
+        form.Children.Add(new TextBox { Header = "Author", Text = "Docs team" });
+        group.Children.Add(Surface(form, 16));
+
+        var columns = new Grid { ColumnSpacing = 8, Height = 170, Width = 540 };
+        string[][] items =
+        {
+            new[] { "Documents", "Pictures", "Projects", "Downloads" },
+            new[] { "Notes", "Release notes", "Roadmap", "Archive" },
+            new[] { "draft.md", "final.md", "review.md" }
+        };
+        int[] selected = { 2, 1, -1 };
+        for (var index = 0; index < items.Length; index++)
+        {
+            columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            var list = new ListView { ItemsSource = items[index], SelectedIndex = selected[index] };
+            var column = Surface(list, 0);
+            Grid.SetColumn(column, index);
+            columns.Children.Add(column);
+        }
+        return Row(group, columns);
+    }
+
+    private UIElement BuildIconsCard()
+    {
+        var tipButton = new Button { Content = "Hover for a tip" };
+        ToolTipService.SetToolTip(tipButton, "A tool tip, as WinUI's ToolTip shows it");
+        var iconButton = new Button { Content = new SymbolIcon(Symbol.Setting) };
+        ToolTipService.SetToolTip(iconButton, "Settings");
+        var labelled = new Button
+        {
+            Content = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 8,
+                Children = { new SymbolIcon(Symbol.Share), new TextBlock { Text = "Share" } }
+            }
+        };
+        var segments = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 0 };
+        segments.Children.Add(new ToggleButton { Content = new SymbolIcon(Symbol.Add), IsChecked = true });
+        segments.Children.Add(new ToggleButton { Content = new SymbolIcon(Symbol.OpenFile) });
+        segments.Children.Add(new ToggleButton { Content = new SymbolIcon(Symbol.Save) });
+        return Row(tipButton, iconButton, labelled, segments);
+    }
+
+    private static StackPanel Labelled(string label, UIElement control)
+    {
+        var stack = new StackPanel { Spacing = 6 };
+        stack.Children.Add(control);
+        stack.Children.Add(new TextBlock { Text = label, Opacity = 0.76, FontSize = 12 });
         return stack;
     }
 
