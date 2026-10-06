@@ -183,6 +183,26 @@ WinUIThemeButtonImageLooksLikeRadio(NSImage *image)
                               options: NSCaseInsensitiveSearch].location != NSNotFound)));
 }
 
+/* A checkbox or radio: its indicator 1pt in, then an 8pt gap before the
+   title. -cellSize measures with these (#14). */
+static const CGFloat WinUIThemeIndicatorLeading = 1.0;
+static const CGFloat WinUIThemeIndicatorLabelGap = 8.0;
+
+static CGFloat
+WinUIThemeIndicatorSizeForHeight(CGFloat height)
+{
+  return MIN(18.0, MAX(14.0, floor(height - 2.0)));
+}
+
+/* How much narrower a cell's -drawingRectForBounds: is than its bounds. */
+static CGFloat
+WinUIThemeCellHorizontalMargins(NSCell *cell)
+{
+  NSRect bounds = NSMakeRect(0.0, 0.0, 1000.0, 1000.0);
+
+  return NSWidth(bounds) - NSWidth([cell drawingRectForBounds: bounds]);
+}
+
 static void
 WinUIThemeDrawCheckboxOrRadioIndicator(WinUITheme *theme,
                                        NSButtonCell *cell,
@@ -309,14 +329,14 @@ WinUIThemeDrawCheckboxOrRadioCell(NSButtonCell *cell,
   {
     BOOL enabled = [cell isEnabled];
     NSRect contentRect = [cell drawingRectForBounds: cellFrame];
-    CGFloat indicatorSize = MIN(18.0, MAX(14.0, floor(contentRect.size.height - 2.0)));
-    NSRect indicatorRect = NSMakeRect(contentRect.origin.x + 1.0,
+    CGFloat indicatorSize = WinUIThemeIndicatorSizeForHeight(contentRect.size.height);
+    NSRect indicatorRect = NSMakeRect(contentRect.origin.x + WinUIThemeIndicatorLeading,
                                       floor(NSMidY(contentRect) - (indicatorSize / 2.0)),
                                       indicatorSize,
                                       indicatorSize);
     NSRect titleRect = contentRect;
 
-    titleRect.origin.x = NSMaxX(indicatorRect) + 8.0;
+    titleRect.origin.x = NSMaxX(indicatorRect) + WinUIThemeIndicatorLabelGap;
     titleRect.size.width = MAX(0.0, NSMaxX(contentRect) - titleRect.origin.x);
     WinUIThemeDrawCheckboxOrRadioIndicator(theme, cell, indicatorRect, controlView, radio);
 
@@ -522,6 +542,11 @@ WinUIThemeDrawSegmentedImage(NSImage *image,
           operation: NSCompositeSourceOver
            fraction: fraction];
 }
+
+/* A pop-up's title runs from 12pt in to 33pt short of its right side,
+   clear of the chevron. -cellSize measures with these (#14). */
+static const CGFloat WinUIThemePopupTitleLeading = 12.0;
+#define WinUIThemePopupTitleTrailing (WinUIThemeComboBoxGlyphInset + 13.0)
 
 static NSString *
 WinUIThemePopupDisplayString(NSPopUpButtonCell *cell)
@@ -1541,9 +1566,10 @@ WinUIThemeSwitchColors(WinUITheme *theme,
   [attributes setObject: textColor forKey: NSForegroundColorAttributeName];
 
   drawRect = NSInsetRect(NSIntegralRect(cellFrame), 1.0, 1.0);
-  titleRect = drawRect;
-  titleRect.origin.x += 11.0;
-  titleRect.size.width = MAX(0.0, titleRect.size.width - (WinUIThemeComboBoxGlyphInset + 23.0));
+  titleRect = NSIntegralRect(cellFrame);
+  titleRect.origin.x += WinUIThemePopupTitleLeading;
+  titleRect.size.width = MAX(0.0, titleRect.size.width
+                                    - WinUIThemePopupTitleLeading - WinUIThemePopupTitleTrailing);
   titleSize = [title sizeWithAttributes: attributes];
   titleRect.origin.y = floor(NSMidY(drawRect) - (titleSize.height / 2.0));
   titleRect.size.height = ceil(titleSize.height) + 1.0;
@@ -1562,6 +1588,48 @@ WinUIThemeSwitchColors(WinUITheme *theme,
     }
 
   RELEASE(attributes);
+}
+
+/* As wide as -drawTitleWithFrame:inView: needs for the longest item (#14).
+   libs-gui leaves room for its arrow image, which the theme replaces with
+   a wider chevron, so a pop-up sized to fit cut its title. */
+- (NSSize) _overrideNSPopUpButtonCellMethod_cellSize
+{
+  typedef NSSize (*CellSizeIMP)(id, SEL);
+  CellSizeIMP originalIMP = (CellSizeIMP)WinUIThemeOriginalMethod(_cmd, self, [NSPopUpButtonCell class]);
+  WinUITheme *theme = WinUIThemeActiveTheme();
+  NSPopUpButtonCell *cell = (NSPopUpButtonCell *)self;
+  NSSize size = (originalIMP != NULL) ? originalIMP(self, _cmd) : NSZeroSize;
+  NSMutableDictionary *attributes = nil;
+  NSFont *font = nil;
+  NSArray *titles = nil;
+  NSEnumerator *enumerator = nil;
+  NSString *title = nil;
+  CGFloat widest = 0.0;
+
+  if (theme == nil)
+    {
+      return size;
+    }
+
+  attributes = [[cell _nonAutoreleasedTypingAttributes] mutableCopy];
+  font = WinUIThemePreferredControlFont(theme, [attributes objectForKey: NSFontAttributeName], NO);
+  if (font != nil)
+    {
+      [attributes setObject: font forKey: NSFontAttributeName];
+    }
+  titles = ([cell numberOfItems] > 0) ? [cell itemTitles]
+    : [NSArray arrayWithObject: ([cell title] != nil ? [cell title] : @"")];
+  enumerator = [titles objectEnumerator];
+  while ((title = [enumerator nextObject]) != nil)
+    {
+      widest = MAX(widest, [title sizeWithAttributes: attributes].width);
+    }
+  RELEASE(attributes);
+
+  size.width = ceil(widest) + WinUIThemePopupTitleLeading + WinUIThemePopupTitleTrailing
+    + WinUIThemeCellHorizontalMargins(cell);
+  return size;
 }
 
 - (NSImage *) _overrideNSPopUpButtonCellMethod__currentArrowImage
@@ -2115,6 +2183,52 @@ static const CGFloat WinUIThemeSearchDeleteWidth = 28.0;
                                 NO);
       return;
     }
+}
+
+/* Measured with the drawing's geometry (#14). libs-gui's -cellSize adds
+   6pt beside the margins and measures the title in the cell's font, and
+   knows nothing of the indicator and gap the theme draws for a checkbox
+   or radio, so a control sized to fit cut its title. */
+- (NSSize) _overrideNSButtonCellMethod_cellSize
+{
+  typedef NSSize (*CellSizeIMP)(id, SEL);
+  CellSizeIMP originalIMP = (CellSizeIMP)WinUIThemeOriginalMethod(_cmd, self, [NSButtonCell class]);
+  WinUITheme *theme = WinUIThemeActiveTheme();
+  NSButtonCell *cell = (NSButtonCell *)self;
+  NSSize size = (originalIMP != NULL) ? originalIMP(self, _cmd) : NSZeroSize;
+
+  if (theme == nil || [cell isKindOfClass: [NSMenuItemCell class]])
+    {
+      return size;
+    }
+
+  if (WinUIThemeButtonCellIsCheckbox(cell) || WinUIThemeButtonCellIsRadio(cell))
+    {
+      CGFloat indicatorSize = WinUIThemeIndicatorSizeForHeight(CGFLOAT_MAX);
+      NSSize titleSize = ([cell imagePosition] == NSImageOnly) ? NSZeroSize
+        : [[cell attributedTitle] size];
+
+      size.width = WinUIThemeIndicatorLeading + indicatorSize
+        + ((titleSize.width > 0.0) ? WinUIThemeIndicatorLabelGap + ceil(titleSize.width)
+                                   : WinUIThemeIndicatorLeading)
+        + WinUIThemeCellHorizontalMargins(cell);
+      size.height = MAX(ceil(titleSize.height), indicatorSize + 2.0);
+      return size;
+    }
+
+  /* The buttons whose title -drawInteriorWithFrame:inView: draws. */
+  if (WinUIThemeButtonCellUsesSearchImage(cell) || WinUIThemeButtonCellUsesCancelImage(cell)
+      || ([cell image] != nil && WinUIThemeButtonCellUsesLegacyReturnImage(cell) == NO)
+      || ([cell alternateImage] != nil
+          && [cell alternateImage] != [NSImage imageNamed: @"common_retH"])
+      || [[cell title] length] == 0)
+    {
+      return size;
+    }
+
+  size.width = ceil(WinUIThemeButtonTitleSize(theme, cell).width)
+    + 2.0 * WinUIThemeButtonTitleInset(cell) + WinUIThemeCellHorizontalMargins(cell);
+  return size;
 }
 
 @end

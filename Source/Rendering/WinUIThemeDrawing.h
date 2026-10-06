@@ -108,6 +108,8 @@ void WinUIThemeApplyButtonTitleAttributes(WinUITheme *theme,
                                           NSColor *textColor,
                                           BOOL emphasized);
 void WinUIThemeRemoveDefaultButtonGlyph(NSButtonCell *cell);
+NSSize WinUIThemeButtonTitleSize(WinUITheme *theme, NSButtonCell *cell);
+CGFloat WinUIThemeButtonTitleInset(NSButtonCell *cell);
 NSRect WinUIThemeButtonTitleRect(NSButtonCell *cell, NSRect cellFrame);
 void WinUIThemeDrawButtonLabel(WinUITheme *theme,
                                NSButtonCell *cell,

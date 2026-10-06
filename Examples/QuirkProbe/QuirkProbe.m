@@ -297,6 +297,7 @@ QuirkProbeModuleOfAddress(void *address)
 - (void) checkAlertLayout;
 - (void) checkTemplateImages;
 - (void) checkButtonChrome;
+- (void) checkSizeToFit;
 - (void) checkMenuFlyout;
 - (void) checkOverlayScrollers;
 - (void) checkFocusVisual;
@@ -1744,6 +1745,141 @@ QuirkProbeBrightnessAt(NSBitmapImageRep *rep, CGFloat scale, CGFloat x, CGFloat 
   [window orderOut: nil];
 }
 
+/* The title's ink in `frame` of `content` (a render `rep`), between
+   `leading` and `trailing` points in from its sides, on the background at
+   `sample` points in from the frame's top left. */
+static QuirkProbeInk
+QuirkProbeTitleInk(NSBitmapImageRep *rep, NSView *content, NSRect frame,
+                   CGFloat leading, CGFloat trailing, NSPoint sample)
+{
+  CGFloat scale = QuirkProbeScale(rep, content);
+  NSRect area = QuirkProbePixelRect(content, frame, scale);
+
+  QuirkProbeInkBackground = QuirkProbeBrightnessAt(rep, 1.0,
+                                                   NSMinX(area) + sample.x * scale,
+                                                   NSMinY(area) + sample.y * scale);
+  area.origin.x += leading * scale;
+  area.size.width -= (leading + trailing) * scale;
+  area.origin.y += 3 * scale;
+  area.size.height -= 6 * scale;
+  return QuirkProbeMeasureIn(rep, QuirkProbeIsInk, area);
+}
+
+/* -sizeToFit and -cellSize measure with the theme's drawing geometry
+   (issue #14): a control sized to fit shows as much of its title as one
+   200pt wider, and a narrow button's padding gives way before its title.
+   Under Adwaita "Sign In" became "Sign", and a 44pt "20" drew nothing. */
+- (void) checkSizeToFit
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(300, 120, 640, 260)
+                                     title: @"QuirkProbe Size To Fit"];
+  NSView *content = [window contentView];
+  NSString *names[5] = { @"button", @"narrow-button", @"checkbox", @"radio", @"popup" };
+  NSControl *fitted[5];
+  NSControl *wide[5];
+  NSBitmapImageRep *rep = nil;
+  NSUInteger index;
+
+  for (index = 0; index < 5; index++)
+    {
+      NSInteger pass;
+
+      for (pass = 0; pass < 2; pass++)
+        {
+          NSRect frame = NSMakeRect(20, 210 - 45 * index, 100, 32);
+          NSControl *control = nil;
+
+          if (index == 4)
+            {
+              NSPopUpButton *popup = AUTORELEASE([[NSPopUpButton alloc] initWithFrame: frame
+                                                                              pullsDown: NO]);
+
+              [popup addItemWithTitle: @"Errors only"];
+              [popup addItemWithTitle: @"All"];
+              control = popup;
+            }
+          else
+            {
+              NSButton *button = AUTORELEASE([[NSButton alloc] initWithFrame: frame]);
+
+              if (index <= 1)
+                {
+                  [button setButtonType: NSMomentaryPushInButton];
+                  [button setBezelStyle: NSRoundedBezelStyle];
+                  [button setTitle: (index == 0) ? @"Sign In" : @"20"];
+                }
+              else
+                {
+                  [button setButtonType: (index == 2) ? NSSwitchButton : NSRadioButton];
+                  [button setTitle: @"Errors only"];
+                }
+              control = button;
+            }
+          [content addSubview: control];
+          if (index == 1)
+            {
+              [control setFrameSize: NSMakeSize(44, 32)];
+            }
+          else
+            {
+              [control sizeToFit];
+            }
+          if (pass == 1)
+            {
+              NSSize size = [fitted[index] frame].size;
+
+              [control setFrame: NSMakeRect(300, NSMinY(frame), size.width + 200, size.height)];
+              wide[index] = control;
+            }
+          else
+            {
+              fitted[index] = control;
+            }
+        }
+    }
+  [window orderFront: nil];
+  [window display];
+  rep = QuirkProbeRender(content);
+  [self saveView: content named: @"size-to-fit"];
+
+  for (index = 0; index < 5; index++)
+    {
+      /* Buttons: all of the interior, on the fill. Checkboxes and radios:
+         right of the indicator, on the window. Pop-ups: left of the
+         chevron, on the fill. A checkbox's title runs to its frame's edge. */
+      CGFloat leading = (index == 2 || index == 3) ? 24 : 3;
+      CGFloat trailing = (index == 4) ? 30 : ((index == 2 || index == 3) ? 0 : 3);
+      NSPoint sample = (index == 2 || index == 3) ? NSMakePoint(-2, 2)
+        : NSMakePoint(4, NSHeight([fitted[index] frame]) / 2.0);
+      QuirkProbeInk fittedInk = QuirkProbeTitleInk(rep, content, [fitted[index] frame],
+                                                   leading, trailing, sample);
+      QuirkProbeInk wideInk = QuirkProbeTitleInk(rep, content, [wide[index] frame],
+                                                 leading, trailing, sample);
+      NSString *check = [@"size-to-fit-" stringByAppendingString: names[index]];
+      NSString *detail = [NSString stringWithFormat:
+        @"%.0fpt wide: title ink %ld px wide (%lu px), %ld px (%lu px) with 200pt more",
+        NSWidth([fitted[index] frame]), (long)fittedInk.width, (unsigned long)fittedInk.count,
+        (long)wideInk.width, (unsigned long)wideInk.count];
+
+      if (wideInk.count > 20
+          && llabs((long long)(fittedInk.width - wideInk.width)) <= 1
+          && fittedInk.count * 20 >= wideInk.count * 19)
+        {
+          [self pass: check detail: detail];
+        }
+      else
+        {
+          [self fail: check detail: [detail stringByAppendingString: @": the title is cut"]];
+        }
+    }
+  for (index = 0; index < 5; index++)
+    {
+      [fitted[index] removeFromSuperview];
+      [wide[index] removeFromSuperview];
+    }
+  [window orderOut: nil];
+}
+
 /* The top and bottom pixel rows of item `index` in a render of `view`. */
 static void
 QuirkProbeMenuRows(NSMenuView *view, NSBitmapImageRep *rep, NSInteger index,
@@ -3001,6 +3137,7 @@ QuirkProbeLastItemOfMenu(NSString *title)
   [self checkAlertLayout];
   [self checkTemplateImages];
   [self checkButtonChrome];
+  [self checkSizeToFit];
   [self checkMenuFlyout];
   [self checkOverlayScrollers];
   [self checkFocusVisual];
