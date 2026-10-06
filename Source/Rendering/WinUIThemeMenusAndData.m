@@ -1323,14 +1323,16 @@ WinUIThemeScrollViewNeedsTrailingVerticalScrollerFix(NSScrollView *scrollView,
                         1.0));
 }
 
+/* The header's background and dividers only: NSTableHeaderCell draws its
+   title afterwards with -drawInteriorWithFrame:inView:, in the colour
+   -tableHeaderTextColorForState: gives it, inside
+   -tableHeaderCellDrawingRectForBounds:. */
 - (void) drawTableHeaderCell: (NSTableHeaderCell *)cell
                    withFrame: (NSRect)cellFrame
                       inView: (NSView *)controlView
                        state: (GSThemeControlState)state
 {
-  NSString *title = [cell stringValue];
   NSRect drawRect = NSIntegralRect(cellFrame);
-  NSRect textRect = [self tableHeaderCellDrawingRectForBounds: drawRect];
   BOOL dark = [[self settings] prefersDarkAppearance];
   NSColor *background = WinUIThemeColorFromTheme(self,
                                                  @"headerBackgroundColor",
@@ -1344,14 +1346,13 @@ WinUIThemeScrollViewNeedsTrailingVerticalScrollerFix(NSScrollView *scrollView,
   NSColor *accent = WinUIThemeColorFromTheme(self,
                                              @"accentColor",
                                              [NSColor selectedControlColor]);
-  NSDictionary *attributes = nil;
-  NSFont *font = [cell font];
-  NSSize titleSize = NSZeroSize;
   CGFloat dividerY = [controlView isFlipped] ? NSMaxY(drawRect) - 1.0 : drawRect.origin.y;
 
-  if (font == nil)
+  /* GNUstep centres header titles by default; WinUI (and Cocoa) start them
+     at the leading edge. Titles an app aligned left or right keep that. */
+  if ([cell alignment] == NSCenterTextAlignment)
     {
-      font = [NSFont systemFontOfSize: 9.0];
+      [cell setAlignment: NSLeftTextAlignment];
     }
 
   background = WinUIThemeBlendColor(background, surface, dark ? 0.12 : 0.18);
@@ -1369,23 +1370,12 @@ WinUIThemeScrollViewNeedsTrailingVerticalScrollerFix(NSScrollView *scrollView,
                         drawRect.origin.y + 4.0,
                         1.0,
                         MAX(0.0, drawRect.size.height - 8.0)));
-
-  if ([title length] == 0)
-    {
-      return;
-    }
-
-  attributes = WinUIThemeMenuTextAttributes(font,
-                                            [self tableHeaderTextColorForState: state],
-                                            NSLeftTextAlignment);
-  titleSize = [title sizeWithAttributes: attributes];
-  textRect.origin.y = floor(NSMidY(textRect) - (titleSize.height / 2.0));
-  [title drawInRect: textRect withAttributes: attributes];
 }
 
+/* WinUI list headers start their text 12px in, lined up with the rows'. */
 - (NSRect) tableHeaderCellDrawingRectForBounds: (NSRect)theRect
 {
-  return NSInsetRect(theRect, 10.0, 8.0);
+  return NSInsetRect(theRect, 12.0, 1.0);
 }
 
 - (void) drawTabViewBezelRect: (NSRect)aRect

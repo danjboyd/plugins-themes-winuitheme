@@ -1352,7 +1352,10 @@ WinUIThemePopupDisplayString(NSPopUpButtonCell *cell)
                                                          forKey: NSFontAttributeName];
   NSSize titleSize = [@"Ag" sizeWithAttributes: attributes];
 
-  if ([cell isBezeled] || [cell isBordered])
+  /* Header cells call themselves bezeled, but -tableHeaderCellDrawingRectForBounds:
+     already insets their titles; the read-only field's inset would double it. */
+  if (([cell isBezeled] || [cell isBordered])
+      && [cell isKindOfClass: [NSTableHeaderCell class]] == NO)
     {
       BOOL readonlyField = ([cell isEditable] == NO && [cell isSelectable] == NO);
       CGFloat horizontalInset = readonlyField ? 12.0 : 5.0;
