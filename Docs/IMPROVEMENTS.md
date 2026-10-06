@@ -45,13 +45,14 @@ Run on 2026-10-06 with gnustep-gui 0.32 (MSYS2 clang64), branch
   repository, not the theme:
   - `main` (`e71e0ed`): `OMMarkdownRendererMath.m` calls static functions
     that `fe770f5` ("Split OMMarkdownRenderer.m along its topics") left in
-    `OMMarkdownRenderer.m`.
+    `OMMarkdownRenderer.m` (danjboyd/ObjcMarkdown#55).
   - Before the split (`3df2bf2`): the GNUmakefile's MinGW `mode_t` defines
     (`_MODE_T_`, `_MODE_T_DEFINED`, `__mode_t_defined`) now stop the
-    upgraded headers declaring `mode_t` at all. Without them, MarkdownViewer
-    fails to link: `OMRenderedObjectAttributeName`, `OMTextTableAttributeName`
-    and `OMTextTableRowAttributeName` aren't exported from the
-    ObjcMarkdown DLL.
+    upgraded headers declaring `mode_t` at all (danjboyd/ObjcMarkdown#56).
+    Without them, MarkdownViewer fails to link:
+    `OMRenderedObjectAttributeName`, `OMTextTableAttributeName` and
+    `OMTextTableRowAttributeName` aren't exported from the ObjcMarkdown DLL
+    (danjboyd/ObjcMarkdown#57).
 - **Gorm** isn't installed on this machine.
 - **TinyRetroPad** is a Win32 assembly program, not a GNUstep app.
 
