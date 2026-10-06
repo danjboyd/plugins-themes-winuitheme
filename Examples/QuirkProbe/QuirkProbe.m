@@ -291,6 +291,7 @@ QuirkProbeModuleOfAddress(void *address)
 - (void) checkDefaultButtons;
 - (void) checkPopUpClick;
 - (void) checkWindowsMenuConventions;
+- (void) checkAccentColor;
 - (void) createLateWindow: (NSTimer *)timer;
 - (void) checkLateWindow: (NSTimer *)timer;
 - (void) checkMenuBarTitles: (NSWindow *)window;
@@ -1098,6 +1099,117 @@ objectValueForTableColumn: (NSTableColumn *)column
     }
 }
 
+/* Whether the probe runs with `flag` (--mode dark, --high-contrast), as
+   the theme reads them. */
+static BOOL
+QuirkProbeHasArgument(NSString *flag, NSString *value)
+{
+  NSArray *arguments = [[NSProcessInfo processInfo] arguments];
+  NSUInteger index = [arguments indexOfObject: flag];
+
+  if (index == NSNotFound)
+    {
+      return NO;
+    }
+  return value == nil
+    || (index + 1 < [arguments count]
+        && [[[arguments objectAtIndex: index + 1] lowercaseString] isEqualToString: value]);
+}
+
+/* Shade `index` of Windows' AccentPalette (0 Light3 ... 3 the accent ...
+   6 Dark3), or nil. */
+static NSColor *
+QuirkProbeSystemAccentShade(NSUInteger index)
+{
+#ifdef _WIN32
+  HKEY key = NULL;
+  DWORD type = 0;
+  BYTE bytes[32];
+  DWORD size = sizeof(bytes);
+
+  if (RegOpenKeyExA(HKEY_CURRENT_USER,
+                    "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Accent",
+                    0, KEY_QUERY_VALUE, &key) != ERROR_SUCCESS)
+    {
+      return nil;
+    }
+  if (RegQueryValueExA(key, "AccentPalette", NULL, &type, bytes, &size) != ERROR_SUCCESS
+      || type != REG_BINARY || size < 28)
+    {
+      RegCloseKey(key);
+      return nil;
+    }
+  RegCloseKey(key);
+  return [NSColor colorWithCalibratedRed: bytes[index * 4] / 255.0
+                                   green: bytes[index * 4 + 1] / 255.0
+                                    blue: bytes[index * 4 + 2] / 255.0
+                                   alpha: 1.0];
+#else
+  return nil;
+#endif
+}
+
+static NSString *
+QuirkProbeHex(NSColor *color)
+{
+  NSColor *rgb = [color colorUsingColorSpaceName: NSCalibratedRGBColorSpace];
+
+  if (rgb == nil)
+    {
+      return @"(none)";
+    }
+  return [NSString stringWithFormat: @"#%02X%02X%02X",
+                                     (int)round([rgb redComponent] * 255),
+                                     (int)round([rgb greenComponent] * 255),
+                                     (int)round([rgb blueComponent] * 255)];
+}
+
+/* The accent (issue #34): Windows' accent palette, filled with its Dark1
+   shade in the light palette and Light2 in the dark one, as WinUI's
+   AccentFillColorDefault; text on it white, or black in the dark palette.
+   The theme read DWM's frame colour and used one shade everywhere. */
+- (void) checkAccentColor
+{
+  BOOL dark = QuirkProbeHasArgument(@"--mode", @"dark");
+  NSColorList *colors = [[GSTheme theme] colors];
+  NSColor *accent = [colors colorWithKey: @"accentColor"];
+  NSColor *onAccent = [colors colorWithKey: @"selectedControlTextColor"];
+  NSColor *expected = QuirkProbeSystemAccentShade(dark ? 1 : 4);
+  NSString *expectedOn = dark ? @"#000000" : @"#FFFFFF";
+
+  if (QuirkProbeHasArgument(@"--high-contrast", nil))
+    {
+      [self skip: @"accent-shade" detail: @"high contrast uses the contrast theme's colours (#45)"];
+      return;
+    }
+  if (expected == nil)
+    {
+      [self skip: @"accent-shade" detail: @"no AccentPalette in the registry"];
+    }
+  else if ([QuirkProbeHex(accent) isEqualToString: QuirkProbeHex(expected)])
+    {
+      [self pass: @"accent-shade" detail:
+        [NSString stringWithFormat: @"%@, the accent's %@ shade", QuirkProbeHex(accent),
+                                    dark ? @"Light2" : @"Dark1"]];
+    }
+  else
+    {
+      [self fail: @"accent-shade" detail:
+        [NSString stringWithFormat: @"%@, expected the accent's %@ shade %@", QuirkProbeHex(accent),
+                                    dark ? @"Light2" : @"Dark1", QuirkProbeHex(expected)]];
+    }
+
+  if ([QuirkProbeHex(onAccent) isEqualToString: expectedOn])
+    {
+      [self pass: @"text-on-accent" detail: QuirkProbeHex(onAccent)];
+    }
+  else
+    {
+      [self fail: @"text-on-accent" detail:
+        [NSString stringWithFormat: @"%@, expected %@", QuirkProbeHex(onAccent), expectedOn]];
+    }
+}
+
 /* A window created after launch gets the main menu (issue #1). libs-gui
    only attaches the Windows 95 style menu to windows that exist when it
    first updates the menu. */
@@ -1399,6 +1511,7 @@ QuirkProbeLastItemOfMenu(NSString *title)
   fflush(stdout);
 
   [self checkTheme];
+  [self checkAccentColor];
   [self checkSubclassImageCell];
   [self checkToolbarImageItem];
   [self checkScrollerEdge];

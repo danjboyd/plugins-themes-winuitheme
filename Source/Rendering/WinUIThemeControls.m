@@ -1965,11 +1965,11 @@ WinUIThemeSwitchColors(WinUITheme *theme,
                                                     0.35);
                 }
 
+              /* White on the grey circle: selectedControlTextColor is the
+                 text-on-accent colour, black in the dark palette. */
               WinUIThemeDrawDismissGlyph(cellFrame,
                                          circleFill,
-                                         WinUIThemeColorFromTheme(theme,
-                                                                  @"selectedControlTextColor",
-                                                                  [NSColor whiteColor]));
+                                         [NSColor whiteColor]);
             }
           return;
         }
