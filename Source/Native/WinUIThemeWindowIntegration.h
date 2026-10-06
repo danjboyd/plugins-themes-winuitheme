@@ -17,5 +17,6 @@ void WinUIThemeWindowIntegrationDeactivate(void);
 void WinUIThemeWindowIntegrationReloadTheme(WinUITheme *theme);
 void WinUIThemeWindowIntegrationSynchronizeWindow(NSWindow *window);
 void WinUIThemeWindowIntegrationForgetWindow(NSWindow *window);
+void WinUIThemeWindowIntegrationRoundPopupWindow(NSWindow *window, BOOL small, NSColor *borderColor);
 
 #endif

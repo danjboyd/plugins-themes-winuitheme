@@ -297,6 +297,7 @@ QuirkProbeModuleOfAddress(void *address)
 - (void) checkAlertLayout;
 - (void) checkTemplateImages;
 - (void) checkButtonChrome;
+- (void) checkMenuFlyout;
 - (void) createLateWindow: (NSTimer *)timer;
 - (void) checkLateWindow: (NSTimer *)timer;
 - (void) checkMenuBarTitles: (NSWindow *)window;
@@ -1676,6 +1677,226 @@ QuirkProbeBrightnessAt(NSBitmapImageRep *rep, CGFloat scale, CGFloat x, CGFloat 
   [window orderOut: nil];
 }
 
+/* The top and bottom pixel rows of item `index` in a render of `view`. */
+static void
+QuirkProbeMenuRows(NSMenuView *view, NSBitmapImageRep *rep, NSInteger index,
+                   NSInteger *top, NSInteger *bottom)
+{
+  NSRect rect = [view rectOfItemAtIndex: index];
+  CGFloat scale = QuirkProbeScale(rep, view);
+  CGFloat height = NSHeight([view bounds]);
+  CGFloat minY = [view isFlipped] ? NSMinY(rect) : height - NSMaxY(rect);
+
+  *top = (NSInteger)ceil(minY * scale);
+  *bottom = (NSInteger)floor((minY + NSHeight(rect)) * scale) - 1;
+}
+
+/* WinUI's MenuFlyout (issue #39): an item under the pointer has a neutral
+   SubtleFill, not a blue selection; a shortcut sits 24pt clear of the
+   longest title, in the secondary text colour; separators run the
+   flyout's width. */
+- (void) checkMenuFlyout
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(780, 300, 360, 200)
+                                     title: @"QuirkProbe Menu"];
+  NSMenu *menu = AUTORELEASE([[NSMenu alloc] initWithTitle: @"Probe"]);
+  NSMenuView *view = nil;
+  NSBitmapImageRep *rep = nil;
+  NSInteger width, top, bottom, x, y, middle;
+  NSUInteger background, red, green, blue;
+  NSInteger firstInk = -1, lastInk = -1, gap = 0, run = 0, titleEnd = -1, keyStart = -1;
+  NSUInteger titleDarkest = 765, keyDarkest = 765;
+  BOOL highContrast = QuirkProbeHasArgument(@"--high-contrast", nil);
+  CGFloat scale;
+
+  [menu setAutoenablesItems: NO];
+  [menu addItemWithTitle: @"Find in Document" action: @selector(terminate:) keyEquivalent: @"f"];
+  [menu addItem: [NSMenuItem separatorItem]];
+  [menu addItemWithTitle: @"Open" action: @selector(terminate:) keyEquivalent: @"o"];
+  view = AUTORELEASE([[NSMenuView alloc] initWithFrame: NSMakeRect(20, 20, 100, 100)]);
+  [view setMenu: menu];
+  [view sizeToFit];
+  [view setFrameOrigin: NSMakePoint(20, 20)];
+  [[window contentView] addSubview: view];
+  [window orderFront: nil];
+  [view setHighlightedItemIndex: 2];
+  [window display];
+
+  rep = QuirkProbeRender(view);
+  scale = QuirkProbeScale(rep, view);
+  width = [rep pixelsWide];
+  [self saveView: view named: @"menu-flyout"];
+
+  /* The background, from the separator's row away from its line. */
+  QuirkProbeMenuRows(view, rep, 1, &top, &bottom);
+  QuirkProbePixel(rep, width / 2, top, &red, &green, &blue);
+  background = red + green + blue;
+
+  /* The separator runs from edge to edge, inside the border. */
+  middle = -1;
+  for (y = top; y <= bottom && middle < 0; y++)
+    {
+      QuirkProbePixel(rep, width / 2, y, &red, &green, &blue);
+      if (llabs((long long)(red + green + blue) - (long long)background) >= 9)
+        {
+          middle = y;
+        }
+    }
+  if (middle < 0)
+    {
+      [self fail: @"menu-separator-width" detail: @"couldn't find the separator"];
+    }
+  else
+    {
+      NSInteger left = 0, right = 0;
+
+      while (left < width / 2)
+        {
+          QuirkProbePixel(rep, left, middle, &red, &green, &blue);
+          if (llabs((long long)(red + green + blue) - (long long)background) >= 9 && left >= 1)
+            {
+              break;
+            }
+          left++;
+        }
+      while (right < width / 2)
+        {
+          QuirkProbePixel(rep, width - 1 - right, middle, &red, &green, &blue);
+          if (llabs((long long)(red + green + blue) - (long long)background) >= 9 && right >= 1)
+            {
+              break;
+            }
+          right++;
+        }
+      if (left <= 2 * scale && right <= 2 * scale)
+        {
+          [self pass: @"menu-separator-width" detail: @"the separator runs the flyout's width"];
+        }
+      else
+        {
+          [self fail: @"menu-separator-width" detail: [NSString stringWithFormat:
+            @"the separator stops %ld px from the left and %ld from the right", (long)left, (long)right]];
+        }
+    }
+
+  /* The highlighted item's fill, inside its left end. */
+  QuirkProbeMenuRows(view, rep, 2, &top, &bottom);
+  QuirkProbePixel(rep, (NSInteger)(6 * scale), (top + bottom) / 2, &red, &green, &blue);
+  if (highContrast)
+    {
+      [self skip: @"menu-hover-fill" detail: @"high contrast keeps the system highlight"];
+    }
+  else if (llabs((long long)blue - (long long)red) <= 6
+           && llabs((long long)(red + green + blue) - (long long)background) >= 6)
+    {
+      [self pass: @"menu-hover-fill" detail: [NSString stringWithFormat:
+        @"the item under the pointer is a neutral %lu,%lu,%lu", (unsigned long)red,
+        (unsigned long)green, (unsigned long)blue]];
+    }
+  else
+    {
+      [self fail: @"menu-hover-fill" detail: [NSString stringWithFormat:
+        @"the item under the pointer is %lu,%lu,%lu over %lu: not WinUI's subtle fill",
+        (unsigned long)red, (unsigned long)green, (unsigned long)blue, (unsigned long)background]];
+    }
+
+  /* The first row: its title, a gap, its shortcut. A column has ink if any
+     pixel in the row's middle half differs from the background. */
+  QuirkProbeMenuRows(view, rep, 0, &top, &bottom);
+  for (x = (NSInteger)(2 * scale); x < width - (NSInteger)(2 * scale); x++)
+    {
+      BOOL ink = NO;
+      for (y = top + (bottom - top) / 4; y <= bottom - (bottom - top) / 4; y++)
+        {
+          NSUInteger sum;
+
+          QuirkProbePixel(rep, x, y, &red, &green, &blue);
+          sum = red + green + blue;
+          if (llabs((long long)sum - (long long)background) > 90)
+            {
+              ink = YES;
+            }
+        }
+      if (ink)
+        {
+          if (firstInk < 0)
+            {
+              firstInk = x;
+            }
+          if (run > gap && firstInk >= 0 && x - run > firstInk)
+            {
+              gap = run;
+              titleEnd = x - run;
+              keyStart = x;
+            }
+          run = 0;
+          lastInk = x;
+        }
+      else if (firstInk >= 0)
+        {
+          run++;
+        }
+    }
+  if (titleEnd < 0 || keyStart < 0)
+    {
+      [self fail: @"menu-shortcut-gap" detail: @"couldn't find the title and shortcut"];
+      [self fail: @"menu-shortcut-colour" detail: @"couldn't find the title and shortcut"];
+    }
+  else
+    {
+      if (gap >= 20 * scale)
+        {
+          [self pass: @"menu-shortcut-gap" detail: [NSString stringWithFormat:
+            @"%ld px between the longest title and its shortcut", (long)gap]];
+        }
+      else
+        {
+          [self fail: @"menu-shortcut-gap" detail: [NSString stringWithFormat:
+            @"%ld px between the longest title and its shortcut, WinUI has 24pt", (long)gap]];
+        }
+
+      /* The strongest ink of each: secondary text is fainter. */
+      for (x = firstInk; x <= lastInk; x++)
+        {
+          for (y = top; y <= bottom; y++)
+            {
+              NSUInteger sum, contrast;
+
+              QuirkProbePixel(rep, x, y, &red, &green, &blue);
+              sum = red + green + blue;
+              contrast = (NSUInteger)llabs((long long)sum - (long long)background);
+              if (x < titleEnd)
+                {
+                  titleDarkest = (titleDarkest == 765) ? contrast : MAX(titleDarkest, contrast);
+                }
+              else if (x >= keyStart)
+                {
+                  keyDarkest = (keyDarkest == 765) ? contrast : MAX(keyDarkest, contrast);
+                }
+            }
+        }
+      if (highContrast)
+        {
+          [self skip: @"menu-shortcut-colour" detail: @"high contrast has one text colour"];
+        }
+      else if (keyDarkest + 60 <= titleDarkest)
+        {
+          [self pass: @"menu-shortcut-colour" detail: [NSString stringWithFormat:
+            @"the shortcut's contrast is %lu, the title's %lu (of 765)",
+            (unsigned long)keyDarkest, (unsigned long)titleDarkest]];
+        }
+      else
+        {
+          [self fail: @"menu-shortcut-colour" detail: [NSString stringWithFormat:
+            @"the shortcut's contrast is %lu, the title's %lu (of 765): not secondary text",
+            (unsigned long)keyDarkest, (unsigned long)titleDarkest]];
+        }
+    }
+  /* The view doesn't retain its menu: let both go together. */
+  [view removeFromSuperview];
+  [window orderOut: nil];
+}
+
 - (void) checkLateWindow: (NSTimer *)timer
 {
   NSMenu *mainMenu = [NSApp mainMenu];
@@ -1975,6 +2196,7 @@ QuirkProbeLastItemOfMenu(NSString *title)
   [self checkAlertLayout];
   [self checkTemplateImages];
   [self checkButtonChrome];
+  [self checkMenuFlyout];
   [self checkPopUpClick];
   [self after: QuirkProbeSettleDelay perform: @selector(createLateWindow:)];
 }

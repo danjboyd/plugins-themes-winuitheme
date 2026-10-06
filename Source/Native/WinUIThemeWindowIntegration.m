@@ -5,6 +5,7 @@
 
 #import <AppKit/AppKit.h>
 #import <math.h>
+#import <objc/runtime.h>
 
 #ifdef _WIN32
 #ifndef WINVER
@@ -31,6 +32,8 @@
 #define NSWindowStyleMaskHUDWindow (1 << 13)
 #endif
 #endif
+
+static void WinUIThemeForgetPopupCorners(NSWindow *window);
 
 @interface WinUIThemeWindowIntegrationController : NSObject
 {
@@ -669,6 +672,7 @@ WinUIThemeApplyWindowIdentity(NSWindow *window,
       if (window != nil && WinUIThemeWindowHandle(window) != NULL)
         {
           WinUIThemeApplyWindowIdentity(window, nil, YES);
+          WinUIThemeForgetPopupCorners(window);
         }
     }
   [_windowScaleFactors removeAllObjects];
@@ -819,4 +823,51 @@ WinUIThemeWindowIntegrationForgetWindow(NSWindow *window)
     {
       [WinUIThemeSharedWindowIntegration forgetWindow: window];
     }
+}
+
+/* Menus and tool tips (#39): asks DWM to round an untitled popup window,
+   as Windows 11 rounds its own menus and tool tips, and to draw its border
+   in the theme's colour. Windows 10 refuses, and Windows 11 doesn't round
+   without a GPU (a virtual machine's basic display adapter), so the theme
+   draws the border itself as well; DWM's covers it where it rounds. Asked
+   once per window and colour. */
+static char WinUIThemePopupCornerKey;
+
+static void
+WinUIThemeForgetPopupCorners(NSWindow *window)
+{
+  objc_setAssociatedObject(window, &WinUIThemePopupCornerKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+void
+WinUIThemeWindowIntegrationRoundPopupWindow(NSWindow *window,
+                                            BOOL small,
+                                            NSColor *borderColor)
+{
+#ifdef _WIN32
+  HWND hwnd = WinUIThemeWindowHandle(window);
+  DWM_WINDOW_CORNER_PREFERENCE preference = small ? DWMWCP_ROUNDSMALL : DWMWCP_ROUND;
+  COLORREF border = WinUIThemeColorRefFromColor(borderColor != nil ? borderColor
+                                                                   : [NSColor windowFrameColor]);
+  NSString *request = nil;
+
+  if (hwnd == NULL)
+    {
+      return;
+    }
+
+  request = [NSString stringWithFormat: @"%p-%d-%lu", hwnd, (int)small, (unsigned long)border];
+  if ([request isEqualToString: objc_getAssociatedObject(window, &WinUIThemePopupCornerKey)])
+    {
+      return;
+    }
+
+  WinUIThemeSetDwmAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, &preference, sizeof(preference));
+  WinUIThemeSetDwmAttribute(hwnd, DWMWA_BORDER_COLOR, &border, sizeof(border));
+  objc_setAssociatedObject(window, &WinUIThemePopupCornerKey, request, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+#else
+  (void)window;
+  (void)small;
+  (void)borderColor;
+#endif
 }
