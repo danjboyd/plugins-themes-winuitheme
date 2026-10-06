@@ -1,6 +1,7 @@
 #import "QuirkProbe.h"
 
 #import <GNUstepGUI/GSTheme.h>
+#import <GNUstepGUI/GSDisplayServer.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -11,6 +12,24 @@
 
 static NSString *QuirkProbeImageItem = @"ImageItem";
 static const NSTimeInterval QuirkProbeSettleDelay = 0.8;
+
+/* Moves the pointer to `point` in GNUstep screen coordinates (origin at
+   the bottom left). libs-back's Windows server doesn't implement
+   -setMouseLocation:onScreen:. */
+static void
+QuirkProbeSetPointer(NSPoint point)
+{
+#ifdef _WIN32
+  CGFloat screenHeight = NSHeight([[NSScreen mainScreen] frame]);
+
+  SetCursorPos((int)point.x, (int)(screenHeight - point.y));
+#else
+  [GSCurrentServer() setMouseLocation: point onScreen: [[NSScreen mainScreen] screenNumber]];
+#endif
+}
+
+/* What a timer firing during menu tracking saw. */
+static NSString *QuirkProbeMenuSeen = nil;
 
 #pragma mark Pixels
 
@@ -270,6 +289,7 @@ QuirkProbeModuleOfAddress(void *address)
 - (void) checkSwitches;
 - (void) checkStepper;
 - (void) checkDefaultButtons;
+- (void) checkPopUpClick;
 - (void) createLateWindow: (NSTimer *)timer;
 - (void) checkLateWindow: (NSTimer *)timer;
 - (void) checkMenuBarTitles: (NSWindow *)window;
@@ -983,6 +1003,100 @@ objectValueForTableColumn: (NSTableColumn *)column
     }
 }
 
+/* Fires while a pop-up button's menu is tracking: notes whether it's
+   showing, then clicks well away from it, which should close it. */
+- (void) inspectPopUpMenu: (NSTimer *)timer
+{
+  NSPopUpButton *popUp = [timer userInfo];
+  NSWindow *window = [popUp window];
+  NSWindow *menuWindow = [[[popUp menu] menuRepresentation] window];
+  NSPoint away = NSMakePoint(NSWidth([window frame]) - 20, 20);
+  NSEvent *down = [NSEvent mouseEventWithType: NSLeftMouseDown location: away modifierFlags: 0
+                                    timestamp: 0 windowNumber: [window windowNumber] context: nil
+                                  eventNumber: 0 clickCount: 1 pressure: 1];
+  NSEvent *up = [NSEvent mouseEventWithType: NSLeftMouseUp location: away modifierFlags: 0
+                                  timestamp: 0 windowNumber: [window windowNumber] context: nil
+                                eventNumber: 0 clickCount: 1 pressure: 0];
+
+  ASSIGN(QuirkProbeMenuSeen, (menuWindow != nil && [menuWindow isVisible]) ? @"open" : @"closed");
+  QuirkProbeSetPointer([window convertBaseToScreen: away]);
+  [NSApp postEvent: down atStart: NO];
+  [NSApp postEvent: up atStart: NO];
+}
+
+/* A click on a pop-up button opens its menu and the menu stays open
+   (issue #54): in gui 0.32 the click's release ended menu tracking, so the
+   menu closed at once. A click elsewhere closes it and changes nothing.
+   Moves the pointer, so only with -ProbeMovesPointer YES. */
+- (void) checkPopUpClick
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(420, 300, 340, 160)
+                                     title: @"QuirkProbe Pop-up"];
+  NSPopUpButton *popUp = AUTORELEASE([[NSPopUpButton alloc] initWithFrame: NSMakeRect(20, 100, 180, 32)
+                                                                pullsDown: NO]);
+  NSMutableArray *seen = [NSMutableArray array];
+  NSString *before = nil;
+  NSRect frame;
+  NSPoint point;
+  NSWindow *menuWindow = nil;
+  NSString *detail = nil;
+  int i;
+
+  if ([[NSUserDefaults standardUserDefaults] boolForKey: @"ProbeMovesPointer"] == NO)
+    {
+      [self skip: @"popup-click-stays-open" detail: @"moves the pointer: needs -ProbeMovesPointer YES"];
+      return;
+    }
+
+  [popUp addItemsWithTitles: [NSArray arrayWithObjects: @"First", @"Second", @"Third", nil]];
+  [[window contentView] addSubview: popUp];
+  [window makeKeyAndOrderFront: nil];
+  [window display];
+  before = [popUp titleOfSelectedItem];
+  frame = [popUp convertRect: [popUp bounds] toView: nil];
+  point = NSMakePoint(NSMidX(frame), NSMidY(frame));
+
+  for (i = 0; i < 3; i++)
+    {
+      NSEvent *down = [NSEvent mouseEventWithType: NSLeftMouseDown location: point modifierFlags: 0
+                                        timestamp: 0 windowNumber: [window windowNumber] context: nil
+                                      eventNumber: 0 clickCount: 1 pressure: 1];
+      NSEvent *up = [NSEvent mouseEventWithType: NSLeftMouseUp location: point modifierFlags: 0
+                                      timestamp: 0 windowNumber: [window windowNumber] context: nil
+                                    eventNumber: 0 clickCount: 1 pressure: 0];
+      NSTimer *timer = [NSTimer timerWithTimeInterval: 0.3
+                                               target: self
+                                             selector: @selector(inspectPopUpMenu:)
+                                             userInfo: popUp
+                                              repeats: NO];
+
+      ASSIGN(QuirkProbeMenuSeen, @"closed");
+      QuirkProbeSetPointer([window convertBaseToScreen: point]);
+      [[NSRunLoop currentRunLoop] addTimer: timer forMode: NSEventTrackingRunLoopMode];
+      /* The release is queued before the press is handled, as with a
+         click that's already over when the app gets to it. */
+      [NSApp postEvent: up atStart: NO];
+      [popUp mouseDown: down];
+      [timer invalidate];
+      [seen addObject: QuirkProbeMenuSeen];
+    }
+
+  menuWindow = [[[popUp menu] menuRepresentation] window];
+  detail = [NSString stringWithFormat: @"0.3s after each of 3 clicks: %@; after a click elsewhere: %@, selection %@ -> %@",
+                                       [seen componentsJoinedByString: @", "],
+                                       [menuWindow isVisible] ? @"showing" : @"closed",
+                                       before, [popUp titleOfSelectedItem]];
+  if ([seen containsObject: @"closed"] == NO && [menuWindow isVisible] == NO
+      && [before isEqualToString: [popUp titleOfSelectedItem]])
+    {
+      [self pass: @"popup-click-stays-open" detail: detail];
+    }
+  else
+    {
+      [self fail: @"popup-click-stays-open" detail: detail];
+    }
+}
+
 /* A window created after launch gets the main menu (issue #1). libs-gui
    only attaches the Windows 95 style menu to windows that exist when it
    first updates the menu. */
@@ -1182,6 +1296,7 @@ objectValueForTableColumn: (NSTableColumn *)column
   [self checkSwitches];
   [self checkStepper];
   [self checkDefaultButtons];
+  [self checkPopUpClick];
   [self after: QuirkProbeSettleDelay perform: @selector(createLateWindow:)];
 }
 
