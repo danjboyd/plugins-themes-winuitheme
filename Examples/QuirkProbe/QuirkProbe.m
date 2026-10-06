@@ -45,6 +45,16 @@ QuirkProbeIsInk(NSUInteger red, NSUInteger green, NSUInteger blue)
   return difference > 150 || difference < -150;
 }
 
+/* Anything visibly different from that background, however faint:
+   disabled outlines and fills. */
+static BOOL
+QuirkProbeIsFaintInk(NSUInteger red, NSUInteger green, NSUInteger blue)
+{
+  NSInteger difference = (NSInteger)(red + green + blue) - (NSInteger)QuirkProbeInkBackground;
+
+  return difference > 30 || difference < -30;
+}
+
 static NSBitmapImageRep *
 QuirkProbeRender(NSView *view)
 {
@@ -159,6 +169,26 @@ QuirkProbeFindViewOfClass(NSView *view, Class viewClass)
   return nil;
 }
 
+/* The accent blue (any of Windows' blue accents): clearly bluer than red. */
+static BOOL
+QuirkProbeIsAccentBlue(NSUInteger red, NSUInteger green, NSUInteger blue)
+{
+  return blue > 150 && blue > red + 60;
+}
+
+/* Pixel rect, top-left origin, of `frame` (in `view`'s coordinates) in a
+   render of `view`. */
+static NSRect
+QuirkProbePixelRect(NSView *view, NSRect frame, CGFloat scale)
+{
+  if ([view isFlipped] == NO)
+    {
+      frame.origin.y = NSHeight([view bounds]) - NSMaxY(frame);
+    }
+  return NSMakeRect(floor(NSMinX(frame) * scale), floor(NSMinY(frame) * scale),
+                    ceil(NSWidth(frame) * scale), ceil(NSHeight(frame) * scale));
+}
+
 /* The module (DLL) whose code `address` is in. */
 static void *
 QuirkProbeModuleOfAddress(void *address)
@@ -194,6 +224,7 @@ QuirkProbeModuleOfAddress(void *address)
 - (void) checkScrollerEdge;
 - (void) checkTableHeader;
 - (void) checkMultilineLabels;
+- (void) checkSwitches;
 - (void) createLateWindow: (NSTimer *)timer;
 - (void) checkLateWindow: (NSTimer *)timer;
 - (void) checkMenuBarTitles: (NSWindow *)window;
@@ -691,6 +722,109 @@ objectValueForTableColumn: (NSTableColumn *)column
     }
 }
 
+/* NSSwitch (issue #6): enabled when made in code (libs-gui 0.32 left it
+   disabled), WinUI's 40x20 track rather than one stretched to the frame,
+   and On distinguishable from Off, enabled or not. */
+- (void) checkSwitches
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(780, 480, 320, 80)
+                                     title: @"QuirkProbe Switches"];
+  NSView *content = [window contentView];
+  NSRect frames[4] = {
+    { { 10, 30 }, { 60, 28 } }, { { 80, 30 }, { 60, 28 } },
+    { { 150, 30 }, { 60, 28 } }, { { 220, 30 }, { 60, 28 } }
+  };
+  NSSwitch *switches[4];
+  QuirkProbeInk accent[4];
+  QuirkProbeInk ink[4];
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale;
+  NSUInteger red, green, blue;
+  NSUInteger index;
+
+  for (index = 0; index < 4; index++)
+    {
+      switches[index] = AUTORELEASE([[NSSwitch alloc] initWithFrame: frames[index]]);
+      [content addSubview: switches[index]];
+    }
+
+  if ([switches[0] isEnabled])
+    {
+      [self pass: @"switch-enabled-by-default" detail: @"a switch made in code is enabled"];
+    }
+  else
+    {
+      [self fail: @"switch-enabled-by-default" detail: @"a switch made in code is disabled"];
+    }
+
+  /* On, off, disabled on, disabled off. */
+  [switches[0] setState: NSControlStateValueOn];
+  [switches[1] setState: NSControlStateValueOff];
+  [switches[2] setState: NSControlStateValueOn];
+  [switches[2] setEnabled: NO];
+  [switches[3] setState: NSControlStateValueOff];
+  [switches[3] setEnabled: NO];
+  [window orderFront: nil];
+  [window display];
+
+  rep = QuirkProbeRender(content);
+  scale = QuirkProbeScale(rep, content);
+  [self saveView: content named: @"switches"];
+  QuirkProbePixel(rep, 2, 2, &red, &green, &blue);
+  QuirkProbeInkBackground = red + green + blue;
+  for (index = 0; index < 4; index++)
+    {
+      NSRect area = QuirkProbePixelRect(content, frames[index], scale);
+
+      accent[index] = QuirkProbeMeasureIn(rep, QuirkProbeIsAccentBlue, area);
+      ink[index] = QuirkProbeMeasureIn(rep, QuirkProbeIsFaintInk, area);
+    }
+
+  /* The off switch's outline spans the track. */
+  if (ink[1].width >= 36 * scale && ink[1].width <= 42 * scale)
+    {
+      [self pass: @"switch-track-size" detail:
+        [NSString stringWithFormat: @"track %ld px wide in a 60pt frame", (long)ink[1].width]];
+    }
+  else
+    {
+      [self fail: @"switch-track-size" detail:
+        [NSString stringWithFormat: @"track %ld px wide in a 60pt frame, expected about 40",
+                                    (long)ink[1].width]];
+    }
+
+  /* On fills its track (in the accent, where the palette has one); off is
+     an outline and a knob. */
+  if (ink[0].count > 2 * MAX((NSUInteger)1, ink[1].count))
+    {
+      [self pass: @"switch-on-off-differ" detail:
+        [NSString stringWithFormat: @"on has %lu px of ink (%lu accent), off %lu",
+                                    (unsigned long)ink[0].count, (unsigned long)accent[0].count,
+                                    (unsigned long)ink[1].count]];
+    }
+  else
+    {
+      [self fail: @"switch-on-off-differ" detail:
+        [NSString stringWithFormat: @"on has %lu px of ink (%lu accent), off %lu",
+                                    (unsigned long)ink[0].count, (unsigned long)accent[0].count,
+                                    (unsigned long)ink[1].count]];
+    }
+
+  /* Disabled: the on track is filled, the off one only outlined. */
+  if (ink[2].count > 2 * MAX((NSUInteger)1, ink[3].count))
+    {
+      [self pass: @"switch-disabled-on-off-differ" detail:
+        [NSString stringWithFormat: @"disabled on has %lu px of ink, disabled off %lu",
+                                    (unsigned long)ink[2].count, (unsigned long)ink[3].count]];
+    }
+  else
+    {
+      [self fail: @"switch-disabled-on-off-differ" detail:
+        [NSString stringWithFormat: @"disabled on has %lu px of ink, disabled off %lu",
+                                    (unsigned long)ink[2].count, (unsigned long)ink[3].count]];
+    }
+}
+
 /* A window created after launch gets the main menu (issue #1). libs-gui
    only attaches the Windows 95 style menu to windows that exist when it
    first updates the menu. */
@@ -887,6 +1021,7 @@ objectValueForTableColumn: (NSTableColumn *)column
   [self checkScrollerEdge];
   [self checkTableHeader];
   [self checkMultilineLabels];
+  [self checkSwitches];
   [self after: QuirkProbeSettleDelay perform: @selector(createLateWindow:)];
 }
 

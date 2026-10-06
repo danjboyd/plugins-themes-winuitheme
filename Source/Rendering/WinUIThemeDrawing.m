@@ -1341,23 +1341,25 @@ WinUIThemeSegmentIndexAtPoint(NSSegmentedCell *cell,
   return NSNotFound;
 }
 
+/* WinUI's ToggleSwitch track: 40x20, shrunk (keeping its 2:1 shape) to fit
+   a smaller frame, centred in a larger one. It used to stretch to the
+   frame's width. */
 NSRect
 WinUIThemeSwitchTrackRect(NSRect rect)
 {
-  CGFloat height = MAX(18.0, MIN(rect.size.height - 4.0, 20.0));
-  CGFloat width = MAX(height * 1.86, rect.size.width - 6.0);
-  NSRect track = NSMakeRect(NSMidX(rect) - (width / 2.0),
-                            NSMidY(rect) - (height / 2.0),
-                            width,
-                            height);
+  CGFloat height = MIN(20.0, floor(NSHeight(rect)));
+  CGFloat width = 2.0 * height;
 
-  if (track.size.width > rect.size.width - 2.0)
+  if (width > floor(NSWidth(rect)))
     {
-      track.size.width = MAX(18.0, rect.size.width - 2.0);
-      track.origin.x = NSMidX(rect) - (track.size.width / 2.0);
+      width = floor(NSWidth(rect));
+      height = floor(width / 2.0);
     }
 
-  return NSIntegralRect(track);
+  return NSMakeRect(floor(NSMidX(rect) - (width / 2.0)),
+                    floor(NSMidY(rect) - (height / 2.0)),
+                    width,
+                    height);
 }
 
 NSRect
