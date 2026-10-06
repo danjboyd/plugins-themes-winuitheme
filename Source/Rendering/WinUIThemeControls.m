@@ -1931,7 +1931,6 @@ WinUIThemeSwitchColors(WinUITheme *theme,
         ? WinUIThemeColorFromTheme(theme, @"labelColor", [NSColor controlTextColor])
         : WinUIThemeColorFromTheme(theme, @"disabledControlTextColor", [NSColor disabledControlTextColor]);
       NSRect titleRect = WinUIThemeButtonTitleRect(cell, cellFrame);
-      NSString *keyEquivalent = [cell keyEquivalent];
 
       if (searchButton || cancelButton)
         {
@@ -1984,12 +1983,7 @@ WinUIThemeSwitchColors(WinUITheme *theme,
           return;
         }
 
-      defaultButton = ([keyEquivalent isEqualToString: @"\r"]
-                       || [keyEquivalent isEqualToString: @"\n"]);
-      if (defaultButton == NO && controlView != nil && [controlView window] != nil)
-        {
-          defaultButton = ([[controlView window] defaultButtonCell] == cell);
-        }
+      defaultButton = WinUIThemeButtonIsDefault(cell);
 
       if (defaultButton && enabled)
         {

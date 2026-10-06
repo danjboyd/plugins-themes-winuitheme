@@ -269,6 +269,7 @@ QuirkProbeModuleOfAddress(void *address)
 - (void) checkMultilineLabels;
 - (void) checkSwitches;
 - (void) checkStepper;
+- (void) checkDefaultButtons;
 - (void) createLateWindow: (NSTimer *)timer;
 - (void) checkLateWindow: (NSTimer *)timer;
 - (void) checkMenuBarTitles: (NSWindow *)window;
@@ -917,6 +918,71 @@ objectValueForTableColumn: (NSTableColumn *)column
     }
 }
 
+/* A default button's title is readable on its fill (issue #53). NSAlert
+   makes its buttons with -init, which leaves no bezel style; the theme
+   drew those with GNUstep's white bezel but the default button's white
+   title. Checks one made that way with a Return key equivalent, and one
+   made default with -setDefaultButtonCell:. */
+- (void) checkDefaultButtons
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(420, 120, 300, 80)
+                                     title: @"QuirkProbe Default Buttons"];
+  NSButton *alertStyle = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(20, 20, 100, 32)]);
+  NSButton *windowDefault = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(160, 20, 100, 32)]);
+  NSArray *buttons = [NSArray arrayWithObjects: alertStyle, windowDefault, nil];
+  NSArray *names = [NSArray arrayWithObjects: @"alert-style", @"window-default", nil];
+  NSMutableArray *unreadable = [NSMutableArray array];
+  NSUInteger index;
+
+  [alertStyle setButtonType: NSMomentaryPushInButton];
+  [alertStyle setTitle: @"OK"];
+  [alertStyle setKeyEquivalent: @"\r"];
+  [windowDefault setButtonType: NSMomentaryPushInButton];
+  [windowDefault setTitle: @"OK"];
+  [[window contentView] addSubview: alertStyle];
+  [[window contentView] addSubview: windowDefault];
+  [window setDefaultButtonCell: [windowDefault cell]];
+  [window orderFront: nil];
+  [window display];
+
+  for (index = 0; index < [buttons count]; index++)
+    {
+      NSButton *button = [buttons objectAtIndex: index];
+      NSString *name = [names objectAtIndex: index];
+      NSBitmapImageRep *rep = QuirkProbeRender(button);
+      CGFloat scale = QuirkProbeScale(rep, button);
+      NSInteger width = [rep pixelsWide];
+      NSInteger height = [rep pixelsHigh];
+      NSUInteger red, green, blue;
+      QuirkProbeInk ink;
+
+      [self saveView: button named: [@"default-button-" stringByAppendingString: name]];
+      /* The fill, inside the left edge, then the title's ink against it,
+         away from the border. */
+      QuirkProbePixel(rep, (NSInteger)(8 * scale), height / 2, &red, &green, &blue);
+      QuirkProbeInkBackground = red + green + blue;
+      ink = QuirkProbeMeasureIn(rep, QuirkProbeIsInk,
+                                NSMakeRect(6 * scale, 6 * scale,
+                                           width - 12 * scale, height - 12 * scale));
+      if (ink.count < 20)
+        {
+          [unreadable addObject: [NSString stringWithFormat: @"%@ (%lu px of title)",
+                                                             name, (unsigned long)ink.count]];
+        }
+    }
+
+  if ([unreadable count] == 0)
+    {
+      [self pass: @"default-button-title-readable" detail:
+        @"default buttons' titles stand out from their fill"];
+    }
+  else
+    {
+      [self fail: @"default-button-title-readable" detail:
+        [@"unreadable: " stringByAppendingString: [unreadable componentsJoinedByString: @", "]]];
+    }
+}
+
 /* A window created after launch gets the main menu (issue #1). libs-gui
    only attaches the Windows 95 style menu to windows that exist when it
    first updates the menu. */
@@ -1115,6 +1181,7 @@ objectValueForTableColumn: (NSTableColumn *)column
   [self checkMultilineLabels];
   [self checkSwitches];
   [self checkStepper];
+  [self checkDefaultButtons];
   [self after: QuirkProbeSettleDelay perform: @selector(createLateWindow:)];
 }
 
