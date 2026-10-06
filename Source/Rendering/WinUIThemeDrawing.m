@@ -131,6 +131,21 @@ WinUIThemeCenteredRect(NSRect frame, CGFloat width, CGFloat height)
                     height);
 }
 
+/* WinUI's ControlCornerRadius (buttons, fields, list items) and
+   OverlayCornerRadius (flyouts, dialogs, cards), scaled with the display
+   (#35). */
+CGFloat
+WinUIThemeControlCornerRadius(WinUITheme *theme)
+{
+  return [[theme metrics] controlCornerRadius];
+}
+
+CGFloat
+WinUIThemeOverlayCornerRadius(WinUITheme *theme)
+{
+  return [[theme metrics] windowCornerRadius];
+}
+
 CGFloat
 WinUIThemeClamp(CGFloat value, CGFloat minimum, CGFloat maximum)
 {
@@ -301,8 +316,7 @@ WinUIThemeDrawRoundedSegment(NSRect frame,
                              BOOL roundedLeft,
                              BOOL roundedRight,
                              NSColor *fillColor,
-                             NSColor *borderColor,
-                             NSColor *topHighlight)
+                             NSColor *borderColor)
 {
   NSRect drawRect = NSInsetRect(NSIntegralRect(frame), 0.5, 0.5);
   NSRect shapeRect = drawRect;
@@ -335,19 +349,6 @@ WinUIThemeDrawRoundedSegment(NSRect frame,
     {
       [fillColor set];
       [shapePath fill];
-    }
-
-  if (topHighlight != nil && NSHeight(drawRect) > 10.0)
-    {
-      NSRect topRect = NSInsetRect(drawRect, 1.0, 1.0);
-
-      topRect.size.height = MAX(3.0, floor(topRect.size.height * 0.42));
-
-      [context saveGraphicsState];
-      [shapePath addClip];
-      [topHighlight set];
-      NSRectFill(topRect);
-      [context restoreGraphicsState];
     }
 
   if (borderColor != nil)
@@ -1100,14 +1101,12 @@ WinUIThemeDrawInputChrome(WinUITheme *theme,
                                              [NSColor selectedControlColor]);
   NSColor *fillColor = nil;
   NSColor *borderColor = nil;
-  NSColor *topHighlight = nil;
-  CGFloat radius = MAX(7.0, [[theme metrics] controlCornerRadius] + 3.0);
+  CGFloat radius = WinUIThemeControlCornerRadius(theme);
 
   if (enabled == NO)
     {
       fillColor = WinUIThemeBlendColor(surface, window, dark ? 0.20 : 0.30);
       borderColor = WinUIThemeBlendColor(separator, surface, dark ? 0.34 : 0.26);
-      topHighlight = WinUIThemeColorWithAlpha([NSColor whiteColor], dark ? 0.02 : 0.06);
     }
   else
     {
@@ -1119,7 +1118,6 @@ WinUIThemeDrawInputChrome(WinUITheme *theme,
         : WinUIThemeBlendColor(separator,
                                dark ? [NSColor whiteColor] : [NSColor blackColor],
                                dark ? 0.14 : 0.04);
-      topHighlight = WinUIThemeColorWithAlpha([NSColor whiteColor], dark ? 0.03 : 0.10);
     }
 
   WinUIThemeDrawRoundedSegment(frame,
@@ -1127,8 +1125,7 @@ WinUIThemeDrawInputChrome(WinUITheme *theme,
                                roundedLeft,
                                roundedRight,
                                fillColor,
-                               borderColor,
-                               topHighlight);
+                               borderColor);
 }
 
 void
@@ -1155,8 +1152,7 @@ WinUIThemeDrawSegmentChrome(WinUITheme *theme,
                                              [NSColor selectedControlColor]);
   NSColor *fillColor = nil;
   NSColor *borderColor = nil;
-  NSColor *topHighlight = nil;
-  CGFloat radius = MAX(7.0, [[theme metrics] controlCornerRadius] + 3.0);
+  CGFloat radius = WinUIThemeControlCornerRadius(theme);
 
   if (enabled == NO)
     {
@@ -1164,7 +1160,6 @@ WinUIThemeDrawSegmentChrome(WinUITheme *theme,
         ? WinUIThemeBlendColor(surface, accent, dark ? 0.22 : 0.10)
         : WinUIThemeBlendColor(surface, window, dark ? 0.20 : 0.30);
       borderColor = WinUIThemeBlendColor(separator, surface, dark ? 0.34 : 0.26);
-      topHighlight = WinUIThemeColorWithAlpha([NSColor whiteColor], dark ? 0.02 : 0.06);
     }
   else if (selected)
     {
@@ -1172,7 +1167,6 @@ WinUIThemeDrawSegmentChrome(WinUITheme *theme,
       borderColor = focused
         ? WinUIThemeBlendColor(separator, accent, dark ? 0.72 : 0.52)
         : WinUIThemeBlendColor(separator, accent, dark ? 0.52 : 0.34);
-      topHighlight = WinUIThemeColorWithAlpha([NSColor whiteColor], dark ? 0.05 : 0.12);
     }
   else
     {
@@ -1182,7 +1176,6 @@ WinUIThemeDrawSegmentChrome(WinUITheme *theme,
         : WinUIThemeBlendColor(separator,
                                dark ? [NSColor whiteColor] : [NSColor blackColor],
                                dark ? 0.14 : 0.04);
-      topHighlight = WinUIThemeColorWithAlpha([NSColor whiteColor], dark ? 0.03 : 0.10);
     }
 
   WinUIThemeDrawRoundedSegment(frame,
@@ -1190,8 +1183,7 @@ WinUIThemeDrawSegmentChrome(WinUITheme *theme,
                                roundedLeft,
                                roundedRight,
                                fillColor,
-                               borderColor,
-                               topHighlight);
+                               borderColor);
 }
 
 void

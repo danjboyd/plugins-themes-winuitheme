@@ -338,7 +338,8 @@ WinUIThemeMenuCornerRadius(WinUITheme *theme, BOOL horizontal)
 {
   CGFloat baseRadius = [[theme metrics] controlCornerRadius];
 
-  return horizontal ? MAX(7.0, baseRadius + 1.0) : MAX(10.0, baseRadius + 4.0);
+  (void)baseRadius;
+  return horizontal ? WinUIThemeControlCornerRadius(theme) : WinUIThemeOverlayCornerRadius(theme);
 }
 
 static CGFloat
@@ -1069,7 +1070,7 @@ WinUIThemePreparePopupMenuTypography(WinUITheme *theme, NSMenuView *menuView)
       [attributedTitle drawAtPoint: titleRect.origin];
 
       [laneColor set];
-      [[NSBezierPath bezierPathWithRoundedRect: laneRect xRadius: 7.0 yRadius: 7.0] fill];
+      [WinUIThemeRoundedPath(laneRect, WinUIThemeControlCornerRadius(self)) fill];
       [WinUIThemeColorWithAlpha(separator, popupOpen ? (dark ? 0.58 : 0.78) : (dark ? 0.72 : 0.92)) set];
       NSRectFill(NSMakeRect(dividerX,
                             drawRect.origin.y + 7.0,
@@ -1265,7 +1266,7 @@ WinUIThemePreparePopupMenuTypography(WinUITheme *theme, NSMenuView *menuView)
                                                 @"separatorColor",
                                                 [NSColor controlShadowColor]);
   NSRect drawRect = NSInsetRect(NSIntegralRect(aRect), 0.5, 0.5);
-  CGFloat radius = MAX(10.0, [[self metrics] windowCornerRadius] + 2.0);
+  CGFloat radius = WinUIThemeOverlayCornerRadius(self);
   NSBezierPath *path = nil;
 
   if (type != NSTopTabsBezelBorder && type != NSNoTabsBezelBorder)
@@ -1347,7 +1348,8 @@ WinUIThemePreparePopupMenuTypography(WinUITheme *theme, NSMenuView *menuView)
 
       if (selected)
         {
-          NSBezierPath *path = WinUIThemeRoundedPath(NSInsetRect(tabRect, 0.5, 0.5), 10.0);
+          NSBezierPath *path = WinUIThemeRoundedPath(NSInsetRect(tabRect, 0.5, 0.5),
+                                                     WinUIThemeOverlayCornerRadius(self));
 
           [surface set];
           [path fill];
@@ -1385,7 +1387,7 @@ WinUIThemePreparePopupMenuTypography(WinUITheme *theme, NSMenuView *menuView)
   NSColor *borderColor = WinUIThemeDataViewBorderColor(self);
   NSColor *railColor = WinUIThemeDataViewRailColor(self);
   NSRect bounds = NSInsetRect(NSIntegralRect([view bounds]), 0.5, 0.5);
-  CGFloat radius = MAX(8.0, [[self metrics] controlCornerRadius] + 4.0);
+  CGFloat radius = WinUIThemeOverlayCornerRadius(self);
   NSBezierPath *path = nil;
   NSScroller *verticalScroller = [scrollView verticalScroller];
   NSScroller *horizontalScroller = [scrollView horizontalScroller];
@@ -1723,7 +1725,7 @@ WinUIThemePreparePopupMenuTypography(WinUITheme *theme, NSMenuView *menuView)
         {
           WinUIThemeDrawSelectionFill(selectionRect,
                                       (selectingColumns
-                                       ? MAX(7.0, [[self metrics] controlCornerRadius] + 3.0)
+                                       ? WinUIThemeControlCornerRadius(self)
                                        : (outline ? 8.0 : 0.0)),
                                       fillColor,
                                       WinUIThemeSelectionBorderColor(self,

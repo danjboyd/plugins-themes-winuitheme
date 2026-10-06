@@ -37,6 +37,7 @@ WinUITheme_OBJC_FILES = \
 	Source/Rendering/WinUIThemeAlerts.m \
 	Source/Rendering/WinUIThemeTemplateImages.m \
 	Source/Rendering/WinUIThemeToolbar.m \
+	Source/Rendering/WinUIThemeHover.m \
 	Source/Native/WinUIThemeShellDialogs.m \
 	Source/Native/WinUIThemeWindowIntegration.m
 

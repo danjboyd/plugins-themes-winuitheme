@@ -296,6 +296,7 @@ QuirkProbeModuleOfAddress(void *address)
 - (void) checkAccentColor;
 - (void) checkAlertLayout;
 - (void) checkTemplateImages;
+- (void) checkButtonChrome;
 - (void) createLateWindow: (NSTimer *)timer;
 - (void) checkLateWindow: (NSTimer *)timer;
 - (void) checkMenuBarTitles: (NSWindow *)window;
@@ -1497,6 +1498,184 @@ QuirkProbeCentreIs(NSView *view, NSColor *color, NSUInteger slack, NSString **se
   [self after: QuirkProbeSettleDelay perform: @selector(checkLateWindow:)];
 }
 
+/* Handles the events that arrive in the next `seconds`, as the app's
+   run loop would: the probe runs inside one event. */
+static void
+QuirkProbeDispatchEvents(NSTimeInterval seconds)
+{
+  NSDate *until = [NSDate dateWithTimeIntervalSinceNow: seconds];
+  NSEvent *event = nil;
+
+  while ((event = [NSApp nextEventMatchingMask: NSAnyEventMask
+                                     untilDate: until
+                                        inMode: NSDefaultRunLoopMode
+                                       dequeue: YES]) != nil)
+    {
+      [NSApp sendEvent: event];
+    }
+}
+
+/* The sum of red, green and blue at (x, y) points from the top left. */
+static NSInteger
+QuirkProbeBrightnessAt(NSBitmapImageRep *rep, CGFloat scale, CGFloat x, CGFloat y)
+{
+  NSUInteger red, green, blue;
+
+  QuirkProbePixel(rep, (NSInteger)(x * scale), (NSInteger)(y * scale), &red, &green, &blue);
+  return (NSInteger)(red + green + blue);
+}
+
+/* WinUI's Button (issues #38, #10, #35): a flat fill, without the gloss
+   over its top half; 4pt corners; a title that doesn't move when pressed;
+   and a lighter fill under the pointer (only with -ProbeMovesPointer YES). */
+- (void) checkButtonChrome
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(420, 460, 300, 80)
+                                     title: @"QuirkProbe Button Chrome"];
+  NSButton *button = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(20, 20, 120, 32)]);
+  NSButton *other = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(160, 20, 120, 32)]);
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale;
+  NSInteger height, top, bottom, fill, corner;
+  QuirkProbeInk resting, pressed;
+  BOOL highContrast = QuirkProbeHasArgument(@"--high-contrast", nil);
+
+  [button setButtonType: NSMomentaryPushInButton];
+  [button setBezelStyle: NSRoundedBezelStyle];
+  [button setTitle: @"Button"];
+  [other setButtonType: NSMomentaryPushInButton];
+  [other setBezelStyle: NSRoundedBezelStyle];
+  [other setTitle: @"Other"];
+  [[window contentView] addSubview: button];
+  [[window contentView] addSubview: other];
+  [window makeKeyAndOrderFront: nil];
+  /* Without a focus ring, which is #36's. */
+  [window makeFirstResponder: window];
+  [window display];
+
+  rep = QuirkProbeRender(button);
+  scale = QuirkProbeScale(rep, button);
+  height = NSHeight([button bounds]);
+  [self saveView: button named: @"button-chrome"];
+
+  /* The fill left of the title, a third of the way down and up. */
+  top = QuirkProbeBrightnessAt(rep, scale, 7, height * 0.3);
+  bottom = QuirkProbeBrightnessAt(rep, scale, 7, height * 0.7);
+  if (llabs((long long)(top - bottom)) <= 6)
+    {
+      [self pass: @"button-no-gloss" detail: [NSString stringWithFormat:
+        @"the fill is even: %ld at the top, %ld at the bottom (of 765)", (long)top, (long)bottom]];
+    }
+  else
+    {
+      [self fail: @"button-no-gloss" detail: [NSString stringWithFormat:
+        @"the top is %ld, the bottom %ld (of 765): a gloss", (long)top, (long)bottom]];
+    }
+
+  /* 2.5 effective pixels in from the top corner is inside a 4px corner's
+     stroke, on a 7px one's or outside it. The theme scales its corners
+     with the desktop (--scale here), not the drawing. */
+  {
+    NSArray *arguments = [[NSProcessInfo processInfo] arguments];
+    NSUInteger index = [arguments indexOfObject: @"--scale"];
+    CGFloat desktop = 1.0;
+
+    if (index != NSNotFound && index + 1 < [arguments count])
+      {
+        desktop = MAX(1.0, [[arguments objectAtIndex: index + 1] doubleValue]);
+      }
+    fill = QuirkProbeBrightnessAt(rep, scale, 7, height / 2.0);
+    corner = QuirkProbeBrightnessAt(rep, scale, 2.5 * desktop, 2.5 * desktop);
+  }
+  if (llabs((long long)(fill - corner)) <= 12)
+    {
+      [self pass: @"button-corner-radius" detail: @"the fill reaches 2.5pt from the corner: 4pt corners"];
+    }
+  else
+    {
+      [self fail: @"button-corner-radius" detail: [NSString stringWithFormat:
+        @"2.5pt from the corner is %ld, the fill %ld (of 765): corners wider than 4pt",
+        (long)corner, (long)fill]];
+    }
+
+  /* The title's ink, resting and pressed. */
+  QuirkProbeInkBackground = fill;
+  resting = QuirkProbeMeasureIn(rep, QuirkProbeIsInk,
+                                NSMakeRect(10 * scale, 4 * scale,
+                                           [rep pixelsWide] - 20 * scale, [rep pixelsHigh] - 8 * scale));
+  [button highlight: YES];
+  /* -highlight: doesn't redraw, and renders come from the window. */
+  [button display];
+  rep = QuirkProbeRender(button);
+  [self saveView: button named: @"button-chrome-pressed"];
+  QuirkProbeInkBackground = QuirkProbeBrightnessAt(rep, scale, 7, height / 2.0);
+  pressed = QuirkProbeMeasureIn(rep, QuirkProbeIsInk,
+                                NSMakeRect(10 * scale, 4 * scale,
+                                           [rep pixelsWide] - 20 * scale, [rep pixelsHigh] - 8 * scale));
+  [button highlight: NO];
+  [button display];
+  if (resting.count < 20 || pressed.count < 20)
+    {
+      [self fail: @"button-pressed-title-still" detail: [NSString stringWithFormat:
+        @"couldn't find the title: %lu px resting, %lu pressed",
+        (unsigned long)resting.count, (unsigned long)pressed.count]];
+    }
+  else
+    {
+      /* By its ink's centre: a pressed title's lighter colour can trim a
+         pixel of antialiasing from each side. */
+      CGFloat dx = (pressed.minX + pressed.width / 2.0) - (resting.minX + resting.width / 2.0);
+      CGFloat dy = (pressed.minY + pressed.height / 2.0) - (resting.minY + resting.height / 2.0);
+
+      if (fabs(dx) < 1.0 && fabs(dy) < 1.0)
+        {
+          [self pass: @"button-pressed-title-still" detail: @"the title stays put when pressed"];
+        }
+      else
+        {
+          [self fail: @"button-pressed-title-still" detail: [NSString stringWithFormat:
+            @"the title moves (%.1f, %.1f) px when pressed", dx, dy]];
+        }
+    }
+
+  if ([[NSUserDefaults standardUserDefaults] boolForKey: @"ProbeMovesPointer"] == NO)
+    {
+      [self skip: @"button-hover" detail: @"moves the pointer: needs -ProbeMovesPointer YES"];
+    }
+  else if (highContrast)
+    {
+      [self skip: @"button-hover" detail: @"high contrast has no pointer-over fill"];
+    }
+  else
+    {
+      NSRect frame = [button convertRect: [button bounds] toView: nil];
+      NSRect away = [other convertRect: [other bounds] toView: nil];
+      NSInteger over;
+
+      QuirkProbeSetPointer([window convertBaseToScreen:
+        NSMakePoint(NSMinX(away) + 6, NSMidY(away))]);
+      QuirkProbeDispatchEvents(0.3);
+      QuirkProbeSetPointer([window convertBaseToScreen:
+        NSMakePoint(NSMinX(frame) + 6, NSMidY(frame))]);
+      QuirkProbeDispatchEvents(0.3);
+      rep = QuirkProbeRender(button);
+      over = QuirkProbeBrightnessAt(rep, scale, 7, height * 0.3);
+      QuirkProbeSetPointer([window convertBaseToScreen:
+        NSMakePoint(NSMinX(away) + 6, NSMidY(away))]);
+      QuirkProbeDispatchEvents(0.3);
+      if (over != top)
+        {
+          [self pass: @"button-hover" detail: [NSString stringWithFormat:
+            @"the fill is %ld under the pointer, %ld at rest (of 765)", (long)over, (long)top]];
+        }
+      else
+        {
+          [self fail: @"button-hover" detail: @"the fill doesn't change under the pointer"];
+        }
+    }
+  [window orderOut: nil];
+}
+
 - (void) checkLateWindow: (NSTimer *)timer
 {
   NSMenu *mainMenu = [NSApp mainMenu];
@@ -1795,6 +1974,7 @@ QuirkProbeLastItemOfMenu(NSString *title)
   [self checkDefaultButtons];
   [self checkAlertLayout];
   [self checkTemplateImages];
+  [self checkButtonChrome];
   [self checkPopUpClick];
   [self after: QuirkProbeSettleDelay perform: @selector(createLateWindow:)];
 }
