@@ -290,6 +290,7 @@ QuirkProbeModuleOfAddress(void *address)
 - (void) checkStepper;
 - (void) checkDefaultButtons;
 - (void) checkPopUpClick;
+- (void) checkWindowsMenuConventions;
 - (void) createLateWindow: (NSTimer *)timer;
 - (void) checkLateWindow: (NSTimer *)timer;
 - (void) checkMenuBarTitles: (NSWindow *)window;
@@ -1129,6 +1130,7 @@ objectValueForTableColumn: (NSTableColumn *)column
     }
   [self saveView: [[_lateWindow contentView] superview] named: @"late-window"];
   [self checkMenuBarTitles: _lateWindow];
+  [self checkWindowsMenuConventions];
   [self checkThemeSwitchRestoresMethods];
   [self finish];
 }
@@ -1203,6 +1205,115 @@ objectValueForTableColumn: (NSTableColumn *)column
     {
       [self fail: @"menu-bar-titles-fit" detail:
         [@"clipped: " stringByAppendingString: [clipped componentsJoinedByString: @", "]]];
+    }
+}
+
+/* Whether any item in `menu` or its submenus has `action`, or a submenu
+   titled `title`. */
+static BOOL
+QuirkProbeMenuTreeHas(NSMenu *menu, SEL action, NSString *title)
+{
+  NSEnumerator *enumerator = [[menu itemArray] objectEnumerator];
+  NSMenuItem *item = nil;
+
+  while ((item = [enumerator nextObject]) != nil)
+    {
+      if ((action != NULL && [item action] != NULL && sel_isEqual([item action], action))
+          || (title != nil && [item hasSubmenu] && [[item title] isEqualToString: title]))
+        {
+          return YES;
+        }
+      if ([item hasSubmenu] && QuirkProbeMenuTreeHas([item submenu], action, title))
+        {
+          return YES;
+        }
+    }
+  return NO;
+}
+
+/* The last item of the main menu's submenu titled `title`. */
+static NSMenuItem *
+QuirkProbeLastItemOfMenu(NSString *title)
+{
+  NSMenu *submenu = [[[NSApp mainMenu] itemWithTitle: title] submenu];
+
+  if (submenu == nil || [submenu numberOfItems] == 0)
+    {
+      return nil;
+    }
+  return (NSMenuItem *)[submenu itemAtIndex: [submenu numberOfItems] - 1];
+}
+
+/* Windows menu conventions (issue #24). The probe's main menu is
+   Cocoa-style: an untitled application menu (About, Preferences, Services,
+   Hide, Show All, Quit), File, Edit and no Help. The theme should leave no
+   application menu, end File with Exit, Edit with Preferences and a new
+   Help with About, and drop Hide, Show All and Services; and show key
+   equivalents as Windows does ("Ctrl+Q"). */
+- (void) checkWindowsMenuConventions
+{
+  NSMenu *mainMenu = [NSApp mainMenu];
+  NSMutableArray *problems = [NSMutableArray array];
+  NSMenuItem *first = ([mainMenu numberOfItems] > 0) ? (NSMenuItem *)[mainMenu itemAtIndex: 0] : nil;
+  NSMenuItem *exitItem = QuirkProbeLastItemOfMenu(@"File");
+  NSMenuItem *preferencesItem = QuirkProbeLastItemOfMenu(@"Edit");
+  NSMenuItem *aboutItem = QuirkProbeLastItemOfMenu(@"Help");
+  NSString *quit = [[GSTheme theme] keyForKeyEquivalent: @"#q"];
+  NSString *redo = [[GSTheme theme] keyForKeyEquivalent: @"/#z"];
+
+  if (NSInterfaceStyleForKey(@"NSMenuInterfaceStyle", nil) != NSWindows95InterfaceStyle)
+    {
+      [self skip: @"windows-menu-conventions" detail: @"the menu style isn't NSWindows95InterfaceStyle"];
+      return;
+    }
+  if ([[first title] length] == 0 || [[first title] isEqualToString: @"QuirkProbe"])
+    {
+      [problems addObject: [NSString stringWithFormat: @"the bar starts with \"%@\"", [first title]]];
+    }
+  if (exitItem == nil || sel_isEqual([exitItem action], @selector(terminate:)) == NO
+      || [[exitItem title] isEqualToString: @"Exit"] == NO)
+    {
+      [problems addObject: [NSString stringWithFormat: @"File ends with \"%@\", not Exit", [exitItem title]]];
+    }
+  if (preferencesItem == nil
+      || sel_isEqual([preferencesItem action], @selector(orderFrontPreferencesPanel:)) == NO)
+    {
+      [problems addObject: [NSString stringWithFormat: @"Edit ends with \"%@\", not Preferences",
+                                                      [preferencesItem title]]];
+    }
+  if (aboutItem == nil
+      || sel_isEqual([aboutItem action], @selector(orderFrontStandardAboutPanel:)) == NO)
+    {
+      [problems addObject: @"no Help menu ending with About"];
+    }
+  if (QuirkProbeMenuTreeHas(mainMenu, @selector(hide:), nil)
+      || QuirkProbeMenuTreeHas(mainMenu, @selector(unhideAllApplications:), nil))
+    {
+      [problems addObject: @"Hide or Show All is still there"];
+    }
+  if (QuirkProbeMenuTreeHas(mainMenu, NULL, @"Services"))
+    {
+      [problems addObject: @"Services is still there"];
+    }
+
+  if ([problems count] == 0)
+    {
+      [self pass: @"windows-menu-conventions" detail:
+        @"no application menu; File ends with Exit, Edit with Preferences, Help with About"];
+    }
+  else
+    {
+      [self fail: @"windows-menu-conventions" detail: [problems componentsJoinedByString: @"; "]];
+    }
+
+  if ([quit isEqualToString: @"Ctrl+Q"] && [redo isEqualToString: @"Ctrl+Shift+Z"])
+    {
+      [self pass: @"shortcut-text" detail: @"Command-Q shows as Ctrl+Q, Command-Shift-Z as Ctrl+Shift+Z"];
+    }
+  else
+    {
+      [self fail: @"shortcut-text" detail:
+        [NSString stringWithFormat: @"Command-Q shows as \"%@\", Command-Shift-Z as \"%@\"", quit, redo]];
     }
 }
 

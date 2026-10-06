@@ -30,5 +30,11 @@ IMP WinUIThemeOriginalMethod(SEL selector, id receiver, Class baseClass);
 
 @end
 
+@interface WinUITheme (ApplicationMenu)
+/* Hands a horizontal main menu's application menu to Windows' places
+   (WinUIThemeApplicationMenu.m). */
+- (void) tidyMainMenu;
+@end
+
 #endif
 
