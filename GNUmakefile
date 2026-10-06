@@ -34,6 +34,7 @@ WinUITheme_OBJC_FILES = \
 	Source/Rendering/WinUIThemeMenusAndData.m \
 	Source/Rendering/WinUIThemeMenuTracking.m \
 	Source/Rendering/WinUIThemeApplicationMenu.m \
+	Source/Rendering/WinUIThemeAlerts.m \
 	Source/Native/WinUIThemeShellDialogs.m \
 	Source/Native/WinUIThemeWindowIntegration.m
 

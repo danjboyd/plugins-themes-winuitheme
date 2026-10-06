@@ -292,6 +292,7 @@ QuirkProbeModuleOfAddress(void *address)
 - (void) checkPopUpClick;
 - (void) checkWindowsMenuConventions;
 - (void) checkAccentColor;
+- (void) checkAlertLayout;
 - (void) createLateWindow: (NSTimer *)timer;
 - (void) checkLateWindow: (NSTimer *)timer;
 - (void) checkMenuBarTitles: (NSWindow *)window;
@@ -1210,6 +1211,129 @@ QuirkProbeHex(NSColor *color)
     }
 }
 
+/* The panel of an NSAlert, laid out without running it. */
+static NSPanel *
+QuirkProbeAlertPanel(NSAlert *alert)
+{
+  NSPanel *panel = nil;
+
+  [alert performSelector: @selector(_setupPanel)];
+  panel = [alert window];
+  if ([panel respondsToSelector: @selector(sizePanelToFit)])
+    {
+      [panel performSelector: @selector(sizePanelToFit)];
+    }
+  return panel;
+}
+
+/* Alerts as WinUI's ContentDialog (issue #23): within its 320-548pt
+   widths, no icon, the title left-aligned at the 24pt padding, and 32pt
+   buttons of equal width with the primary one first (Save, Don't Save,
+   Cancel), a lone button in the right half. */
+- (void) checkAlertLayout
+{
+  NSAlert *alert = AUTORELEASE([NSAlert new]);
+  NSAlert *single = AUTORELEASE([NSAlert new]);
+  NSPanel *panel = nil;
+  NSPanel *singlePanel = nil;
+  NSMutableArray *problems = [NSMutableArray array];
+  NSButton *save, *cancel, *dontSave, *ok;
+  NSTextField *titleField = nil;
+  NSButton *icon = nil;
+  CGFloat width;
+
+  [alert setMessageText: @"Save changes to \"Notes\"?"];
+  [alert setInformativeText: @"Your changes will be lost if you don't save them."];
+  save = [alert addButtonWithTitle: @"Save"];
+  cancel = [alert addButtonWithTitle: @"Cancel"];
+  dontSave = [alert addButtonWithTitle: @"Don't Save"];
+  panel = QuirkProbeAlertPanel(alert);
+  if (panel == nil)
+    {
+      [self skip: @"alert-content-dialog" detail: @"NSAlert made no panel"];
+      return;
+    }
+  [single setMessageText: @"Done"];
+  [single setInformativeText: @"The file was exported."];
+  [single addButtonWithTitle: @"OK"];
+  singlePanel = QuirkProbeAlertPanel(single);
+
+  /* The panel's buttons are copies of the alert's, matched by title. */
+  {
+    NSEnumerator *enumerator = [[[panel contentView] subviews] objectEnumerator];
+    NSView *view = nil;
+
+    while ((view = [enumerator nextObject]) != nil)
+      {
+        if ([view isKindOfClass: [NSButton class]] && [view isHidden] == NO)
+          {
+            NSString *title = [(NSButton *)view title];
+
+            if ([title isEqualToString: @"Save"]) save = (NSButton *)view;
+            else if ([title isEqualToString: @"Cancel"]) cancel = (NSButton *)view;
+            else if ([title isEqualToString: @"Don't Save"]) dontSave = (NSButton *)view;
+          }
+      }
+    enumerator = [[[singlePanel contentView] subviews] objectEnumerator];
+    ok = nil;
+    while ((view = [enumerator nextObject]) != nil)
+      {
+        if ([view isKindOfClass: [NSButton class]] && [[(NSButton *)view title] isEqualToString: @"OK"])
+          {
+            ok = (NSButton *)view;
+          }
+      }
+  }
+  titleField = [panel valueForKey: @"titleField"];
+  icon = [panel valueForKey: @"icoButton"];
+  width = NSWidth([[panel contentView] bounds]);
+
+  if (width < 320.0 || width > 548.0)
+    {
+      [problems addObject: [NSString stringWithFormat: @"%.0fpt wide", width]];
+    }
+  if (icon != nil && [icon superview] != nil && [icon isHidden] == NO)
+    {
+      [problems addObject: @"the icon shows"];
+    }
+  if (titleField == nil || fabs(NSMinX([titleField frame]) - 22.0) > 2.0
+      || [titleField alignment] != NSLeftTextAlignment)
+    {
+      [problems addObject: [NSString stringWithFormat: @"title at x=%.0f, not left-aligned at 22",
+                                                      NSMinX([titleField frame])]];
+    }
+  if (!(NSMinX([save frame]) < NSMinX([dontSave frame])
+        && NSMinX([dontSave frame]) < NSMinX([cancel frame])))
+    {
+      [problems addObject: [NSString stringWithFormat: @"button order Save x=%.0f, Don't Save x=%.0f, Cancel x=%.0f",
+                                                      NSMinX([save frame]), NSMinX([dontSave frame]),
+                                                      NSMinX([cancel frame])]];
+    }
+  if (fabs(NSHeight([save frame]) - 32.0) > 0.5
+      || fabs(NSWidth([save frame]) - NSWidth([dontSave frame])) > 1.5)
+    {
+      [problems addObject: [NSString stringWithFormat: @"buttons %.0fx%.0f and %.0fx%.0f",
+                                                      NSWidth([save frame]), NSHeight([save frame]),
+                                                      NSWidth([dontSave frame]), NSHeight([dontSave frame])]];
+    }
+  if (ok == nil || NSMinX([ok frame]) < NSWidth([[singlePanel contentView] bounds]) / 2.0 - 1.0)
+    {
+      [problems addObject: [NSString stringWithFormat: @"a lone OK at x=%.0f, not in the right half",
+                                                      NSMinX([ok frame])]];
+    }
+
+  [self saveView: [panel contentView] named: @"alert"];
+  if ([problems count] == 0)
+    {
+      [self pass: @"alert-content-dialog" detail:
+        [NSString stringWithFormat: @"%.0fpt wide, Save | Don't Save | Cancel, 32pt buttons", width]];
+    }
+  else
+    {
+      [self fail: @"alert-content-dialog" detail: [problems componentsJoinedByString: @"; "]];
+    }
+}
+
 /* A window created after launch gets the main menu (issue #1). libs-gui
    only attaches the Windows 95 style menu to windows that exist when it
    first updates the menu. */
@@ -1520,6 +1644,7 @@ QuirkProbeLastItemOfMenu(NSString *title)
   [self checkSwitches];
   [self checkStepper];
   [self checkDefaultButtons];
+  [self checkAlertLayout];
   [self checkPopUpClick];
   [self after: QuirkProbeSettleDelay perform: @selector(createLateWindow:)];
 }
