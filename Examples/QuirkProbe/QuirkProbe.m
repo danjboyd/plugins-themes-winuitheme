@@ -13,6 +13,8 @@
 static NSString *QuirkProbeImageItem = @"ImageItem";
 static const NSTimeInterval QuirkProbeSettleDelay = 0.8;
 
+static BOOL QuirkProbeHasArgument(NSString *flag, NSString *value);
+
 /* Moves the pointer to `point` in GNUstep screen coordinates (origin at
    the bottom left). libs-back's Windows server doesn't implement
    -setMouseLocation:onScreen:. */
@@ -599,6 +601,49 @@ objectValueForTableColumn: (NSTableColumn *)column
       [self fail: @"toolbar-image-item" detail:
         [NSString stringWithFormat: @"the item drew %lu px of its image", (unsigned long)ink.count]];
     }
+
+  /* WinUI's CommandBar (issue #21): an icon-only toolbar is a 48pt row
+     (libs-gui's was about 40pt, 62pt with labels), and the line under it
+     is a faint divider, not libs-gui's dark grey. */
+  {
+    CGFloat height = NSHeight([toolbarView frame]);
+    NSBitmapImageRep *rep = QuirkProbeRender(toolbarView);
+    CGFloat scale = QuirkProbeScale(rep, toolbarView);
+    NSInteger x = [rep pixelsWide] - (NSInteger)(20 * scale);
+    NSUInteger red, green, blue, lineRed, lineGreen, lineBlue;
+    NSInteger lineY = [rep pixelsHigh] - 1;
+    NSInteger contrast;
+
+    if (fabs(height - 48.0) <= 1.0)
+      {
+        [self pass: @"toolbar-row-height" detail: @"an icon-only toolbar is 48pt, as CommandBar"];
+      }
+    else
+      {
+        [self fail: @"toolbar-row-height" detail:
+          [NSString stringWithFormat: @"an icon-only toolbar is %.0fpt, expected 48", height]];
+      }
+
+    QuirkProbePixel(rep, x, [rep pixelsHigh] / 2, &red, &green, &blue);
+    QuirkProbePixel(rep, x, lineY, &lineRed, &lineGreen, &lineBlue);
+    contrast = llabs((long long)(red + green + blue) - (long long)(lineRed + lineGreen + lineBlue));
+    if (QuirkProbeHasArgument(@"--high-contrast", nil))
+      {
+        [self skip: @"toolbar-bottom-line" detail: @"high contrast draws a full-strength line"];
+      }
+    else if (contrast <= 90)
+      {
+        [self pass: @"toolbar-bottom-line" detail:
+          [NSString stringWithFormat: @"the line under the toolbar is %ld from its background (of 765)",
+                                      (long)contrast]];
+      }
+    else
+      {
+        [self fail: @"toolbar-bottom-line" detail:
+          [NSString stringWithFormat: @"the line under the toolbar is %ld from its background (of 765)",
+                                      (long)contrast]];
+      }
+  }
 }
 
 /* Vertical scrollers sit on the trailing (right) edge (issue #4). */
