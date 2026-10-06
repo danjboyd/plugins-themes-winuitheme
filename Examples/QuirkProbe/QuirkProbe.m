@@ -293,6 +293,7 @@ QuirkProbeModuleOfAddress(void *address)
 - (void) checkWindowsMenuConventions;
 - (void) checkAccentColor;
 - (void) checkAlertLayout;
+- (void) checkTemplateImages;
 - (void) createLateWindow: (NSTimer *)timer;
 - (void) checkLateWindow: (NSTimer *)timer;
 - (void) checkMenuBarTitles: (NSWindow *)window;
@@ -1334,6 +1335,109 @@ QuirkProbeAlertPanel(NSAlert *alert)
     }
 }
 
+/* A 20x20 black square named "...Template", as Cocoa apps ship
+   template icons. */
+static NSImage *
+QuirkProbeTemplateSquare(void)
+{
+  NSImage *image = [NSImage imageNamed: @"ProbeSquareTemplate"];
+
+  if (image != nil)
+    {
+      return image;
+    }
+  image = AUTORELEASE([[NSImage alloc] initWithSize: NSMakeSize(20, 20)]);
+  [image lockFocus];
+  [[NSColor blackColor] set];
+  NSRectFill(NSMakeRect(0, 0, 20, 20));
+  [image unlockFocus];
+  [image setName: @"ProbeSquareTemplate"];
+  return image;
+}
+
+/* Whether the pixel at the centre of `view`'s render is within `slack`
+   (summed over the channels, 0-765) of `color`. */
+static BOOL
+QuirkProbeCentreIs(NSView *view, NSColor *color, NSUInteger slack, NSString **seen)
+{
+  NSBitmapImageRep *rep = QuirkProbeRender(view);
+  NSColor *rgb = [color colorUsingColorSpaceName: NSCalibratedRGBColorSpace];
+  NSUInteger red, green, blue;
+  NSInteger difference;
+
+  if (QuirkProbePixel(rep, [rep pixelsWide] / 2, [rep pixelsHigh] / 2, &red, &green, &blue) == NO
+      || rgb == nil)
+    {
+      return NO;
+    }
+  *seen = [NSString stringWithFormat: @"#%02lX%02lX%02lX",
+                                      (unsigned long)red, (unsigned long)green, (unsigned long)blue];
+  difference = llabs((long long)red - (NSInteger)round([rgb redComponent] * 255))
+    + llabs((long long)green - (NSInteger)round([rgb greenComponent] * 255))
+    + llabs((long long)blue - (NSInteger)round([rgb blueComponent] * 255));
+  return difference <= (NSInteger)slack;
+}
+
+/* Template images follow the text colour around them (issue #25): a black
+   "...Template" image draws in the text colour in a button and a segment,
+   and in the text-on-accent colour on a default button, in every palette. */
+- (void) checkTemplateImages
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(780, 700, 300, 80)
+                                     title: @"QuirkProbe Template Images"];
+  NSColorList *colors = [[GSTheme theme] colors];
+  NSColor *text = [colors colorWithKey: @"labelColor"];
+  NSColor *onAccent = [colors colorWithKey: @"selectedControlTextColor"];
+  NSButton *plain = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(10, 20, 60, 40)]);
+  NSButton *primary = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(80, 20, 60, 40)]);
+  NSSegmentedControl *segments = AUTORELEASE([[NSSegmentedControl alloc]
+                                               initWithFrame: NSMakeRect(150, 20, 120, 40)]);
+  NSMutableArray *wrong = [NSMutableArray array];
+  NSString *seen = nil;
+  NSView *segmentView = nil;
+
+  [plain setBezelStyle: NSRoundedBezelStyle];
+  [plain setImage: QuirkProbeTemplateSquare()];
+  [plain setImagePosition: NSImageOnly];
+  [primary setBezelStyle: NSRoundedBezelStyle];
+  [primary setImage: QuirkProbeTemplateSquare()];
+  [primary setImagePosition: NSImageOnly];
+  [primary setKeyEquivalent: @"\r"];
+  [segments setSegmentCount: 1];
+  [segments setImage: QuirkProbeTemplateSquare() forSegment: 0];
+  [segments setWidth: 118 forSegment: 0];
+  [[window contentView] addSubview: plain];
+  [[window contentView] addSubview: primary];
+  [[window contentView] addSubview: segments];
+  [window orderFront: nil];
+  [window display];
+  segmentView = segments;
+
+  if (QuirkProbeCentreIs(plain, text, 60, &seen) == NO)
+    {
+      [wrong addObject: [NSString stringWithFormat: @"button %@ (text is %@)", seen, QuirkProbeHex(text)]];
+    }
+  if (QuirkProbeCentreIs(primary, onAccent, 60, &seen) == NO)
+    {
+      [wrong addObject: [NSString stringWithFormat: @"default button %@ (text on accent is %@)",
+                                                    seen, QuirkProbeHex(onAccent)]];
+    }
+  if (QuirkProbeCentreIs(segmentView, text, 60, &seen) == NO)
+    {
+      [wrong addObject: [NSString stringWithFormat: @"segment %@ (text is %@)", seen, QuirkProbeHex(text)]];
+    }
+
+  [self saveView: [window contentView] named: @"template-images"];
+  if ([wrong count] == 0)
+    {
+      [self pass: @"template-images" detail: @"template images take the text colour around them"];
+    }
+  else
+    {
+      [self fail: @"template-images" detail: [wrong componentsJoinedByString: @"; "]];
+    }
+}
+
 /* A window created after launch gets the main menu (issue #1). libs-gui
    only attaches the Windows 95 style menu to windows that exist when it
    first updates the menu. */
@@ -1645,6 +1749,7 @@ QuirkProbeLastItemOfMenu(NSString *title)
   [self checkStepper];
   [self checkDefaultButtons];
   [self checkAlertLayout];
+  [self checkTemplateImages];
   [self checkPopUpClick];
   [self after: QuirkProbeSettleDelay perform: @selector(createLateWindow:)];
 }

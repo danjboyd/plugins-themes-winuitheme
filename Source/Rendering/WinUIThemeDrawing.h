@@ -73,6 +73,11 @@ BOOL WinUIThemeButtonCellUsesLegacyReturnImage(NSButtonCell *cell);
 BOOL WinUIThemeButtonCellUsesSearchImage(NSButtonCell *cell);
 BOOL WinUIThemeButtonCellUsesCancelImage(NSButtonCell *cell);
 
+/* Template images (WinUIThemeTemplateImages.m). */
+BOOL WinUIThemeImageIsTemplate(NSImage *image);
+NSImage *WinUIThemeTintedImage(NSImage *image, NSColor *color);
+NSColor *WinUIThemeTemplateImageColor(WinUITheme *theme, NSButtonCell *cell, NSView *controlView);
+
 NSFont *WinUIThemePreferredControlFont(WinUITheme *theme,
                                        NSFont *font,
                                        BOOL emphasized);

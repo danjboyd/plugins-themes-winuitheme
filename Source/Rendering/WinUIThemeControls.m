@@ -381,10 +381,22 @@ WinUIThemeDrawSegmentedImage(NSImage *image,
   CGFloat scale = 1.0;
   NSRect destinationRect = NSZeroRect;
   CGFloat fraction = enabled ? 1.0 : 0.45;
+  WinUITheme *theme = WinUIThemeActiveTheme();
 
   if (image == nil || NSIsEmptyRect(frame))
     {
       return;
+    }
+  /* Template images in the segment's text colour (#25). */
+  if (theme != nil && WinUIThemeImageIsTemplate(image))
+    {
+      image = WinUIThemeTintedImage(image,
+                                    enabled
+                                      ? WinUIThemeColorFromTheme(theme, @"labelColor",
+                                                                 [NSColor controlTextColor])
+                                      : WinUIThemeColorFromTheme(theme, @"disabledControlTextColor",
+                                                                 [NSColor disabledControlTextColor]));
+      fraction = 1.0;
     }
 
   imageSize = [image size];
@@ -1892,6 +1904,15 @@ WinUIThemeSwitchColors(WinUITheme *theme,
                                              controlView,
                                              radio);
       return;
+    }
+
+  /* Template images in the colour of the title (#25). */
+  if (theme != nil && WinUIThemeImageIsTemplate(imageToDisplay))
+    {
+      imageToDisplay = WinUIThemeTintedImage(imageToDisplay,
+                                             WinUIThemeTemplateImageColor(theme,
+                                                                          (NSButtonCell *)self,
+                                                                          controlView));
     }
 
   if (originalIMP != NULL)
