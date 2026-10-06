@@ -1363,6 +1363,18 @@ WinUIThemeComboBoxButtonWidth(NSRect cellFrame)
   return MIN(28.0, MAX(22.0, floor(cellFrame.size.height * 0.78)));
 }
 
+/* WinUI's ComboBox chevron: 12px wide, its right edge 14px from the
+   control's, in TextFillColorSecondary (#40). */
+void
+WinUIThemeDrawComboBoxGlyph(WinUITheme *theme, NSRect frame, BOOL enabled)
+{
+  NSColor *color = enabled
+    ? WinUIThemeColorFromTheme(theme, @"secondaryLabelColor", [NSColor controlTextColor])
+    : WinUIThemeColorFromTheme(theme, @"disabledControlTextColor", [NSColor disabledControlTextColor]);
+
+  WinUIThemeDrawChevron(NSMakePoint(NSMaxX(frame) - WinUIThemeComboBoxGlyphInset, NSMidY(frame)), NO, color);
+}
+
 NSRect
 WinUIThemeComboBoxButtonRect(NSRect cellFrame)
 {

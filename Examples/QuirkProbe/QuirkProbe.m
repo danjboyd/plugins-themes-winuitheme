@@ -301,6 +301,7 @@ QuirkProbeModuleOfAddress(void *address)
 - (void) checkOverlayScrollers;
 - (void) checkFocusVisual;
 - (void) checkTextBox;
+- (void) checkComboBoxes;
 - (void) createLateWindow: (NSTimer *)timer;
 - (void) checkLateWindow: (NSTimer *)timer;
 - (void) checkMenuBarTitles: (NSWindow *)window;
@@ -2314,6 +2315,129 @@ QuirkProbeBrightnessLeftOf(NSView *view)
   [window orderOut: nil];
 }
 
+/* Pixels in `area` (pixels, from the top left) that differ from `fill`
+   by more than `threshold`, and the strongest difference. */
+static NSUInteger
+QuirkProbeInkIn(NSBitmapImageRep *rep, NSRect area, NSInteger fill, NSInteger threshold, NSInteger *strongest)
+{
+  NSInteger x, y;
+  NSUInteger count = 0;
+
+  if (strongest != NULL)
+    {
+      *strongest = 0;
+    }
+  for (y = (NSInteger)NSMinY(area); y < (NSInteger)NSMaxY(area); y++)
+    {
+      for (x = (NSInteger)NSMinX(area); x < (NSInteger)NSMaxX(area); x++)
+        {
+          NSUInteger red, green, blue;
+          NSInteger difference;
+
+          QuirkProbePixel(rep, x, y, &red, &green, &blue);
+          difference = llabs((long long)(red + green + blue) - (long long)fill);
+          if (difference > threshold)
+            {
+              count++;
+            }
+          if (strongest != NULL && difference > *strongest)
+            {
+              *strongest = difference;
+            }
+        }
+    }
+  return count;
+}
+
+/* WinUI's ComboBox (issues #40, #8): a pop-up button is one box, its title
+   in the primary text colour and no divided lane before its chevron; a
+   non-editable combo box keeps its value when focused, without a text
+   editor (libs-gui's empty field and "..." button). */
+- (void) checkComboBoxes
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(780, 100, 300, 120)
+                                     title: @"QuirkProbe ComboBox"];
+  NSPopUpButton *popUp = AUTORELEASE([[NSPopUpButton alloc] initWithFrame: NSMakeRect(20, 70, 200, 32)
+                                                                pullsDown: NO]);
+  NSComboBox *combo = AUTORELEASE([[NSComboBox alloc] initWithFrame: NSMakeRect(20, 20, 200, 32)]);
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale;
+  NSInteger width, height, fill, strongest;
+  NSUInteger lane;
+  BOOL highContrast = QuirkProbeHasArgument(@"--high-contrast", nil);
+
+  [popUp addItemsWithTitles: [NSArray arrayWithObjects: @"A", @"B", nil]];
+  [combo addItemsWithObjectValues: [NSArray arrayWithObjects: @"Value", @"Other", nil]];
+  [combo setEditable: NO];
+  [combo selectItemAtIndex: 0];
+  [[window contentView] addSubview: popUp];
+  [[window contentView] addSubview: combo];
+  [window makeKeyAndOrderFront: nil];
+  [window makeFirstResponder: window];
+  [window display];
+
+  rep = QuirkProbeRender(popUp);
+  scale = QuirkProbeScale(rep, popUp);
+  width = [rep pixelsWide];
+  height = [rep pixelsHigh];
+  [self saveView: popUp named: @"combobox-popup"];
+  fill = QuirkProbeBrightnessAt(rep, scale, NSWidth([popUp bounds]) / 2.0, NSHeight([popUp bounds]) / 2.0);
+
+  /* Between the title and the chevron: only the fill. */
+  lane = QuirkProbeInkIn(rep, NSMakeRect(width * 0.4, height * 0.2, width * 0.6 - 30 * scale, height * 0.6),
+                         fill, 12, NULL);
+  if (lane == 0)
+    {
+      [self pass: @"popup-no-lane" detail: @"one box, nothing between the title and the chevron"];
+    }
+  else
+    {
+      [self fail: @"popup-no-lane" detail: [NSString stringWithFormat:
+        @"%lu px of lane or divider before the chevron", (unsigned long)lane]];
+    }
+
+  /* The title "A": primary text, nearly the full contrast. */
+  QuirkProbeInkIn(rep, NSMakeRect(4 * scale, height * 0.2, 40 * scale, height * 0.6), fill, 12, &strongest);
+  if (highContrast)
+    {
+      [self skip: @"popup-title-primary" detail: @"high contrast has one text colour"];
+    }
+  else if (strongest >= 560)
+    {
+      [self pass: @"popup-title-primary" detail: [NSString stringWithFormat:
+        @"the title's contrast is %ld (of 765)", (long)strongest]];
+    }
+  else
+    {
+      [self fail: @"popup-title-primary" detail: [NSString stringWithFormat:
+        @"the title's contrast is %ld (of 765): secondary text", (long)strongest]];
+    }
+
+  /* Focused, the combo box keeps its value and starts no editor. */
+  [window makeFirstResponder: combo];
+  [window display];
+  rep = QuirkProbeRender(combo);
+  [self saveView: combo named: @"combobox-focused"];
+  fill = QuirkProbeBrightnessAt(rep, scale, NSWidth([combo bounds]) - 50.0, NSHeight([combo bounds]) / 2.0);
+  {
+    NSUInteger value = QuirkProbeInkIn(rep, NSMakeRect(4 * scale, [rep pixelsHigh] * 0.2, 60 * scale,
+                                                       [rep pixelsHigh] * 0.6), fill, 150, NULL);
+
+    if ([combo currentEditor] == nil && value > 10)
+      {
+        [self pass: @"combobox-focused-keeps-value" detail: @"focused, it shows its value and no text editor"];
+      }
+    else
+      {
+        [self fail: @"combobox-focused-keeps-value" detail: [NSString stringWithFormat:
+          @"focused, %@ text editor and %lu px of its value",
+          [combo currentEditor] != nil ? @"a" : @"no", (unsigned long)value]];
+      }
+  }
+  [window makeFirstResponder: window];
+  [window orderOut: nil];
+}
+
 - (void) checkLateWindow: (NSTimer *)timer
 {
   NSMenu *mainMenu = [NSApp mainMenu];
@@ -2617,6 +2741,7 @@ QuirkProbeLastItemOfMenu(NSString *title)
   [self checkOverlayScrollers];
   [self checkFocusVisual];
   [self checkTextBox];
+  [self checkComboBoxes];
   [self checkPopUpClick];
   [self after: QuirkProbeSettleDelay perform: @selector(createLateWindow:)];
 }

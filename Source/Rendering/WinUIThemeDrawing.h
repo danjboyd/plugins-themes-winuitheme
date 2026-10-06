@@ -154,6 +154,11 @@ void WinUIThemeResolveEntryColors(WinUITheme *theme,
                                   NSColor **borderOut,
                                   CGFloat *lineWidthOut);
 
+/* The ComboBox chevron's centre, from the control's trailing edge. */
+#define WinUIThemeComboBoxGlyphInset 20.0
+void WinUIThemeDrawComboBoxGlyph(WinUITheme *theme, NSRect frame, BOOL enabled);
+NSColor *WinUIThemeDrawButtonChrome(WinUITheme *theme, NSRect frame, NSView *view, BOOL enabled,
+                                    BOOL defaultButton, BOOL pressed, BOOL hover);
 CGFloat WinUIThemeComboBoxButtonWidth(NSRect cellFrame);
 NSRect WinUIThemeComboBoxButtonRect(NSRect cellFrame);
 NSRect WinUIThemeComboBoxTextRect(NSComboBoxCell *cell, NSRect cellFrame);

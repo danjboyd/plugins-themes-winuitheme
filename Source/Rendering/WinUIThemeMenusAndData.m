@@ -914,6 +914,30 @@ WinUIThemePreparePopupMenuTypography(WinUITheme *theme, NSMenuView *menuView)
                                                        isHorizontal,
                                                        popupOwned);
 
+  /* A ComboBox's drop-down (#40): the item under the pointer and the
+     selected one get the flyout's subtle fill; the selected one also a
+     3x16pt accent pill at its leading edge. */
+  if (popupOwned && [[self settings] highContrastEnabled] == NO)
+    {
+      id owner = WinUIThemePopupOwningCellForMenuView((NSMenuView *)controlView);
+      NSInteger index = WinUIThemePopupMenuItemIndex(cell, controlView);
+      BOOL selectedItem = (index >= 0 && [owner respondsToSelector: @selector(indexOfSelectedItem)]
+                           && [owner indexOfSelectedItem] == index);
+
+      if (popupHovered || selectedItem)
+        {
+          [WinUIThemeMenuItemHoverColor(self, NO) set];
+          [WinUIThemeRoundedPath(drawRect, WinUIThemeControlCornerRadius(self)) fill];
+        }
+      if (selectedItem)
+        {
+          NSRect pill = NSMakeRect(NSMinX(drawRect), floor(NSMidY(drawRect) - 8.0), 3.0, 16.0);
+
+          [WinUIThemeColorFromTheme(self, @"accentColor", [NSColor selectedControlColor]) set];
+          [WinUIThemeRoundedPath(pill, 1.5) fill];
+        }
+      return;
+    }
   if (popupOwned)
     {
       highlighted = popupHovered;
@@ -1037,60 +1061,25 @@ WinUIThemePreparePopupMenuTypography(WinUITheme *theme, NSMenuView *menuView)
   titleSize = [attributedTitle size];
   if (popupButtonDisplay)
     {
-      CGFloat arrowWidth = MAX(34.0, ceil([[self metrics] popupControlHeight] * 0.96));
       NSRect drawRect = NSInsetRect(NSIntegralRect(cellFrame), 1.0, 1.0);
-      CGFloat dividerX = NSMaxX(drawRect) - arrowWidth;
       BOOL enabled = [cell isEnabled];
-      BOOL popupOpen = WinUIThemePopupButtonMenuVisible(cell);
-      BOOL dark = [[self settings] prefersDarkAppearance];
-      NSColor *surface = WinUIThemeColorFromTheme(self,
-                                                  @"surfaceColor",
-                                                  [NSColor controlBackgroundColor]);
-      NSColor *separator = WinUIThemeColorFromTheme(self,
-                                                    @"separatorColor",
-                                                    [NSColor controlShadowColor]);
-      NSColor *accent = WinUIThemeColorFromTheme(self,
-                                                 @"accentColor",
-                                                 [NSColor selectedControlColor]);
-      NSColor *labelColor = WinUIThemeColorFromTheme(self,
-                                                     @"secondaryLabelColor",
-                                                     [NSColor controlTextColor]);
-      NSColor *disabledColor = WinUIThemeColorFromTheme(self,
-                                                        @"disabledControlTextColor",
-                                                        [NSColor disabledControlTextColor]);
-      NSColor *laneColor = popupOpen
-        ? WinUIThemeBlendColor(surface, accent, dark ? 0.24 : 0.08)
-        : WinUIThemeBlendColor(surface,
-                               WinUIThemeColorFromTheme(self,
-                                                        @"windowBackgroundColor",
-                                                        [NSColor windowBackgroundColor]),
-                               dark ? 0.08 : 0.03);
-      NSColor *chevronColor = enabled
-        ? (popupOpen ? accent : labelColor)
-        : disabledColor;
-      NSRect laneRect = NSMakeRect(dividerX,
-                                   drawRect.origin.y + 1.0,
-                                   arrowWidth,
-                                   MAX(0.0, drawRect.size.height - 2.0));
 
+      if (enabled)
+        {
+          attributes = WinUIThemeMenuTextAttributes(font,
+                                                    WinUIThemeColorFromTheme(self, @"labelColor",
+                                                                             [NSColor controlTextColor]),
+                                                    NSLeftTextAlignment);
+          attributedTitle = AUTORELEASE([[NSAttributedString alloc] initWithString: title
+                                                                        attributes: attributes]);
+        }
       titleRect = drawRect;
-      titleRect.origin.x += 12.0;
-      titleRect.size.width = MAX(0.0, titleRect.size.width - (arrowWidth + 18.0));
+      titleRect.origin.x += 11.0;
+      titleRect.size.width = MAX(0.0, titleRect.size.width - (WinUIThemeComboBoxGlyphInset + 23.0));
       titleRect.origin.y = floor(NSMidY(drawRect) - (titleSize.height / 2.0));
       titleRect.size.height = ceil(titleSize.height) + 1.0;
-      [attributedTitle drawAtPoint: titleRect.origin];
-
-      [laneColor set];
-      [WinUIThemeRoundedPath(laneRect, WinUIThemeControlCornerRadius(self)) fill];
-      [WinUIThemeColorWithAlpha(separator, popupOpen ? (dark ? 0.58 : 0.78) : (dark ? 0.72 : 0.92)) set];
-      NSRectFill(NSMakeRect(dividerX,
-                            drawRect.origin.y + 7.0,
-                            1.0,
-                            MAX(4.0, drawRect.size.height - 14.0)));
-      WinUIThemeDrawChevron(NSMakePoint(dividerX + floor(arrowWidth / 2.0) - 1.0,
-                                        NSMidY(drawRect)),
-                            NO,
-                            chevronColor);
+      [attributedTitle drawInRect: titleRect];
+      WinUIThemeDrawComboBoxGlyph(self, cellFrame, enabled);
       return;
     }
   if (isHorizontal == NO && popupOwned == NO)

@@ -39,6 +39,105 @@ WinUIThemeTextFieldUsesChromeFill(NSTextFieldCell *cell)
     && (background == nil || [background isEqual: [NSColor textBackgroundColor]]);
 }
 
+/* WinUI's Button and AccentButton (#38): ControlFillColorDefault, with
+   Secondary under the pointer and Tertiary pressed; the elevation border,
+   ControlStrokeColorDefault with a darker ControlStrokeColorSecondary along
+   the bottom; 4pt corners (#35); no gloss (#10). An accent button fills
+   with the accent, at 90% under the pointer and 80% pressed. Fluent's
+   colours are white or black at an opacity over the layer; these blend
+   them over the window background. Pop-ups and combo boxes (#40) use it
+   too. Returns the title colour. */
+NSColor *
+WinUIThemeDrawButtonChrome(WinUITheme *theme, NSRect frame, NSView *view, BOOL enabled,
+                           BOOL defaultButton, BOOL pressed, BOOL hover)
+{
+  BOOL dark = [[theme settings] prefersDarkAppearance];
+  BOOL highContrast = [[theme settings] highContrastEnabled];
+  NSColor *accent = WinUIThemeColorFromTheme(theme, @"accentColor", [NSColor selectedControlColor]);
+  NSColor *window = WinUIThemeColorFromTheme(theme, @"windowBackgroundColor",
+                                             [NSColor windowBackgroundColor]);
+  NSColor *text = WinUIThemeColorFromTheme(theme, @"labelColor", [NSColor controlTextColor]);
+  NSColor *fillColor = nil;
+  NSColor *strokeColor = nil;
+  NSColor *bottomStrokeColor = nil;
+  NSColor *titleColor = nil;
+  NSRect drawRect = NSInsetRect(NSIntegralRect(frame), 0.5, 0.5);
+  NSBezierPath *buttonPath = nil;
+
+  if (highContrast)
+    {
+      fillColor = (defaultButton || pressed) ? accent : window;
+      strokeColor = enabled ? text
+        : WinUIThemeColorFromTheme(theme, @"disabledControlTextColor", [NSColor disabledControlTextColor]);
+      bottomStrokeColor = strokeColor;
+      titleColor = (defaultButton || pressed)
+        ? WinUIThemeColorFromTheme(theme, @"selectedControlTextColor", [NSColor selectedControlTextColor])
+        : strokeColor;
+    }
+  else if (defaultButton)
+    {
+      NSColor *onAccent = WinUIThemeColorFromTheme(theme, @"selectedControlTextColor",
+                                                   [NSColor selectedControlTextColor]);
+
+      fillColor = pressed ? WinUIThemeBlendColor(window, accent, 0.80)
+        : (hover ? WinUIThemeBlendColor(window, accent, 0.90) : accent);
+      /* ControlStrokeColorOnAccentDefault and ...Secondary. */
+      strokeColor = WinUIThemeBlendColor(fillColor, [NSColor whiteColor], 0.08);
+      bottomStrokeColor = pressed ? strokeColor
+        : WinUIThemeBlendColor(fillColor, [NSColor blackColor], dark ? 0.14 : 0.40);
+      /* TextOnAccentFillColorSecondary while pressed. */
+      titleColor = pressed ? WinUIThemeBlendColor(fillColor, onAccent, dark ? 0.50 : 0.70) : onAccent;
+    }
+  else if (enabled == NO)
+    {
+      /* ControlFillColorDisabled and TextFillColorDisabled. */
+      fillColor = WinUIThemeBlendColor(window, [NSColor whiteColor], dark ? 0.04 : 0.30);
+      strokeColor = WinUIThemeBlendColor(fillColor, dark ? [NSColor whiteColor] : [NSColor blackColor],
+                                         dark ? 0.07 : 0.06);
+      bottomStrokeColor = strokeColor;
+      titleColor = WinUIThemeColorFromTheme(theme, @"disabledControlTextColor",
+                                            [NSColor disabledControlTextColor]);
+    }
+  else
+    {
+      CGFloat fill = pressed ? (dark ? 0.03 : 0.30)
+        : (hover ? (dark ? 0.08 : 0.50) : (dark ? 0.06 : 0.70));
+
+      fillColor = WinUIThemeBlendColor(window, [NSColor whiteColor], fill);
+      strokeColor = WinUIThemeBlendColor(fillColor, dark ? [NSColor whiteColor] : [NSColor blackColor],
+                                         dark ? 0.07 : 0.06);
+      bottomStrokeColor = pressed ? strokeColor
+        : WinUIThemeBlendColor(fillColor, dark ? [NSColor whiteColor] : [NSColor blackColor],
+                               dark ? 0.09 : 0.16);
+      /* TextFillColorSecondary while pressed. */
+      titleColor = pressed ? WinUIThemeColorFromTheme(theme, @"secondaryLabelColor", text) : text;
+    }
+
+  buttonPath = WinUIThemeRoundedPath(drawRect, WinUIThemeControlCornerRadius(theme));
+  [fillColor set];
+  [buttonPath fill];
+  [buttonPath setLineWidth: 1.0];
+  [strokeColor set];
+  [buttonPath stroke];
+
+  /* The elevation border's darker bottom: its last 3px. */
+  if (bottomStrokeColor != nil && [bottomStrokeColor isEqual: strokeColor] == NO)
+    {
+      NSGraphicsContext *context = [NSGraphicsContext currentContext];
+      BOOL flipped = (view != nil && [view isFlipped]);
+      NSRect bottom = NSMakeRect(NSMinX(drawRect) - 1.0,
+                                 flipped ? NSMaxY(drawRect) - 2.5 : NSMinY(drawRect) - 1.0,
+                                 NSWidth(drawRect) + 2.0, 3.5);
+
+      [context saveGraphicsState];
+      [[NSBezierPath bezierPathWithRect: bottom] addClip];
+      [bottomStrokeColor set];
+      [buttonPath stroke];
+      [context restoreGraphicsState];
+    }
+  return titleColor;
+}
+
 static NSColor *
 WinUIThemeAccentStrokeColor(WinUITheme *theme)
 {
@@ -508,36 +607,13 @@ WinUIThemePopupDisplayString(NSPopUpButtonCell *cell)
   BOOL popupButton = [cell isKindOfClass: [NSPopUpButtonCell class]];
   BOOL popupOpen = (popupButton && WinUIThemePopupButtonMenuVisible(cell));
   BOOL enabled = (state != GSThemeDisabledState);
-  BOOL defaultButton = enabled && WinUIThemeButtonIsDefault(cell);
-  BOOL pressed = WinUIThemeStateIsHighlighted(state);
+  BOOL defaultButton = enabled && popupButton == NO && WinUIThemeButtonIsDefault(cell);
+  BOOL pressed = WinUIThemeStateIsHighlighted(state) || popupOpen;
   BOOL hover = NO;
-  BOOL dark = [[self settings] prefersDarkAppearance];
-  BOOL highContrast = [[self settings] highContrastEnabled];
-  NSColor *accent = WinUIThemeColorFromTheme(self, @"accentColor", [NSColor selectedControlColor]);
-  NSColor *window = WinUIThemeColorFromTheme(self, @"windowBackgroundColor",
-                                             [NSColor windowBackgroundColor]);
-  NSColor *text = WinUIThemeColorFromTheme(self, @"labelColor", [NSColor controlTextColor]);
-  NSColor *fillColor = nil;
-  NSColor *strokeColor = nil;
-  NSColor *bottomStrokeColor = nil;
   NSColor *titleColor = nil;
-  CGFloat radius = WinUIThemeControlCornerRadius(self);
-  NSRect drawRect = NSInsetRect(NSIntegralRect(frame), 0.5, 0.5);
-  NSBezierPath *buttonPath = nil;
 
-  if (popupButton)
-    {
-      WinUIThemeDrawInputChrome(self,
-                                frame,
-                                enabled,
-                                pressed || popupOpen,
-                                NO,
-                                YES,
-                                YES);
-      return;
-    }
-
-  if (WinUIThemeUsesModernPushButton(style) == NO)
+  /* A pop-up button is WinUI's ComboBox: a button with a chevron (#40). */
+  if (popupButton == NO && WinUIThemeUsesModernPushButton(style) == NO)
     {
       [super drawButton: frame in: cell view: view style: style state: state];
       return;
@@ -553,81 +629,10 @@ WinUIThemePopupDisplayString(NSPopUpButtonCell *cell)
       hover = enabled && WinUIThemeViewIsHovered(view);
     }
 
-  if (highContrast)
-    {
-      fillColor = (defaultButton || pressed) ? accent : window;
-      strokeColor = enabled ? text
-        : WinUIThemeColorFromTheme(self, @"disabledControlTextColor", [NSColor disabledControlTextColor]);
-      bottomStrokeColor = strokeColor;
-      titleColor = (defaultButton || pressed)
-        ? WinUIThemeColorFromTheme(self, @"selectedControlTextColor", [NSColor selectedControlTextColor])
-        : strokeColor;
-    }
-  else if (defaultButton)
-    {
-      NSColor *onAccent = WinUIThemeColorFromTheme(self, @"selectedControlTextColor",
-                                                   [NSColor selectedControlTextColor]);
-
-      fillColor = pressed ? WinUIThemeBlendColor(window, accent, 0.80)
-        : (hover ? WinUIThemeBlendColor(window, accent, 0.90) : accent);
-      /* ControlStrokeColorOnAccentDefault and ...Secondary. */
-      strokeColor = WinUIThemeBlendColor(fillColor, [NSColor whiteColor], 0.08);
-      bottomStrokeColor = pressed ? strokeColor
-        : WinUIThemeBlendColor(fillColor, [NSColor blackColor], dark ? 0.14 : 0.40);
-      /* TextOnAccentFillColorSecondary while pressed. */
-      titleColor = pressed ? WinUIThemeBlendColor(fillColor, onAccent, dark ? 0.50 : 0.70) : onAccent;
-    }
-  else if (enabled == NO)
-    {
-      /* ControlFillColorDisabled and TextFillColorDisabled. */
-      fillColor = WinUIThemeBlendColor(window, [NSColor whiteColor], dark ? 0.04 : 0.30);
-      strokeColor = WinUIThemeBlendColor(fillColor, dark ? [NSColor whiteColor] : [NSColor blackColor],
-                                         dark ? 0.07 : 0.06);
-      bottomStrokeColor = strokeColor;
-      titleColor = WinUIThemeColorFromTheme(self, @"disabledControlTextColor",
-                                            [NSColor disabledControlTextColor]);
-    }
-  else
-    {
-      CGFloat fill = pressed ? (dark ? 0.03 : 0.30)
-        : (hover ? (dark ? 0.08 : 0.50) : (dark ? 0.06 : 0.70));
-
-      fillColor = WinUIThemeBlendColor(window, [NSColor whiteColor], fill);
-      strokeColor = WinUIThemeBlendColor(fillColor, dark ? [NSColor whiteColor] : [NSColor blackColor],
-                                         dark ? 0.07 : 0.06);
-      bottomStrokeColor = pressed ? strokeColor
-        : WinUIThemeBlendColor(fillColor, dark ? [NSColor whiteColor] : [NSColor blackColor],
-                               dark ? 0.09 : 0.16);
-      /* TextFillColorSecondary while pressed. */
-      titleColor = pressed ? WinUIThemeColorFromTheme(self, @"secondaryLabelColor", text) : text;
-    }
-
-  if ([cell isKindOfClass: [NSButtonCell class]] && titleColor != nil)
+  titleColor = WinUIThemeDrawButtonChrome(self, frame, view, enabled, defaultButton, pressed, hover);
+  if (popupButton == NO && [cell isKindOfClass: [NSButtonCell class]] && titleColor != nil)
     {
       WinUIThemeApplyButtonTitleAttributes(self, (NSButtonCell *)cell, titleColor, NO);
-    }
-
-  buttonPath = WinUIThemeRoundedPath(drawRect, radius);
-  [fillColor set];
-  [buttonPath fill];
-  [buttonPath setLineWidth: 1.0];
-  [strokeColor set];
-  [buttonPath stroke];
-
-  /* The elevation border's darker bottom: its last 3px. */
-  if (bottomStrokeColor != nil && [bottomStrokeColor isEqual: strokeColor] == NO)
-    {
-      NSGraphicsContext *context = [NSGraphicsContext currentContext];
-      BOOL flipped = (view != nil && [view isFlipped]);
-      NSRect bottom = NSMakeRect(NSMinX(drawRect) - 1.0,
-                                 flipped ? NSMaxY(drawRect) - 2.5 : NSMinY(drawRect) - 1.0,
-                                 NSWidth(drawRect) + 2.0, 3.5);
-
-      [context saveGraphicsState];
-      [[NSBezierPath bezierPathWithRect: bottom] addClip];
-      [bottomStrokeColor set];
-      [buttonPath stroke];
-      [context restoreGraphicsState];
     }
 }
 
@@ -674,6 +679,18 @@ WinUIThemePopupDisplayString(NSPopUpButtonCell *cell)
                   frame: (NSRect)frame
                    view: (NSView *)view
 {
+  if ([view isKindOfClass: [NSComboBox class]] && [(NSComboBox *)view isEditable] == NO
+      && (aType == NSBezelBorder || aType == NSLineBorder))
+    {
+      BOOL enabled = WinUIThemeControlEnabled(view);
+      NSCell *cell = [(NSControl *)view cell];
+
+      WinUIThemeTrackHover(view);
+      WinUIThemeDrawButtonChrome(self, frame, view, enabled, NO,
+                                 [cell isHighlighted],
+                                 enabled && WinUIThemeViewIsHovered(view));
+      return;
+    }
   if (WinUIThemeUsesInputBorder(aType, view))
     {
       WinUIThemeDrawTextBoxChrome(self, frame, view, WinUIThemeControlEnabled(view));
@@ -687,66 +704,8 @@ WinUIThemePopupDisplayString(NSPopUpButtonCell *cell)
                                      withCell: (NSCell *)cell
                                        inView: (NSView *)controlView
 {
-  BOOL enabled = WinUIThemeControlEnabled(cell);
-  BOOL highlighted = NO;
-  BOOL popupOpen = WinUIThemePopupButtonMenuVisible(cell);
-  BOOL dark = [[self settings] prefersDarkAppearance];
-  NSColor *surface = WinUIThemeColorFromTheme(self,
-                                              @"surfaceColor",
-                                              [NSColor controlBackgroundColor]);
-  NSColor *separator = WinUIThemeColorFromTheme(self,
-                                                @"separatorColor",
-                                                [NSColor controlShadowColor]);
-  NSColor *accent = WinUIThemeColorFromTheme(self,
-                                             @"accentColor",
-                                             [NSColor selectedControlColor]);
-  NSColor *labelColor = WinUIThemeColorFromTheme(self,
-                                                 @"secondaryLabelColor",
-                                                 [NSColor controlTextColor]);
-  NSColor *disabledColor = WinUIThemeColorFromTheme(self,
-                                                    @"disabledControlTextColor",
-                                                    [NSColor disabledControlTextColor]);
-  NSRect drawRect = NSInsetRect(NSIntegralRect(cellFrame), 1.0, 1.0);
-  CGFloat arrowWidth = MAX(34.0, ceil([[self metrics] popupControlHeight] * 0.96));
-  CGFloat dividerX = NSMaxX(drawRect) - arrowWidth;
-  NSColor *chevronColor = nil;
-  NSColor *laneColor = nil;
-  NSRect laneRect = NSMakeRect(dividerX,
-                               drawRect.origin.y + 1.0,
-                               arrowWidth,
-                               MAX(0.0, drawRect.size.height - 2.0));
-
-  if ([cell respondsToSelector: @selector(isHighlighted)])
-    {
-      highlighted = [(id)cell isHighlighted];
-    }
-
-  laneColor = popupOpen
-    ? WinUIThemeBlendColor(surface, accent, dark ? 0.24 : 0.08)
-    : WinUIThemeBlendColor(surface,
-                           WinUIThemeColorFromTheme(self,
-                                                    @"windowBackgroundColor",
-                                                    [NSColor windowBackgroundColor]),
-                           dark ? 0.08 : 0.03);
-
-  [laneColor set];
-  [WinUIThemeRoundedPath(laneRect, WinUIThemeControlCornerRadius(self)) fill];
-
-  [WinUIThemeColorWithAlpha(separator, popupOpen ? (dark ? 0.58 : 0.78) : (dark ? 0.72 : 0.92)) set];
-  NSRectFill(NSMakeRect(dividerX,
-                        drawRect.origin.y + 7.0,
-                        1.0,
-                        MAX(4.0, drawRect.size.height - 14.0)));
-
-  chevronColor = enabled
-    ? (highlighted || popupOpen ? accent : labelColor)
-    : disabledColor;
-  WinUIThemeDrawChevron(NSMakePoint(dividerX + floor(arrowWidth / 2.0) - 1.0,
-                                    NSMidY(drawRect)),
-                        NO,
-                        chevronColor);
-
   (void)controlView;
+  WinUIThemeDrawComboBoxGlyph(self, cellFrame, WinUIThemeControlEnabled(cell));
 }
 
 - (void) drawSegmentedControlSegment: (NSCell *)cell
@@ -1514,8 +1473,7 @@ WinUIThemeSwitchColors(WinUITheme *theme,
 
   {
     CGFloat leftInset = MAX(12.0, rect.origin.x - aRect.origin.x);
-    CGFloat arrowWidth = MAX(34.0, ceil([[theme metrics] popupControlHeight] * 0.96));
-    CGFloat rightInset = arrowWidth + 12.0;
+    CGFloat rightInset = WinUIThemeComboBoxGlyphInset + 12.0;
     CGFloat rightEdge = NSMaxX(aRect) - rightInset;
 
     rect.origin.x = aRect.origin.x + leftInset;
@@ -1539,10 +1497,7 @@ WinUIThemeSwitchColors(WinUITheme *theme,
   NSRect drawRect = NSZeroRect;
   NSRect titleRect = NSZeroRect;
   NSSize titleSize = NSZeroSize;
-  CGFloat arrowWidth = 0.0;
   BOOL enabled = [(NSCell *)self isEnabled];
-  BOOL focused = WinUIThemeViewHasFocus(controlView) && enabled;
-  BOOL popupOpen = WinUIThemePopupButtonMenuVisible(cell);
   NSColor *textColor = nil;
 
   if (theme == nil)
@@ -1570,19 +1525,16 @@ WinUIThemeSwitchColors(WinUITheme *theme,
     }
 
   textColor = enabled
-    ? WinUIThemeColorFromTheme(theme,
-                               (popupOpen || focused) ? @"labelColor" : @"secondaryLabelColor",
-                               [NSColor controlTextColor])
+    ? WinUIThemeColorFromTheme(theme, @"labelColor", [NSColor controlTextColor])
     : WinUIThemeColorFromTheme(theme,
                                @"disabledControlTextColor",
                                [NSColor disabledControlTextColor]);
   [attributes setObject: textColor forKey: NSForegroundColorAttributeName];
 
   drawRect = NSInsetRect(NSIntegralRect(cellFrame), 1.0, 1.0);
-  arrowWidth = MAX(34.0, ceil([[theme metrics] popupControlHeight] * 0.96));
   titleRect = drawRect;
-  titleRect.origin.x += 12.0;
-  titleRect.size.width = MAX(0.0, titleRect.size.width - (arrowWidth + 18.0));
+  titleRect.origin.x += 11.0;
+  titleRect.size.width = MAX(0.0, titleRect.size.width - (WinUIThemeComboBoxGlyphInset + 23.0));
   titleSize = [title sizeWithAttributes: attributes];
   titleRect.origin.y = floor(NSMidY(drawRect) - (titleSize.height / 2.0));
   titleRect.size.height = ceil(titleSize.height) + 1.0;
@@ -1652,17 +1604,8 @@ WinUIThemeSwitchColors(WinUITheme *theme,
   DrawInteriorIMP originalIMP = (DrawInteriorIMP)WinUIThemeOriginalMethod(_cmd, self, [NSComboBoxCell class]);
   WinUITheme *theme = WinUIThemeActiveTheme();
   NSComboBoxCell *cell = (NSComboBoxCell *)self;
-  NSRect buttonRect = WinUIThemeComboBoxButtonRect(cellFrame);
   NSRect textRect = WinUIThemeComboBoxTextRect(cell, cellFrame);
-  NSRect interiorRect = NSInsetRect(cellFrame, 1.0, 1.0);
   BOOL enabled = [(NSCell *)self isEnabled];
-  BOOL focused = WinUIThemeViewHasFocus(controlView) && enabled;
-  BOOL editing = ([controlView isKindOfClass: [NSControl class]]
-                  && [(NSControl *)controlView currentEditor] != nil);
-  NSColor *entryFill = nil;
-  NSColor *arrowColor = WinUIThemeColorFromTheme(theme,
-                                                 enabled ? @"controlTextColor" : @"disabledControlTextColor",
-                                                 enabled ? [NSColor controlTextColor] : [NSColor disabledControlTextColor]);
   NSString *displayString = WinUIThemeComboBoxDisplayString(cell);
   NSMutableDictionary *attributes = nil;
   NSSize textSize = NSZeroSize;
@@ -1677,28 +1620,18 @@ WinUIThemeSwitchColors(WinUITheme *theme,
       return;
     }
 
-  WinUIThemeResolveEntryColors(theme,
-                               controlView,
-                               enabled,
-                               focused,
-                               NO,
-                               &entryFill,
-                               NULL,
-                               NULL);
-
+  /* Where libs-gui's list window opens. */
   [cell setValue: [NSValue valueWithRect: cellFrame] forKey: @"_lastValidFrame"];
 
-  if (editing)
+  if ([cell _inEditing])
     {
-      if (originalIMP != NULL)
-        {
-          originalIMP(self, _cmd, cellFrame, controlView);
-        }
+      NSRect editorFrame = cellFrame;
+
+      editorFrame.size.width = MAX(0.0, NSWidth(cellFrame) - WinUIThemeComboBoxGlyphInset - 12.0);
+      [cell _drawEditorWithFrame: editorFrame inView: controlView];
+      WinUIThemeDrawComboBoxGlyph(theme, cellFrame, enabled);
       return;
     }
-
-  [entryFill set];
-  NSRectFillUsingOperation(interiorRect, NSCompositeSourceOver);
 
   if ([displayString length] > 0)
     {
@@ -1717,7 +1650,6 @@ WinUIThemeSwitchColors(WinUITheme *theme,
 
       textSize = [displayString sizeWithAttributes: attributes];
       textRect.origin.y = floor(NSMidY(cellFrame) - (textSize.height / 2.0));
-      textRect.size.width = MAX(textRect.size.width, ceil(textSize.width) + 2.0);
       textRect.size.height = ceil(textSize.height) + 1.0;
       {
         NSAttributedString *attributedString = AUTORELEASE([[NSAttributedString alloc]
@@ -1738,12 +1670,48 @@ WinUIThemeSwitchColors(WinUITheme *theme,
       RELEASE(attributes);
     }
 
-  [entryFill set];
-  NSRectFillUsingOperation(NSInsetRect(buttonRect, -1.0, 0.0), NSCompositeSourceOver);
+  WinUIThemeDrawComboBoxGlyph(theme, cellFrame, enabled);
+}
 
-  WinUIThemeDrawChevron(NSMakePoint(NSMidX(buttonRect), NSMidY(buttonRect)),
-                        NO,
-                        arrowColor);
+/* A non-editable combo box is WinUI's ComboBox: no text editor (libs-gui
+   started one on focus, drawing an empty field and its "..." button). */
+- (void) _overrideNSComboBoxCellMethod_selectWithFrame: (NSRect)aRect
+                                                inView: (NSView *)controlView
+                                                editor: (NSText *)textObj
+                                              delegate: (id)anObject
+                                                 start: (NSInteger)selStart
+                                                length: (NSInteger)selLength
+{
+  typedef void (*SelectIMP)(id, SEL, NSRect, NSView *, NSText *, id, NSInteger, NSInteger);
+  SelectIMP originalIMP = (SelectIMP)WinUIThemeOriginalMethod(_cmd, self, [NSComboBoxCell class]);
+
+  if (WinUIThemeActiveTheme() != nil && [(NSCell *)self isEditable] == NO)
+    {
+      return;
+    }
+  if (originalIMP != NULL)
+    {
+      originalIMP(self, _cmd, aRect, controlView, textObj, anObject, selStart, selLength);
+    }
+}
+
+- (void) _overrideNSComboBoxCellMethod_editWithFrame: (NSRect)aRect
+                                              inView: (NSView *)controlView
+                                              editor: (NSText *)textObj
+                                            delegate: (id)anObject
+                                               event: (NSEvent *)theEvent
+{
+  typedef void (*EditIMP)(id, SEL, NSRect, NSView *, NSText *, id, NSEvent *);
+  EditIMP originalIMP = (EditIMP)WinUIThemeOriginalMethod(_cmd, self, [NSComboBoxCell class]);
+
+  if (WinUIThemeActiveTheme() != nil && [(NSCell *)self isEditable] == NO)
+    {
+      return;
+    }
+  if (originalIMP != NULL)
+    {
+      originalIMP(self, _cmd, aRect, controlView, textObj, anObject, theEvent);
+    }
 }
 
 - (BOOL) _overrideNSComboBoxCellMethod_trackMouse: (NSEvent *)theEvent
