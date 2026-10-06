@@ -299,6 +299,7 @@ QuirkProbeModuleOfAddress(void *address)
 - (void) checkButtonChrome;
 - (void) checkMenuFlyout;
 - (void) checkOverlayScrollers;
+- (void) checkFocusVisual;
 - (void) createLateWindow: (NSTimer *)timer;
 - (void) checkLateWindow: (NSTimer *)timer;
 - (void) checkMenuBarTitles: (NSWindow *)window;
@@ -2070,6 +2071,153 @@ QuirkProbeStripInk(NSScrollView *scrollView, NSUInteger fill, CGFloat inset)
   [window orderOut: nil];
 }
 
+/* Pixels that differ between two renders of the same size. */
+static NSUInteger
+QuirkProbeDifferingPixels(NSBitmapImageRep *a, NSBitmapImageRep *b)
+{
+  NSInteger x, y;
+  NSUInteger count = 0;
+
+  if ([a pixelsWide] != [b pixelsWide] || [a pixelsHigh] != [b pixelsHigh])
+    {
+      return NSUIntegerMax;
+    }
+  for (y = 0; y < [a pixelsHigh]; y++)
+    {
+      for (x = 0; x < [a pixelsWide]; x++)
+        {
+          NSUInteger r1, g1, b1, r2, g2, b2;
+
+          QuirkProbePixel(a, x, y, &r1, &g1, &b1);
+          QuirkProbePixel(b, x, y, &r2, &g2, &b2);
+          if (llabs((long long)(r1 + g1 + b1) - (long long)(r2 + g2 + b2)) > 6)
+            {
+              count++;
+            }
+        }
+    }
+  return count;
+}
+
+/* Sends `window` a press and release of the left button at `point`. */
+static void
+QuirkProbeClickAt(NSWindow *window, NSPoint point)
+{
+  NSEvent *down = [NSEvent mouseEventWithType: NSLeftMouseDown location: point modifierFlags: 0
+                                    timestamp: 0 windowNumber: [window windowNumber] context: nil
+                                  eventNumber: 0 clickCount: 1 pressure: 1];
+  NSEvent *up = [NSEvent mouseEventWithType: NSLeftMouseUp location: point modifierFlags: 0
+                                  timestamp: 0 windowNumber: [window windowNumber] context: nil
+                                eventNumber: 0 clickCount: 1 pressure: 0];
+
+  [NSApp sendEvent: down];
+  [NSApp sendEvent: up];
+}
+
+/* The brightness 2px left of `view`'s middle, in a render of its window's
+   content view: on the ring's outer stroke. */
+static NSInteger
+QuirkProbeBrightnessLeftOf(NSView *view)
+{
+  NSView *content = [[view window] contentView];
+  NSBitmapImageRep *rep = QuirkProbeRender(content);
+  CGFloat scale = QuirkProbeScale(rep, content);
+  NSRect frame = [content convertRect: [view bounds] fromView: view];
+  CGFloat y = [content isFlipped] ? NSMidY(frame) : NSHeight([content bounds]) - NSMidY(frame);
+
+  return QuirkProbeBrightnessAt(rep, scale, NSMinX(frame) - 2.0, y);
+}
+
+/* WinUI's focus visual (issue #36): a control focused by a click shows no
+   ring; Tab to the next one shows the double stroke outside it, in the
+   text colour rather than the accent; a click clears it. */
+- (void) checkFocusVisual
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(420, 620, 300, 80)
+                                     title: @"QuirkProbe Focus"];
+  NSButton *first = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(20, 24, 100, 32)]);
+  NSButton *second = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(160, 24, 100, 32)]);
+  NSBitmapImageRep *focused, *plain;
+  NSUInteger differing;
+  NSInteger background, ring, cleared;
+  NSEvent *tab = nil;
+
+  [first setButtonType: NSMomentaryPushInButton];
+  [first setBezelStyle: NSRoundedBezelStyle];
+  [first setTitle: @"First"];
+  [second setButtonType: NSMomentaryPushInButton];
+  [second setBezelStyle: NSRoundedBezelStyle];
+  [second setTitle: @"Second"];
+  [first setNextKeyView: second];
+  [second setNextKeyView: first];
+  [[window contentView] addSubview: first];
+  [[window contentView] addSubview: second];
+  [window makeKeyAndOrderFront: nil];
+
+  /* Focused, after a press of the pointer: as unfocused. */
+  QuirkProbeClickAt(window, NSMakePoint(290, 70));
+  [window makeFirstResponder: first];
+  [window display];
+  focused = RETAIN(QuirkProbeRender(first));
+  [window makeFirstResponder: window];
+  [window display];
+  plain = QuirkProbeRender(first);
+  differing = QuirkProbeDifferingPixels(focused, plain);
+  RELEASE(focused);
+  if (differing == 0)
+    {
+      [self pass: @"focus-ring-hidden-after-click" detail: @"a button focused by the pointer shows no ring"];
+    }
+  else
+    {
+      [self fail: @"focus-ring-hidden-after-click" detail: [NSString stringWithFormat:
+        @"a button focused by the pointer differs from an unfocused one in %lu px", (unsigned long)differing]];
+    }
+
+  /* Tab: the ring shows outside the next button. */
+  [window makeFirstResponder: first];
+  [window display];
+  background = QuirkProbeBrightnessLeftOf(second);
+  tab = [NSEvent keyEventWithType: NSKeyDown location: NSZeroPoint modifierFlags: 0 timestamp: 0
+                     windowNumber: [window windowNumber] context: nil characters: @"\t"
+      charactersIgnoringModifiers: @"\t" isARepeat: NO keyCode: 0x09];
+  [NSApp sendEvent: tab];
+  [window display];
+  [self saveView: [window contentView] named: @"focus-ring"];
+  ring = QuirkProbeBrightnessLeftOf(second);
+  if ([window firstResponder] != second)
+    {
+      [self fail: @"focus-ring-after-keyboard" detail: @"Tab didn't move focus to the next button"];
+    }
+  else if (llabs((long long)(ring - background)) >= 150)
+    {
+      [self pass: @"focus-ring-after-keyboard" detail: [NSString stringWithFormat:
+        @"after Tab, 2px outside the button is %ld, the background %ld (of 765)", (long)ring, (long)background]];
+    }
+  else
+    {
+      [self fail: @"focus-ring-after-keyboard" detail: [NSString stringWithFormat:
+        @"after Tab, 2px outside the button is %ld, the background %ld (of 765): no ring",
+        (long)ring, (long)background]];
+    }
+
+  /* A press of the pointer clears it, margin and all. */
+  QuirkProbeClickAt(window, NSMakePoint(290, 70));
+  [window display];
+  cleared = QuirkProbeBrightnessLeftOf(second);
+  if (llabs((long long)(cleared - background)) <= 6)
+    {
+      [self pass: @"focus-ring-cleared-by-click" detail: @"a press of the pointer clears the ring"];
+    }
+  else
+    {
+      [self fail: @"focus-ring-cleared-by-click" detail: [NSString stringWithFormat:
+        @"after a click, 2px outside the button is %ld, the background %ld (of 765)",
+        (long)cleared, (long)background]];
+    }
+  [window orderOut: nil];
+}
+
 - (void) checkLateWindow: (NSTimer *)timer
 {
   NSMenu *mainMenu = [NSApp mainMenu];
@@ -2371,6 +2519,7 @@ QuirkProbeLastItemOfMenu(NSString *title)
   [self checkButtonChrome];
   [self checkMenuFlyout];
   [self checkOverlayScrollers];
+  [self checkFocusVisual];
   [self checkPopUpClick];
   [self after: QuirkProbeSettleDelay perform: @selector(createLateWindow:)];
 }

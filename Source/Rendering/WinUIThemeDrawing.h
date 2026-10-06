@@ -43,6 +43,10 @@ CGFloat WinUIThemeOverlayCornerRadius(WinUITheme *theme);
 /* YES when scroll bars overlay the content and hide (WinUIThemeScrollers.m). */
 BOOL WinUIThemeUsesOverlayScrollers(void);
 
+/* YES while focus rings show: after a key press, until a pointer press
+   (WinUIThemeFocus.m). */
+BOOL WinUIThemeKeyboardFocusVisible(void);
+
 /* Pointer-over state (WinUIThemeHover.m). */
 void WinUIThemeTrackHover(NSView *view);
 BOOL WinUIThemeViewIsHovered(NSView *view);

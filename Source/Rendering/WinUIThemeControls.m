@@ -141,20 +141,6 @@ WinUIThemeDrawCheckboxOrRadioIndicator(WinUITheme *theme,
                                            [NSColor disabledControlTextColor]);
     }
 
-  if (WinUIThemeViewHasFocus(controlView) && enabled)
-    {
-      NSColor *accent = WinUIThemeColorFromTheme(theme,
-                                                 @"accentColor",
-                                                 [NSColor keyboardFocusIndicatorColor]);
-      NSRect focusRect = NSInsetRect(indicatorRect, -2.0, -2.0);
-      NSBezierPath *focusPath = WinUIThemeRoundedPath(focusRect,
-                                                      radio ? focusRect.size.height / 2.0 : 6.0);
-
-      [WinUIThemeColorWithAlpha(accent, 0.18) set];
-      [focusPath setLineWidth: 2.0];
-      [focusPath stroke];
-    }
-
   if (radio)
     {
       path = [NSBezierPath bezierPathWithOvalInRect: NSInsetRect(indicatorRect, 0.5, 0.5)];
@@ -512,7 +498,6 @@ WinUIThemePopupDisplayString(NSPopUpButtonCell *cell)
   BOOL enabled = (state != GSThemeDisabledState);
   BOOL defaultButton = enabled && WinUIThemeButtonIsDefault(cell);
   BOOL pressed = WinUIThemeStateIsHighlighted(state);
-  BOOL focused = WinUIThemeStateHasFocus(state);
   BOOL hover = NO;
   BOOL dark = [[self settings] prefersDarkAppearance];
   BOOL highContrast = [[self settings] highContrastEnabled];
@@ -534,7 +519,7 @@ WinUIThemePopupDisplayString(NSPopUpButtonCell *cell)
                                 frame,
                                 enabled,
                                 pressed || popupOpen,
-                                focused || WinUIThemeViewHasFocus(view),
+                                NO,
                                 YES,
                                 YES);
       return;
@@ -692,28 +677,6 @@ WinUIThemePopupDisplayString(NSPopUpButtonCell *cell)
   [super drawBorderType: aType frame: frame view: view];
 }
 
-- (void) drawFocusFrame: (NSRect)frame view: (NSView *)view
-{
-  NSColor *accent = WinUIThemeColorFromTheme(self,
-                                             @"accentColor",
-                                             [NSColor keyboardFocusIndicatorColor]);
-  CGFloat radius = MAX(8.0, [[self metrics] controlCornerRadius] + 4.0);
-  NSRect outerRect = NSInsetRect(NSIntegralRect(frame), -3.0, -3.0);
-  NSRect innerRect = NSInsetRect(outerRect, 1.5, 1.5);
-  NSBezierPath *outerPath = WinUIThemeRoundedPath(outerRect, radius);
-  NSBezierPath *innerPath = WinUIThemeRoundedPath(innerRect, MAX(5.0, radius - 1.5));
-
-  (void)view;
-
-  [WinUIThemeColorWithAlpha(accent, 0.24) set];
-  [outerPath setLineWidth: 3.0];
-  [outerPath stroke];
-
-  [WinUIThemeColorWithAlpha(accent, 0.88) set];
-  [innerPath setLineWidth: 1.5];
-  [innerPath stroke];
-}
-
 - (void) drawPopUpButtonCellInteriorWithFrame: (NSRect)cellFrame
                                      withCell: (NSCell *)cell
                                        inView: (NSView *)controlView
@@ -790,7 +753,6 @@ WinUIThemePopupDisplayString(NSPopUpButtonCell *cell)
 {
   BOOL enabled = (state != GSThemeDisabledState);
   BOOL selected = WinUIThemeStateIsHighlighted(state);
-  BOOL focused = WinUIThemeStateHasFocus(state);
   BOOL dark = [[self settings] prefersDarkAppearance];
   NSColor *separator = WinUIThemeColorFromTheme(self,
                                                 @"separatorColor",
@@ -804,7 +766,7 @@ WinUIThemePopupDisplayString(NSPopUpButtonCell *cell)
                               cellFrame,
                               enabled,
                               selected,
-                              focused,
+                              NO,
                               roundedLeft,
                               roundedRight);
 
