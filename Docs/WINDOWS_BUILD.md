@@ -16,6 +16,10 @@ Repo-root helper scripts:
 - `powershell -ExecutionPolicy Bypass -File Tests/Scripts/Invoke-ThemeAcceptanceMatrix.ps1`
 - `powershell -ExecutionPolicy Bypass -File Tests/Scripts/Invoke-ObjcMarkdownValidation.ps1`
 
+The build scripts call `Scripts/Invoke-GNUstepMake.ps1`, which uses the
+`gnustep` CLI when it is on `PATH` and otherwise runs GNUstep Make in MSYS2's
+`clang64` environment.
+
 ## Theme Bundle
 
 Best-effort build:
