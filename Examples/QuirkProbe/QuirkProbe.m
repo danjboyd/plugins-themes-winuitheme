@@ -170,6 +170,7 @@ QuirkProbeFindViewOfClass(NSView *view, Class viewClass)
 - (void) checkToolbarImageItem;
 - (void) checkScrollerEdge;
 - (void) checkTableHeader;
+- (void) checkMultilineLabels;
 - (void) createLateWindow: (NSTimer *)timer;
 - (void) checkLateWindow: (NSTimer *)timer;
 - (void) checkMenuBarTitles: (NSWindow *)window;
@@ -330,6 +331,21 @@ objectValueForTableColumn: (NSTableColumn *)column
              row: (NSInteger)row
 {
   return [NSString stringWithFormat: @"Row %ld", (long)row];
+}
+
+- (NSTextField *) labelWithText: (NSString *)text frame: (NSRect)frame
+{
+  NSTextField *label = [[NSTextField alloc] initWithFrame: frame];
+
+  [label setStringValue: text];
+  [label setBezeled: NO];
+  [label setBordered: NO];
+  [label setEditable: NO];
+  [label setSelectable: NO];
+  [label setDrawsBackground: YES];
+  [label setBackgroundColor: [NSColor whiteColor]];
+  [label setTextColor: [NSColor blackColor]];
+  return AUTORELEASE(label);
 }
 
 #pragma mark Checks
@@ -599,6 +615,58 @@ objectValueForTableColumn: (NSTableColumn *)column
     }
 }
 
+/* Labels whose text needs more than one line show every line that fits
+   (issue #15): wrapping text, and text with line breaks. The theme centred
+   every label on a single line. */
+- (void) checkMultilineLabels
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(780, 220, 300, 220)
+                                     title: @"QuirkProbe Labels"];
+  NSTextField *wrapping = [self labelWithText:
+    @"The files stay on this computer. The app stops syncing this folder "
+    @"and forgets its settings; you can add it again later."
+                                        frame: NSMakeRect(10, 110, 220, 100)];
+  NSTextField *breaks = [self labelWithText: @"First line\nSecond line\nThird line"
+                                      frame: NSMakeRect(10, 10, 220, 90)];
+  NSArray *labels = [NSArray arrayWithObjects: wrapping, breaks, nil];
+  NSArray *names = [NSArray arrayWithObjects: @"label-wraps", @"label-line-breaks", nil];
+  NSUInteger index;
+
+  [[wrapping cell] setWraps: YES];
+  [[wrapping cell] setLineBreakMode: NSLineBreakByWordWrapping];
+  [[window contentView] addSubview: wrapping];
+  [[window contentView] addSubview: breaks];
+  [window orderFront: nil];
+  [window display];
+
+  QuirkProbeInkBackground = 765;
+  for (index = 0; index < [labels count]; index++)
+    {
+      NSTextField *label = [labels objectAtIndex: index];
+      NSString *name = [names objectAtIndex: index];
+      NSBitmapImageRep *rep = QuirkProbeRender(label);
+      CGFloat scale = QuirkProbeScale(rep, label);
+      NSDictionary *attributes = [NSDictionary dictionaryWithObject: [label font]
+                                                             forKey: NSFontAttributeName];
+      CGFloat lineHeight = [@"Ag" sizeWithAttributes: attributes].height * scale;
+      QuirkProbeInk ink = QuirkProbeMeasureIn(rep, QuirkProbeIsInk, NSZeroRect);
+
+      [self saveView: label named: name];
+      if (ink.count > 0 && ink.height > 1.5 * lineHeight)
+        {
+          [self pass: name detail:
+            [NSString stringWithFormat: @"text spans %ld px, a line is %.0f",
+                                        (long)ink.height, lineHeight]];
+        }
+      else
+        {
+          [self fail: name detail:
+            [NSString stringWithFormat: @"text spans %ld px: one line of %.0f",
+                                        (long)ink.height, lineHeight]];
+        }
+    }
+}
+
 /* A window created after launch gets the main menu (issue #1). libs-gui
    only attaches the Windows 95 style menu to windows that exist when it
    first updates the menu. */
@@ -736,6 +804,7 @@ objectValueForTableColumn: (NSTableColumn *)column
   [self checkToolbarImageItem];
   [self checkScrollerEdge];
   [self checkTableHeader];
+  [self checkMultilineLabels];
   [self after: QuirkProbeSettleDelay perform: @selector(createLateWindow:)];
 }
 

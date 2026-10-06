@@ -1352,6 +1352,27 @@ WinUIThemePopupDisplayString(NSPopUpButtonCell *cell)
                                                          forKey: NSFontAttributeName];
   NSSize titleSize = [@"Ag" sizeWithAttributes: attributes];
 
+  /* Labels (text fields without a bezel or border) whose text needs more
+     than one line (line breaks, or a wrapping cell too narrow for it) keep
+     the full rect; centring them on one line showed only their first line,
+     e.g. an NSAlert's informative text. Only when the frame has room for a
+     second line: a one-line label that's too long stays centred. Cells drawn
+     by table and header views stay single-line. */
+  if ([cell isBezeled] == NO && [cell isBordered] == NO
+      && [[cell controlView] isKindOfClass: [NSTextField class]])
+    {
+      NSString *string = [cell stringValue];
+      BOOL hasBreaks = ([string rangeOfCharacterFromSet:
+                          [NSCharacterSet newlineCharacterSet]].location != NSNotFound);
+      BOOL overflows = ([cell wraps]
+                        && [[cell attributedStringValue] size].width > NSWidth(titleRect));
+
+      if ((hasBreaks || overflows) && NSHeight(aRect) >= 2.0 * titleSize.height)
+        {
+          return titleRect;
+        }
+    }
+
   /* Header cells call themselves bezeled, but -tableHeaderCellDrawingRectForBounds:
      already insets their titles; the read-only field's inset would double it. */
   if (([cell isBezeled] || [cell isBordered])
