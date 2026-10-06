@@ -189,6 +189,49 @@ QuirkProbePixelRect(NSView *view, NSRect frame, CGFloat scale)
                     ceil(NSWidth(frame) * scale), ceil(NSHeight(frame) * scale));
 }
 
+/* How many pixels of row `y` (top-left origin) between x0 and x1 pass `test`. */
+static NSUInteger
+QuirkProbeRowCount(NSBitmapImageRep *rep, QuirkProbePixelTest test,
+                   NSInteger y, NSInteger x0, NSInteger x1)
+{
+  NSUInteger count = 0;
+  NSInteger x;
+
+  for (x = x0; x < x1; x++)
+    {
+      NSUInteger red, green, blue;
+
+      if (QuirkProbePixel(rep, x, y, &red, &green, &blue) && test(red, green, blue))
+        {
+          count++;
+        }
+    }
+  return count;
+}
+
+/* Which way the chevron in `area` of `rep` points: 1 up (narrow at its
+   top), -1 down (narrow at its bottom), 0 if there's no chevron. */
+static NSInteger
+QuirkProbeChevronDirection(NSBitmapImageRep *rep, NSRect area)
+{
+  QuirkProbeInk ink = QuirkProbeMeasureIn(rep, QuirkProbeIsInk, area);
+  NSInteger x0 = (NSInteger)NSMinX(area);
+  NSInteger x1 = (NSInteger)NSMaxX(area);
+  NSUInteger top, bottom;
+
+  if (ink.count == 0 || ink.height < 2)
+    {
+      return 0;
+    }
+  top = QuirkProbeRowCount(rep, QuirkProbeIsInk, ink.minY, x0, x1);
+  bottom = QuirkProbeRowCount(rep, QuirkProbeIsInk, ink.minY + ink.height - 1, x0, x1);
+  if (top < bottom)
+    {
+      return 1;
+    }
+  return (top > bottom) ? -1 : 0;
+}
+
 /* The module (DLL) whose code `address` is in. */
 static void *
 QuirkProbeModuleOfAddress(void *address)
@@ -225,6 +268,7 @@ QuirkProbeModuleOfAddress(void *address)
 - (void) checkTableHeader;
 - (void) checkMultilineLabels;
 - (void) checkSwitches;
+- (void) checkStepper;
 - (void) createLateWindow: (NSTimer *)timer;
 - (void) checkLateWindow: (NSTimer *)timer;
 - (void) checkMenuBarTitles: (NSWindow *)window;
@@ -825,6 +869,54 @@ objectValueForTableColumn: (NSTableColumn *)column
     }
 }
 
+/* NSStepper's chevrons point out of the control: up in its upper half,
+   down in its lower half (issue #7). NSStepper isn't flipped, and the
+   theme's chevrons pointed the other way in unflipped views. */
+- (void) checkStepper
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(80, 120, 120, 80)
+                                     title: @"QuirkProbe Stepper"];
+  NSStepper *stepper = AUTORELEASE([[NSStepper alloc] initWithFrame: NSMakeRect(20, 10, 22, 42)]);
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale;
+  NSInteger width, height;
+  NSUInteger red, green, blue;
+  NSInteger upper, lower;
+  NSRect upperArea, lowerArea;
+
+  [[window contentView] addSubview: stepper];
+  [window orderFront: nil];
+  [window display];
+
+  rep = QuirkProbeRender(stepper);
+  scale = QuirkProbeScale(rep, stepper);
+  width = [rep pixelsWide];
+  height = [rep pixelsHigh];
+  [self saveView: stepper named: @"stepper"];
+
+  /* The control's fill, just inside its left edge. */
+  QuirkProbePixel(rep, (NSInteger)(3 * scale), height / 4, &red, &green, &blue);
+  QuirkProbeInkBackground = red + green + blue;
+
+  /* Each half, less the border and the line between the halves. */
+  upperArea = NSMakeRect(3 * scale, 3 * scale, width - 6 * scale, height / 2 - 5 * scale);
+  lowerArea = NSMakeRect(3 * scale, height / 2 + 2 * scale, width - 6 * scale, height / 2 - 5 * scale);
+  upper = QuirkProbeChevronDirection(rep, upperArea);
+  lower = QuirkProbeChevronDirection(rep, lowerArea);
+
+  if (upper == 1 && lower == -1)
+    {
+      [self pass: @"stepper-chevrons-point-out" detail: @"up in the upper half, down in the lower"];
+    }
+  else
+    {
+      [self fail: @"stepper-chevrons-point-out" detail:
+        [NSString stringWithFormat: @"upper half points %@, lower half %@",
+                                    upper == 1 ? @"up" : (upper == -1 ? @"down" : @"nowhere"),
+                                    lower == 1 ? @"up" : (lower == -1 ? @"down" : @"nowhere")]];
+    }
+}
+
 /* A window created after launch gets the main menu (issue #1). libs-gui
    only attaches the Windows 95 style menu to windows that exist when it
    first updates the menu. */
@@ -1022,6 +1114,7 @@ objectValueForTableColumn: (NSTableColumn *)column
   [self checkTableHeader];
   [self checkMultilineLabels];
   [self checkSwitches];
+  [self checkStepper];
   [self after: QuirkProbeSettleDelay perform: @selector(createLateWindow:)];
 }
 

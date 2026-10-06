@@ -938,8 +938,12 @@ WinUIThemeDrawChevron(NSPoint center, BOOL pointingUp, NSColor *color)
   NSBezierPath *path = [NSBezierPath bezierPath];
   CGFloat width = 5.5;
   CGFloat height = 3.0;
+  /* Up and down as the user sees them: in a flipped view (buttons, pop-ups,
+     text fields) up is towards smaller y, in an unflipped one (NSStepper)
+     towards larger y. The stepper's chevrons used to point the wrong way. */
+  BOOL apexAtSmallerY = (pointingUp == [[NSView focusView] isFlipped]);
 
-  if (pointingUp)
+  if (apexAtSmallerY)
     {
       [path moveToPoint: NSMakePoint(center.x - (width / 2.0), center.y + (height / 2.0))];
       [path lineToPoint: NSMakePoint(center.x, center.y - (height / 2.0))];
