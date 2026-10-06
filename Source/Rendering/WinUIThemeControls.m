@@ -1524,7 +1524,6 @@ WinUIThemePopupDisplayString(NSPopUpButtonCell *cell)
       [cell setFont: popupFont];
     }
 
-  [cell setValue: [NSValue valueWithRect: cellFrame] forKey: @"_lastValidFrame"];
   if (originalIMP != NULL)
     {
       originalIMP(self, _cmd, cellFrame, controlView);

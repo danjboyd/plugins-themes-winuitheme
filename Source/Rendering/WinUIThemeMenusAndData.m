@@ -77,6 +77,11 @@ typedef enum
   WinUIThemeMenuChevronRight
 } WinUIThemeMenuChevronDirection;
 
+/* Space between a menu bar title and its item's edges, and the pad
+   NSMenuView already puts there (its _horizontalEdgePad). */
+static const CGFloat WinUIThemeMenuBarTitleInset = 8.0;
+static const CGFloat WinUIThemeMenuViewHorizontalEdgePad = 4.0;
+
 static CGFloat
 WinUIThemeMinimumMenuFontSize(BOOL horizontal)
 {
@@ -1211,7 +1216,7 @@ WinUIThemeScrollViewNeedsTrailingVerticalScrollerFix(NSScrollView *scrollView,
     }
   else if (isHorizontal)
     {
-      titleRect = NSInsetRect(NSIntegralRect(cellFrame), 8.0, 0.0);
+      titleRect = NSInsetRect(NSIntegralRect(cellFrame), WinUIThemeMenuBarTitleInset, 0.0);
       titleRect.origin.y = floor(NSMidY(cellFrame) - (titleSize.height / 2.0));
       titleRect.size.height = ceil(titleSize.height) + 1.0;
       [attributedTitle drawInRect: titleRect];
@@ -1223,6 +1228,22 @@ WinUIThemeScrollViewNeedsTrailingVerticalScrollerFix(NSScrollView *scrollView,
                              - (popupOwned ? 1.0 : 0.0));
   titleRect.size.height = ceil(titleSize.height);
   [attributedTitle drawInRect: titleRect];
+}
+
+/* Menu bar items: NSMenuView makes each item its title's width plus a 4pt
+   edge pad on each side, but -drawTitleForMenuItemCell:... draws the title
+   WinUIThemeMenuBarTitleInset in from each edge, which clipped every title
+   ("Fil", "Ed"). Widen the title by the difference. */
+- (CGFloat) proposedTitleWidth: (CGFloat)proposedWidth
+                   forMenuView: (NSMenuView *)aMenuView
+{
+  if ([aMenuView isHorizontal] == NO)
+    {
+      return proposedWidth;
+    }
+
+  return ceil(proposedWidth)
+    + 2.0 * (WinUIThemeMenuBarTitleInset - WinUIThemeMenuViewHorizontalEdgePad);
 }
 
 - (void) drawSeparatorItemForMenuItemCell: (NSMenuItemCell *)cell
