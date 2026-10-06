@@ -136,6 +136,8 @@ void WinUIThemeDrawInputChrome(WinUITheme *theme,
                                BOOL focused,
                                BOOL roundedLeft,
                                BOOL roundedRight);
+NSColor *WinUIThemeTextBoxFillColor(WinUITheme *theme, BOOL enabled, BOOL hovered, BOOL focused);
+void WinUIThemeDrawTextBoxChrome(WinUITheme *theme, NSRect frame, NSView *view, BOOL enabled);
 void WinUIThemeDrawSegmentChrome(WinUITheme *theme,
                                  NSRect frame,
                                  BOOL enabled,

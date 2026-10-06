@@ -27,6 +27,18 @@ WinUIThemeActiveTheme(void)
   return (WinUITheme *)theme;
 }
 
+/* A bezelled or bordered field with libs-gui's default background: the
+   TextBox chrome fills it. */
+static BOOL
+WinUIThemeTextFieldUsesChromeFill(NSTextFieldCell *cell)
+{
+  NSColor *background = [cell backgroundColor];
+
+  return ([cell isBezeled] || [cell isBordered])
+    && [cell isKindOfClass: [NSTableHeaderCell class]] == NO
+    && (background == nil || [background isEqual: [NSColor textBackgroundColor]]);
+}
+
 static NSColor *
 WinUIThemeAccentStrokeColor(WinUITheme *theme)
 {
@@ -664,13 +676,7 @@ WinUIThemePopupDisplayString(NSPopUpButtonCell *cell)
 {
   if (WinUIThemeUsesInputBorder(aType, view))
     {
-      WinUIThemeDrawInputChrome(self,
-                                frame,
-                                WinUIThemeControlEnabled(view),
-                                NO,
-                                WinUIThemeViewHasFocus(view),
-                                YES,
-                                YES);
+      WinUIThemeDrawTextBoxChrome(self, frame, view, WinUIThemeControlEnabled(view));
       return;
     }
 
@@ -1275,7 +1281,7 @@ WinUIThemeSwitchColors(WinUITheme *theme,
       && [cell isKindOfClass: [NSTableHeaderCell class]] == NO)
     {
       BOOL readonlyField = ([cell isEditable] == NO && [cell isSelectable] == NO);
-      CGFloat horizontalInset = readonlyField ? 12.0 : 5.0;
+      CGFloat horizontalInset = readonlyField ? 12.0 : 7.0;
 
       titleRect.origin.x += horizontalInset;
       titleRect.size.width -= (horizontalInset * 2.0);
@@ -1304,8 +1310,31 @@ WinUIThemeSwitchColors(WinUITheme *theme,
   if (theme != nil)
     {
       WinUIThemeApplyEditorFont(theme, cell, editor);
+      if (WinUIThemeTextFieldUsesChromeFill(cell))
+        {
+          [editor setBackgroundColor: WinUIThemeTextBoxFillColor(theme, YES, NO, YES)];
+        }
     }
   return editor;
+}
+
+/* A bezelled field's own background (textBackgroundColor, the window's)
+   would cover the TextBox fill: the chrome's fill shows instead, unless
+   the app chose a colour. */
+- (void) _overrideNSTextFieldCellMethod__drawBackgroundWithFrame: (NSRect)cellFrame
+                                                          inView: (NSView *)controlView
+{
+  typedef void (*DrawBackgroundIMP)(id, SEL, NSRect, NSView *);
+  DrawBackgroundIMP originalIMP = (DrawBackgroundIMP)WinUIThemeOriginalMethod(_cmd, self, [NSTextFieldCell class]);
+
+  if (WinUIThemeActiveTheme() != nil && WinUIThemeTextFieldUsesChromeFill((NSTextFieldCell *)self))
+    {
+      return;
+    }
+  if (originalIMP != NULL)
+    {
+      originalIMP(self, _cmd, cellFrame, controlView);
+    }
 }
 
 - (void) _overrideNSTextFieldCellMethod_drawInteriorWithFrame: (NSRect)cellFrame

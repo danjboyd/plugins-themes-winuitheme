@@ -300,6 +300,7 @@ QuirkProbeModuleOfAddress(void *address)
 - (void) checkMenuFlyout;
 - (void) checkOverlayScrollers;
 - (void) checkFocusVisual;
+- (void) checkTextBox;
 - (void) createLateWindow: (NSTimer *)timer;
 - (void) checkLateWindow: (NSTimer *)timer;
 - (void) checkMenuBarTitles: (NSWindow *)window;
@@ -2218,6 +2219,101 @@ QuirkProbeBrightnessLeftOf(NSView *view)
   [window orderOut: nil];
 }
 
+/* WinUI's TextBox (issue #37): filled with ControlFillColorDefault, a
+   step off the window rather than the window's own colour; a darker
+   bottom edge; focused, a 2px accent underline. */
+- (void) checkTextBox
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(780, 620, 300, 100)
+                                     title: @"QuirkProbe TextBox"];
+  NSTextField *field = AUTORELEASE([[NSTextField alloc] initWithFrame: NSMakeRect(20, 50, 200, 32)]);
+  NSTextField *other = AUTORELEASE([[NSTextField alloc] initWithFrame: NSMakeRect(20, 10, 200, 32)]);
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale;
+  NSInteger height, width, fill, window_, edge, bottom, above;
+  NSUInteger red, green, blue, red2, green2, blue2;
+  BOOL highContrast = QuirkProbeHasArgument(@"--high-contrast", nil);
+
+  [field setStringValue: @""];
+  [other setStringValue: @""];
+  [[window contentView] addSubview: field];
+  [[window contentView] addSubview: other];
+  [window makeKeyAndOrderFront: nil];
+  [window makeFirstResponder: window];
+  [window display];
+
+  rep = QuirkProbeRender(field);
+  scale = QuirkProbeScale(rep, field);
+  height = [rep pixelsHigh];
+  width = [rep pixelsWide];
+  [self saveView: field named: @"textbox-rest"];
+  fill = QuirkProbeBrightnessAt(rep, scale, 100, NSHeight([field bounds]) / 2.0);
+  {
+    NSBitmapImageRep *content = QuirkProbeRender([window contentView]);
+
+    window_ = QuirkProbeBrightnessAt(content, QuirkProbeScale(content, [window contentView]), 260, 50);
+  }
+  QuirkProbePixel(rep, width / 2, height - 1, &red, &green, &blue);
+  edge = (NSInteger)(red + green + blue);
+
+  if (highContrast)
+    {
+      [self skip: @"textbox-fill" detail: @"high contrast fills with the window colour"];
+      [self skip: @"textbox-bottom-edge" detail: @"high contrast draws one border colour"];
+    }
+  else
+    {
+      /* Light: brighter than the window; dark: a little lighter too. */
+      if (fill - window_ >= 9)
+        {
+          [self pass: @"textbox-fill" detail: [NSString stringWithFormat:
+            @"the field is %ld, the window %ld (of 765)", (long)fill, (long)window_]];
+        }
+      else
+        {
+          [self fail: @"textbox-fill" detail: [NSString stringWithFormat:
+            @"the field is %ld, the window %ld (of 765): not ControlFillColorDefault", (long)fill, (long)window_]];
+        }
+      if (llabs((long long)(edge - fill)) >= 150)
+        {
+          [self pass: @"textbox-bottom-edge" detail: [NSString stringWithFormat:
+            @"the bottom edge is %ld against a fill of %ld (of 765)", (long)edge, (long)fill]];
+        }
+      else
+        {
+          [self fail: @"textbox-bottom-edge" detail: [NSString stringWithFormat:
+            @"the bottom edge is %ld against a fill of %ld (of 765): no strong stroke", (long)edge, (long)fill]];
+        }
+    }
+
+  /* Focused: the two bottom rows are the accent. */
+  [window makeFirstResponder: field];
+  [window display];
+  rep = QuirkProbeRender(field);
+  [self saveView: field named: @"textbox-focused"];
+  QuirkProbePixel(rep, width / 2, height - 1, &red, &green, &blue);
+  QuirkProbePixel(rep, width / 2, height - 2, &red2, &green2, &blue2);
+  bottom = (NSInteger)blue - (NSInteger)red;
+  above = (NSInteger)blue2 - (NSInteger)red2;
+  if (highContrast)
+    {
+      [self skip: @"textbox-focus-underline" detail: @"high contrast's highlight may not be blue"];
+    }
+  else if (bottom >= 40 && above >= 40)
+    {
+      [self pass: @"textbox-focus-underline" detail: @"focused, a 2px accent underline"];
+    }
+  else
+    {
+      [self fail: @"textbox-focus-underline" detail: [NSString stringWithFormat:
+        @"focused, the bottom rows are %lu,%lu,%lu and %lu,%lu,%lu: no 2px accent underline",
+        (unsigned long)red, (unsigned long)green, (unsigned long)blue,
+        (unsigned long)red2, (unsigned long)green2, (unsigned long)blue2]];
+    }
+  [window makeFirstResponder: window];
+  [window orderOut: nil];
+}
+
 - (void) checkLateWindow: (NSTimer *)timer
 {
   NSMenu *mainMenu = [NSApp mainMenu];
@@ -2520,6 +2616,7 @@ QuirkProbeLastItemOfMenu(NSString *title)
   [self checkMenuFlyout];
   [self checkOverlayScrollers];
   [self checkFocusVisual];
+  [self checkTextBox];
   [self checkPopUpClick];
   [self after: QuirkProbeSettleDelay perform: @selector(createLateWindow:)];
 }
