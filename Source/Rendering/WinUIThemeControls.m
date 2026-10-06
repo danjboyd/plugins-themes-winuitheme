@@ -371,31 +371,6 @@ WinUIThemeDrawSegmentedLabel(NSSegmentedCell *cell,
 }
 
 static void
-WinUIThemeDrawLegacySegmentedLabel(NSSegmentedCell *cell,
-                                   NSString *label,
-                                   NSRect frame)
-{
-  NSDictionary *attributes = nil;
-  NSSize textSize = NSZeroSize;
-  NSRect textFrame = frame;
-  CGFloat xOffset = 0.0;
-
-  if (cell == nil || [label length] == 0)
-    {
-      return;
-    }
-
-  attributes = [cell _nonAutoreleasedTypingAttributes];
-  textSize = [label sizeWithAttributes: attributes];
-  RELEASE(attributes);
-
-  xOffset = (frame.size.width - textSize.width) / 2.0;
-  textFrame.origin.x += xOffset;
-  textFrame.size.width -= xOffset;
-  [cell _drawText: label inFrame: textFrame];
-}
-
-static void
 WinUIThemeDrawSegmentedImage(NSImage *image,
                              NSRect frame,
                              NSView *view,
@@ -438,81 +413,6 @@ WinUIThemeDrawSegmentedImage(NSImage *image,
           operation: NSCompositeSourceOver
            fraction: fraction];
 }
-
-@interface NSSegmentedCell (WinUIThemeTextCentering)
-@end
-
-@implementation NSSegmentedCell (WinUIThemeTextCentering)
-
-- (void) drawSegment: (NSInteger)seg
-             inFrame: (NSRect)frame
-            withView: (NSView *)view
-{
-  NSInteger count = [self segmentCount];
-  NSString *label = [self labelForSegment: seg];
-  NSImage *segmentImage = [self imageForSegment: seg];
-  GSThemeControlState state = GSThemeNormalState;
-  BOOL selected = NO;
-  BOOL roundedLeft = (seg == 0);
-  BOOL roundedRight = (seg == (count - 1));
-  WinUITheme *theme = WinUIThemeActiveTheme();
-
-  WinUIThemeUpdateSegmentFrame(self, seg, frame);
-
-  if ([self isEnabledForSegment: seg] == NO)
-    {
-      state = GSThemeDisabledState;
-    }
-  else
-    {
-      if ([self trackingMode] == NSSegmentSwitchTrackingSelectOne)
-        {
-          selected = ([self selectedSegment] == seg);
-        }
-      else
-        {
-          selected = [self isSelectedForSegment: seg];
-        }
-
-      if (selected)
-        {
-          state = GSThemeSelectedState;
-        }
-    }
-
-  [[GSTheme theme] drawSegmentedControlSegment: self
-                                     withFrame: frame
-                                        inView: [self controlView]
-                                         style: [self segmentStyle]
-                                         state: state
-                                   roundedLeft: roundedLeft
-                                  roundedRight: roundedRight];
-
-  if ([label length] > 0)
-    {
-      if (theme != nil)
-        {
-          WinUIThemeDrawSegmentedLabel(self,
-                                       theme,
-                                       label,
-                                       frame,
-                                       selected,
-                                       roundedLeft,
-                                       roundedRight);
-        }
-      else
-        {
-          WinUIThemeDrawLegacySegmentedLabel(self, label, frame);
-        }
-    }
-
-  WinUIThemeDrawSegmentedImage(segmentImage,
-                               frame,
-                               view,
-                               [self isEnabledForSegment: seg]);
-}
-
-@end
 
 static NSString *
 WinUIThemePopupDisplayString(NSPopUpButtonCell *cell)
@@ -1455,7 +1355,14 @@ WinUIThemePopupDisplayString(NSPopUpButtonCell *cell)
     }
 
   WinUIThemeUpdateSegmentFrame(cell, segmentIndex, frame);
-  state = selected ? GSThemeSelectedState : GSThemeNormalState;
+  if ([cell isEnabledForSegment: segmentIndex] == NO)
+    {
+      state = GSThemeDisabledState;
+    }
+  else
+    {
+      state = selected ? GSThemeSelectedState : GSThemeNormalState;
+    }
 
   if (theme == nil)
     {

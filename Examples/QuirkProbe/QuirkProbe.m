@@ -4,6 +4,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN 1
+#include <windows.h>
+#endif
+
 static NSString *QuirkProbeImageItem = @"ImageItem";
 static const NSTimeInterval QuirkProbeSettleDelay = 0.8;
 
@@ -154,6 +159,24 @@ QuirkProbeFindViewOfClass(NSView *view, Class viewClass)
   return nil;
 }
 
+/* The module (DLL) whose code `address` is in. */
+static void *
+QuirkProbeModuleOfAddress(void *address)
+{
+#ifdef _WIN32
+  HMODULE module = NULL;
+
+  if (address != NULL
+      && GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS
+                            | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                            (LPCWSTR)address, &module))
+    {
+      return (void *)module;
+    }
+#endif
+  return NULL;
+}
+
 #pragma mark Test classes
 
 /* A button cell subclass, as GSToolbarButtonCell is: theme overrides
@@ -174,6 +197,7 @@ QuirkProbeFindViewOfClass(NSView *view, Class viewClass)
 - (void) createLateWindow: (NSTimer *)timer;
 - (void) checkLateWindow: (NSTimer *)timer;
 - (void) checkMenuBarTitles: (NSWindow *)window;
+- (void) checkThemeSwitchRestoresMethods;
 - (void) finish;
 @end
 
@@ -699,6 +723,7 @@ objectValueForTableColumn: (NSTableColumn *)column
     }
   [self saveView: [[_lateWindow contentView] superview] named: @"late-window"];
   [self checkMenuBarTitles: _lateWindow];
+  [self checkThemeSwitchRestoresMethods];
   [self finish];
 }
 
@@ -772,6 +797,63 @@ objectValueForTableColumn: (NSTableColumn *)column
     {
       [self fail: @"menu-bar-titles-fit" detail:
         [@"clipped: " stringByAppendingString: [clipped componentsJoinedByString: @", "]]];
+    }
+}
+
+/* Switching to another theme at run time leaves no WinUITheme code in
+   AppKit's menu item and segment methods (issue #12). The theme used to
+   replace them with Objective-C categories, which stay for the life of the
+   process. Run last: it deactivates the theme. */
+- (void) checkThemeSwitchRestoresMethods
+{
+  struct { Class cls; const char *selector; } methods[] = {
+    { [NSMenuItemCell class], "imagePosition" },
+    { [NSMenuItemCell class], "imageWidth" },
+    { [NSMenuItemCell class], "keyEquivalentWidth" },
+    { [NSMenuItemCell class], "stateImageWidth" },
+    { [NSMenuItemCell class], "imageRectForBounds:" },
+    { [NSMenuItemCell class], "keyEquivalentRectForBounds:" },
+    { [NSMenuItemCell class], "stateImageRectForBounds:" },
+    { [NSMenuItemCell class], "drawImageWithFrame:inView:" },
+    { [NSMenuItemCell class], "drawKeyEquivalentWithFrame:inView:" },
+    { [NSMenuItemCell class], "drawStateImageWithFrame:inView:" },
+    { [NSSegmentedCell class], "drawSegment:inFrame:withView:" },
+  };
+  void *themeModule = QuirkProbeModuleOfAddress(
+    (void *)[[[GSTheme theme] class] instanceMethodForSelector: @selector(colors)]);
+  NSMutableArray *left = [NSMutableArray array];
+  NSUInteger index;
+
+  if (themeModule == NULL)
+    {
+      [self skip: @"theme-switch-restores-methods" detail: @"can't find the theme's module"];
+      return;
+    }
+
+  [GSTheme setTheme: nil];
+  for (index = 0; index < sizeof(methods) / sizeof(methods[0]); index++)
+    {
+      IMP imp = [methods[index].cls instanceMethodForSelector:
+                   sel_getUid(methods[index].selector)];
+
+      if (QuirkProbeModuleOfAddress((void *)imp) == themeModule)
+        {
+          [left addObject: [NSString stringWithFormat: @"-[%@ %s]",
+                                                       NSStringFromClass(methods[index].cls),
+                                                       methods[index].selector]];
+        }
+    }
+
+  if ([left count] == 0)
+    {
+      [self pass: @"theme-switch-restores-methods" detail:
+        @"after switching themes, AppKit's menu item and segment methods are its own"];
+    }
+  else
+    {
+      [self fail: @"theme-switch-restores-methods" detail:
+        [@"still the theme's after switching themes: " stringByAppendingString:
+          [left componentsJoinedByString: @", "]]];
     }
 }
 
