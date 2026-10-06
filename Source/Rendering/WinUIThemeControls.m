@@ -1246,6 +1246,15 @@ WinUIThemeSwitchColors(WinUITheme *theme,
       titleRect.size.width -= (horizontalInset * 2.0);
     }
 
+  /* Table and outline rows: text 12pt in from the column's edge, as the
+     headers' titles, clear of the selection pill (#43). */
+  if ([cell isBezeled] == NO && [cell isBordered] == NO
+      && [[cell controlView] isKindOfClass: [NSTableView class]])
+    {
+      titleRect.origin.x += 10.0;
+      titleRect.size.width = MAX(0.0, titleRect.size.width - 10.0);
+    }
+
   titleRect.origin.y = aRect.origin.y + floor((aRect.size.height - titleSize.height) / 2.0);
   titleRect.size.height = ceil(titleSize.height);
 

@@ -302,6 +302,7 @@ QuirkProbeModuleOfAddress(void *address)
 - (void) checkFocusVisual;
 - (void) checkTextBox;
 - (void) checkComboBoxes;
+- (void) checkListSelection;
 - (void) createLateWindow: (NSTimer *)timer;
 - (void) checkLateWindow: (NSTimer *)timer;
 - (void) checkMenuBarTitles: (NSWindow *)window;
@@ -325,6 +326,45 @@ QuirkProbeModuleOfAddress(void *address)
 - (BOOL) isOpaque
 {
   return YES;
+}
+
+@end
+
+/* Rows for the selection checks: a table of three, and an outline whose
+   "Parent" holds an expandable "Child" holding "Leaf". */
+@interface QuirkProbeRows : NSObject
+@end
+
+@implementation QuirkProbeRows
+
+- (NSInteger) numberOfRowsInTableView: (NSTableView *)tableView
+{
+  return 3;
+}
+
+- (id) tableView: (NSTableView *)tableView objectValueForTableColumn: (NSTableColumn *)column row: (NSInteger)row
+{
+  return [NSString stringWithFormat: @"Row %ld", (long)row];
+}
+
+- (NSInteger) outlineView: (NSOutlineView *)outlineView numberOfChildrenOfItem: (id)item
+{
+  return (item == nil || [item isEqual: @"Parent"] || [item isEqual: @"Child"]) ? 1 : 0;
+}
+
+- (id) outlineView: (NSOutlineView *)outlineView child: (NSInteger)index ofItem: (id)item
+{
+  return item == nil ? @"Parent" : ([item isEqual: @"Parent"] ? @"Child" : @"Leaf");
+}
+
+- (BOOL) outlineView: (NSOutlineView *)outlineView isItemExpandable: (id)item
+{
+  return [item isEqual: @"Parent"] || [item isEqual: @"Child"];
+}
+
+- (id) outlineView: (NSOutlineView *)outlineView objectValueForTableColumn: (NSTableColumn *)column byItem: (id)item
+{
+  return item;
 }
 
 @end
@@ -2438,6 +2478,168 @@ QuirkProbeInkIn(NSBitmapImageRep *rep, NSRect area, NSInteger fill, NSInteger th
   [window orderOut: nil];
 }
 
+/* WinUI's ListView and TreeView (issues #43, #51): a selected row gets a
+   neutral subtle fill and an accent pill at its leading edge, not a blue
+   fill; a nested row's chevron sits before its title, not over it. */
+- (void) checkListSelection
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(80, 620, 320, 220)
+                                     title: @"QuirkProbe Lists"];
+  QuirkProbeRows *rows = AUTORELEASE([QuirkProbeRows new]);
+  NSTableView *table = AUTORELEASE([[NSTableView alloc] initWithFrame: NSMakeRect(10, 120, 300, 90)]);
+  NSOutlineView *outline = AUTORELEASE([[NSOutlineView alloc] initWithFrame: NSMakeRect(10, 10, 300, 100)]);
+  NSTableColumn *column = AUTORELEASE([[NSTableColumn alloc] initWithIdentifier: @"name"]);
+  NSTableColumn *outlineColumn = AUTORELEASE([[NSTableColumn alloc] initWithIdentifier: @"name"]);
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale;
+  NSRect row;
+  NSInteger y, x, background, fill, pill;
+  NSUInteger red, green, blue;
+  BOOL highContrast = QuirkProbeHasArgument(@"--high-contrast", nil);
+
+  [column setWidth: 280];
+  [table addTableColumn: column];
+  [table setHeaderView: nil];
+  [table setDataSource: rows];
+  [table setUsesAlternatingRowBackgroundColors: NO];
+  [outlineColumn setWidth: 280];
+  [outline addTableColumn: outlineColumn];
+  [outline setOutlineTableColumn: outlineColumn];
+  [outline setHeaderView: nil];
+  [outline setDataSource: rows];
+  [[window contentView] addSubview: table];
+  [[window contentView] addSubview: outline];
+  [window makeKeyAndOrderFront: nil];
+  [table reloadData];
+  [table selectRowIndexes: [NSIndexSet indexSetWithIndex: 1] byExtendingSelection: NO];
+  [outline reloadData];
+  [outline expandItem: @"Parent"];
+  [window display];
+
+  /* The selected row: neutral fill at its middle, the pill at its edge. */
+  rep = QuirkProbeRender(table);
+  scale = QuirkProbeScale(rep, table);
+  [self saveView: table named: @"list-selection"];
+  row = [table rectOfRow: 1];
+  y = [table isFlipped] ? NSMidY(row) : NSHeight([table bounds]) - NSMidY(row);
+  background = QuirkProbeBrightnessAt(rep, scale, 200, [table isFlipped] ? NSMidY([table rectOfRow: 0])
+                                                                       : NSHeight([table bounds]) - NSMidY([table rectOfRow: 0]));
+  QuirkProbePixel(rep, (NSInteger)(200 * scale), (NSInteger)(y * scale), &red, &green, &blue);
+  fill = (NSInteger)(red + green + blue);
+  {
+    NSUInteger pillRed, pillGreen, pillBlue;
+
+    QuirkProbePixel(rep, (NSInteger)((NSMinX(row) + 5.0) * scale), (NSInteger)(y * scale),
+                    &pillRed, &pillGreen, &pillBlue);
+    pill = (NSInteger)(pillRed + pillGreen + pillBlue);
+    /* The accent itself, not text over a tinted fill. */
+    {
+      NSColor *accent = [[NSColor selectedControlColor] colorUsingColorSpaceName: NSCalibratedRGBColorSpace];
+
+      if (accent == nil
+          || llabs((long long)pillRed - (long long)lrint([accent redComponent] * 255.0)) > 30
+          || llabs((long long)pillGreen - (long long)lrint([accent greenComponent] * 255.0)) > 30
+          || llabs((long long)pillBlue - (long long)lrint([accent blueComponent] * 255.0)) > 30)
+        {
+          pill = fill;
+        }
+    }
+  }
+  if (highContrast)
+    {
+      [self skip: @"list-selection-fill" detail: @"high contrast keeps the system highlight"];
+      [self skip: @"list-selection-pill" detail: @"high contrast keeps the system highlight"];
+    }
+  else
+    {
+      if (llabs((long long)blue - (long long)red) <= 6 && llabs((long long)(fill - background)) >= 6)
+        {
+          [self pass: @"list-selection-fill" detail: [NSString stringWithFormat:
+            @"the selected row is a neutral %lu,%lu,%lu", (unsigned long)red, (unsigned long)green,
+            (unsigned long)blue]];
+        }
+      else
+        {
+          [self fail: @"list-selection-fill" detail: [NSString stringWithFormat:
+            @"the selected row is %lu,%lu,%lu over rows of %ld: not a subtle fill",
+            (unsigned long)red, (unsigned long)green, (unsigned long)blue, (long)background]];
+        }
+      if (llabs((long long)(pill - fill)) >= 150)
+        {
+          [self pass: @"list-selection-pill" detail: @"an accent pill at the selected row's leading edge"];
+        }
+      else
+        {
+          [self fail: @"list-selection-pill" detail: [NSString stringWithFormat:
+            @"the selected row's leading edge is %ld, its fill %ld (of 765): no accent pill", (long)pill, (long)fill]];
+        }
+    }
+
+  /* "Child", at level 1: its leftmost ink (the chevron) within the level's
+     indent and slot, then a gap before the title. */
+  rep = QuirkProbeRender(outline);
+  [self saveView: outline named: @"outline-nested-row"];
+  {
+    NSInteger rowIndex = [outline rowForItem: @"Child"];
+    NSRect cell = [outline frameOfCellAtColumn: 0 row: rowIndex];
+    CGFloat indent = [outline indentationPerLevel] * [outline levelForRow: rowIndex];
+    CGFloat midY = [outline isFlipped] ? NSMidY(cell) : NSHeight([outline bounds]) - NSMidY(cell);
+    NSInteger rowBackground = QuirkProbeBrightnessAt(rep, scale, NSMaxX(cell) - 10.0, midY);
+    NSInteger first = -1, firstEnd = -1, gap = 0, run = 0;
+
+    for (x = (NSInteger)(NSMinX(cell) * scale); x < (NSInteger)((NSMinX(cell) + 120) * scale); x++)
+      {
+        BOOL ink = NO;
+
+        for (y = (NSInteger)((midY - 6) * scale); y <= (NSInteger)((midY + 6) * scale); y++)
+          {
+            QuirkProbePixel(rep, x, y, &red, &green, &blue);
+            if (llabs((long long)(red + green + blue) - (long long)rowBackground) > 90)
+              {
+                ink = YES;
+              }
+          }
+        if (ink)
+          {
+            if (first < 0)
+              {
+                first = x;
+              }
+            else if (firstEnd >= 0 && gap == 0)
+              {
+                gap = run;
+              }
+            run = 0;
+          }
+        else if (first >= 0)
+          {
+            if (firstEnd < 0)
+              {
+                firstEnd = x;
+              }
+            run++;
+          }
+      }
+    if (rowIndex < 0 || first < 0)
+      {
+        [self fail: @"outline-chevron-before-title" detail: @"couldn't find the nested row's ink"];
+      }
+    else if (first <= (NSMinX(cell) + indent + 15.0) * scale && gap >= 3 * scale)
+      {
+        [self pass: @"outline-chevron-before-title" detail: [NSString stringWithFormat:
+          @"the chevron starts %.0fpt into the row's indent slot, %ld px clear of the title",
+          first / scale - NSMinX(cell) - indent, (long)gap]];
+      }
+    else
+      {
+        [self fail: @"outline-chevron-before-title" detail: [NSString stringWithFormat:
+          @"the row's first ink is %.0fpt past its indent (the slot is 15pt), %ld px before the next: "
+          @"the chevron is over the title", first / scale - NSMinX(cell) - indent, (long)gap]];
+      }
+  }
+  [window orderOut: nil];
+}
+
 - (void) checkLateWindow: (NSTimer *)timer
 {
   NSMenu *mainMenu = [NSApp mainMenu];
@@ -2742,6 +2944,7 @@ QuirkProbeLastItemOfMenu(NSString *title)
   [self checkFocusVisual];
   [self checkTextBox];
   [self checkComboBoxes];
+  [self checkListSelection];
   [self checkPopUpClick];
   [self after: QuirkProbeSettleDelay perform: @selector(createLateWindow:)];
 }

@@ -1548,6 +1548,12 @@ WinUIThemePreparePopupMenuTypography(WinUITheme *theme, NSMenuView *menuView)
     }
 }
 
+/* WinUI's ListView and TreeView selection (#43): a selected row gets
+   SubtleFillColorSecondary, 4pt corners, 4pt in from the sides and 2pt from
+   its neighbours, and a 3x16pt accent pill at its leading edge (in an
+   inactive window, the secondary text colour). Its text stays the primary
+   colour. High contrast keeps the system highlight. Column selection is
+   unchanged. */
 - (void) highlightTableViewSelectionInClipRect: (NSRect)clipRect
                                         inView: (NSView *)view
                               selectingColumns: (BOOL)selectingColumns
@@ -1555,6 +1561,8 @@ WinUIThemePreparePopupMenuTypography(WinUITheme *theme, NSMenuView *menuView)
   NSTableView *tableView = (NSTableView *)view;
   BOOL active = WinUIThemeViewIsActive(view);
   BOOL outline = [tableView isKindOfClass: [NSOutlineView class]];
+  BOOL highContrast = [[self settings] highContrastEnabled];
+  BOOL dark = [[self settings] prefersDarkAppearance];
   NSIndexSet *selectedIndexes = selectingColumns
     ? [tableView selectedColumnIndexes]
     : [tableView selectedRowIndexes];
@@ -1565,7 +1573,19 @@ WinUIThemePreparePopupMenuTypography(WinUITheme *theme, NSMenuView *menuView)
     : WinUIThemeColorFromTheme(self,
                                @"selectedInactiveColor",
                                [NSColor secondarySelectedControlColor]);
+  NSColor *pillColor = active
+    ? WinUIThemeColorFromTheme(self, @"accentColor", [NSColor selectedControlColor])
+    : WinUIThemeColorFromTheme(self, @"secondaryLabelColor", [NSColor controlTextColor]);
   NSUInteger index = [selectedIndexes firstIndex];
+
+  if (selectingColumns == NO && highContrast == NO)
+    {
+      NSColor *rows = WinUIThemeColorFromTheme(self, @"rowBackgroundColor",
+                                               [NSColor controlBackgroundColor]);
+
+      fillColor = WinUIThemeBlendColor(rows, dark ? [NSColor whiteColor] : [NSColor blackColor],
+                                       dark ? 0.06 : 0.037);
+    }
 
   while (index != NSNotFound)
     {
@@ -1573,27 +1593,42 @@ WinUIThemePreparePopupMenuTypography(WinUITheme *theme, NSMenuView *menuView)
         ? [tableView rectOfColumn: index]
         : [tableView rectOfRow: index];
 
-      selectionRect = NSIntersectionRect(selectionRect, clipRect);
       if (selectingColumns)
         {
-          selectionRect = NSInsetRect(selectionRect, 1.0, 2.0);
+          selectionRect = NSInsetRect(NSIntersectionRect(selectionRect, clipRect), 1.0, 2.0);
+          if (NSIsEmptyRect(selectionRect) == NO)
+            {
+              WinUIThemeDrawSelectionFill(selectionRect,
+                                          WinUIThemeControlCornerRadius(self),
+                                          fillColor,
+                                          WinUIThemeSelectionBorderColor(self, fillColor, active, outline));
+            }
         }
-      else if (outline)
+      else if (highContrast)
         {
-          selectionRect = NSInsetRect(selectionRect, 6.0, 0.0);
+          selectionRect = NSIntersectionRect(selectionRect, clipRect);
+          if (NSIsEmptyRect(selectionRect) == NO)
+            {
+              [fillColor set];
+              NSRectFill(selectionRect);
+            }
         }
+      else if (NSIntersectsRect(selectionRect, clipRect))
+        {
+          NSRect itemRect = NSInsetRect(selectionRect, 4.0, NSHeight(selectionRect) > 20.0 ? 2.0 : 1.0);
+          CGFloat pillHeight = MIN(16.0, MAX(6.0, NSHeight(itemRect) - 8.0));
+          NSRect pill = NSMakeRect(NSMinX(itemRect),
+                                   floor(NSMidY(itemRect) - pillHeight / 2.0),
+                                   3.0, pillHeight);
+          NSGraphicsContext *context = [NSGraphicsContext currentContext];
 
-      if (NSIsEmptyRect(selectionRect) == NO)
-        {
-          WinUIThemeDrawSelectionFill(selectionRect,
-                                      (selectingColumns
-                                       ? WinUIThemeControlCornerRadius(self)
-                                       : (outline ? 8.0 : 0.0)),
-                                      fillColor,
-                                      WinUIThemeSelectionBorderColor(self,
-                                                                     fillColor,
-                                                                     active,
-                                                                     outline));
+          [context saveGraphicsState];
+          [[NSBezierPath bezierPathWithRect: clipRect] addClip];
+          [fillColor set];
+          [WinUIThemeRoundedPath(itemRect, WinUIThemeControlCornerRadius(self)) fill];
+          [pillColor set];
+          [WinUIThemeRoundedPath(pill, 1.5) fill];
+          [context restoreGraphicsState];
         }
 
       index = [selectedIndexes indexGreaterThanIndex: index];
@@ -1612,7 +1647,6 @@ WinUIThemePreparePopupMenuTypography(WinUITheme *theme, NSMenuView *menuView)
   BOOL expandable = [outlineView isExpandable: item];
   BOOL expanded = expandable ? [outlineView isItemExpanded: item] : NO;
   BOOL selected = [[outlineView selectedRowIndexes] containsIndex: rowIndex];
-  NSRect outlineCellRect = inputRect;
   NSRect glyphRect = NSZeroRect;
   NSColor *glyphColor = nil;
 
@@ -1621,24 +1655,20 @@ WinUIThemePreparePopupMenuTypography(WinUITheme *theme, NSMenuView *menuView)
       return inputRect;
     }
 
-  if ([outlineView respondsToSelector: @selector(frameOfOutlineCellAtRow:)])
-    {
-      outlineCellRect = [outlineView frameOfOutlineCellAtRow: rowIndex];
-    }
+  /* WinUI's TreeView (#51): each level indented, the chevron in a 12pt
+     slot before the title (empty on leaf rows, so titles line up). Both
+     from the row's indented edge: -frameOfOutlineCellAtRow: already
+     includes the indentation, and adding it again put a nested row's
+     chevron over its title. */
+  glyphRect = NSMakeRect(NSMinX(inputRect) + indentation + 3.0,
+                         floor(NSMidY(inputRect) - 6.0),
+                         12.0, 12.0);
 
-  glyphRect = outlineCellRect;
-  glyphRect.origin.x += indentation + 3.0;
-  glyphRect.size.width = 12.0;
-  glyphRect.origin.y = floor(NSMidY(outlineCellRect) - 6.0);
-  glyphRect.size.height = 12.0;
-
-  glyphColor = selected
+  glyphColor = (selected && [[self settings] highContrastEnabled])
     ? WinUIThemeColorFromTheme(self,
                                @"selectedMenuItemTextColor",
                                [NSColor selectedMenuItemTextColor])
-    : WinUIThemeColorFromTheme(self,
-                               expandable ? @"secondaryLabelColor" : @"separatorColor",
-                               [NSColor controlTextColor]);
+    : WinUIThemeColorFromTheme(self, @"secondaryLabelColor", [NSColor controlTextColor]);
 
   if (expandable)
     {
