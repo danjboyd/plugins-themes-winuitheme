@@ -124,6 +124,8 @@ void WinUIThemeDrawChevron(NSPoint center, BOOL pointingUp, NSColor *color);
 void WinUIThemeDrawCheckmark(NSRect rect, NSColor *color);
 void WinUIThemeDrawRadioDot(NSRect rect, NSColor *color);
 void WinUIThemeDrawSearchGlyph(NSRect rect, NSColor *color);
+NSRect WinUIThemeCenteredRect(NSRect frame, CGFloat width, CGFloat height);
+void WinUIThemeDrawCrossGlyph(NSRect rect, NSColor *color);
 void WinUIThemeDrawDismissGlyph(NSRect rect,
                                 NSColor *fillColor,
                                 NSColor *markColor);

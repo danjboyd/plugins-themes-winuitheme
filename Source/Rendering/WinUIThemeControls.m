@@ -1606,6 +1606,107 @@ WinUIThemeSwitchColors(WinUITheme *theme,
     }
 }
 
+/* WinUI's AutoSuggestBox (#9): one TextBox, the text, then the delete
+   button (only with text), then the query button at the trailing edge.
+   libs-gui put the search button before the field and drew the bezel
+   round the text alone, leaving both buttons outside it. */
+static const CGFloat WinUIThemeSearchQueryWidth = 32.0;
+static const CGFloat WinUIThemeSearchDeleteWidth = 28.0;
+
+- (NSRect) _overrideNSSearchFieldCellMethod_searchButtonRectForBounds: (NSRect)rect
+{
+  typedef NSRect (*RectIMP)(id, SEL, NSRect);
+  RectIMP originalIMP = (RectIMP)WinUIThemeOriginalMethod(_cmd, self, [NSSearchFieldCell class]);
+
+  if (WinUIThemeActiveTheme() == nil)
+    {
+      return originalIMP != NULL ? originalIMP(self, _cmd, rect) : rect;
+    }
+  return NSMakeRect(NSMaxX(rect) - WinUIThemeSearchQueryWidth, NSMinY(rect),
+                    MIN(WinUIThemeSearchQueryWidth, NSWidth(rect)), NSHeight(rect));
+}
+
+- (NSRect) _overrideNSSearchFieldCellMethod_cancelButtonRectForBounds: (NSRect)rect
+{
+  typedef NSRect (*RectIMP)(id, SEL, NSRect);
+  RectIMP originalIMP = (RectIMP)WinUIThemeOriginalMethod(_cmd, self, [NSSearchFieldCell class]);
+
+  if (WinUIThemeActiveTheme() == nil)
+    {
+      return originalIMP != NULL ? originalIMP(self, _cmd, rect) : rect;
+    }
+  return NSMakeRect(NSMaxX(rect) - WinUIThemeSearchQueryWidth - WinUIThemeSearchDeleteWidth,
+                    NSMinY(rect), WinUIThemeSearchDeleteWidth, NSHeight(rect));
+}
+
+- (NSRect) _overrideNSSearchFieldCellMethod_searchTextRectForBounds: (NSRect)rect
+{
+  typedef NSRect (*RectIMP)(id, SEL, NSRect);
+  RectIMP originalIMP = (RectIMP)WinUIThemeOriginalMethod(_cmd, self, [NSSearchFieldCell class]);
+
+  if (WinUIThemeActiveTheme() == nil)
+    {
+      return originalIMP != NULL ? originalIMP(self, _cmd, rect) : rect;
+    }
+  rect.size.width = MAX(0.0, NSWidth(rect) - WinUIThemeSearchQueryWidth - WinUIThemeSearchDeleteWidth);
+  return rect;
+}
+
+/* The delete button while typing: libs-gui empties the cell's string but
+   not the field editor's, so the text stayed. */
+- (void) _overrideNSSearchFieldCellMethod_clearSearch: (id)sender
+{
+  typedef void (*ClearIMP)(id, SEL, id);
+  ClearIMP originalIMP = (ClearIMP)WinUIThemeOriginalMethod(_cmd, self, [NSSearchFieldCell class]);
+  NSText *editor = [[NSApp keyWindow] fieldEditor: NO forObject: nil];
+
+  /* Only the editor editing this field. */
+  if ([[editor delegate] isKindOfClass: [NSControl class]] == NO
+      || [(NSControl *)[editor delegate] cell] != self)
+    {
+      editor = nil;
+    }
+
+  if (editor != nil && WinUIThemeActiveTheme() != nil)
+    {
+      [editor setString: @""];
+    }
+  if (originalIMP != NULL)
+    {
+      originalIMP(self, _cmd, sender);
+    }
+}
+
+- (void) _overrideNSSearchFieldCellMethod_drawWithFrame: (NSRect)cellFrame
+                                                 inView: (NSView *)controlView
+{
+  typedef void (*DrawIMP)(id, SEL, NSRect, NSView *);
+  DrawIMP originalIMP = (DrawIMP)WinUIThemeOriginalMethod(_cmd, self, [NSSearchFieldCell class]);
+  NSSearchFieldCell *cell = (NSSearchFieldCell *)self;
+  WinUITheme *theme = WinUIThemeActiveTheme();
+
+  if (theme == nil || NSIsEmptyRect(cellFrame))
+    {
+      if (originalIMP != NULL)
+        {
+          originalIMP(self, _cmd, cellFrame, controlView);
+        }
+      return;
+    }
+
+  if ([cell isBezeled] || [cell isBordered])
+    {
+      WinUIThemeDrawTextBoxChrome(theme, cellFrame, controlView, [cell isEnabled]);
+    }
+  [cell drawInteriorWithFrame: [cell searchTextRectForBounds: cellFrame] inView: controlView];
+  if ([[cell stringValue] length] > 0 || ([controlView isKindOfClass: [NSControl class]]
+                                          && [[[(NSControl *)controlView currentEditor] string] length] > 0))
+    {
+      [[cell cancelButtonCell] drawWithFrame: [cell cancelButtonRectForBounds: cellFrame] inView: controlView];
+    }
+  [[cell searchButtonCell] drawWithFrame: [cell searchButtonRectForBounds: cellFrame] inView: controlView];
+}
+
 - (void) _overrideNSComboBoxCellMethod_drawInteriorWithFrame: (NSRect)cellFrame
                                                       inView: (NSView *)controlView
 {
@@ -1955,38 +2056,25 @@ WinUIThemeSwitchColors(WinUITheme *theme,
             ? WinUIThemeColorFromTheme(theme, @"secondaryLabelColor", [NSColor controlTextColor])
             : WinUIThemeColorFromTheme(theme, @"disabledControlTextColor", [NSColor disabledControlTextColor]);
 
+          /* Pressed: SubtleFillColorTertiary behind the glyph. */
+          if ([cell isHighlighted] && enabled)
+            {
+              BOOL dark = [[theme settings] prefersDarkAppearance];
+              NSRect pressedRect = WinUIThemeCenteredRect(cellFrame,
+                                                          MIN(NSWidth(cellFrame) - 4.0, 24.0),
+                                                          MIN(NSHeight(cellFrame) - 6.0, 24.0));
+
+              [WinUIThemeColorWithAlpha(dark ? [NSColor whiteColor] : [NSColor blackColor],
+                                        dark ? 0.04 : 0.024) set];
+              [WinUIThemeRoundedPath(pressedRect, WinUIThemeControlCornerRadius(theme)) fill];
+            }
           if (searchButton)
             {
-              WinUIThemeDrawSearchGlyph(cellFrame, glyphColor);
+              WinUIThemeDrawSearchGlyph(WinUIThemeCenteredRect(cellFrame, 18.0, 18.0), glyphColor);
             }
           else
             {
-              NSColor *circleFill = WinUIThemeBlendColor(WinUIThemeColorFromTheme(theme,
-                                                                                  @"separatorColor",
-                                                                                  [NSColor controlShadowColor]),
-                                                         WinUIThemeColorFromTheme(theme,
-                                                                                  @"windowBackgroundColor",
-                                                                                  [NSColor windowBackgroundColor]),
-                                                         0.22);
-
-              if ([cell isHighlighted] && enabled)
-                {
-                  circleFill = WinUIThemeBlendColor(circleFill, [NSColor blackColor], 0.10);
-                }
-              if (enabled == NO)
-                {
-                  circleFill = WinUIThemeBlendColor(circleFill,
-                                                    WinUIThemeColorFromTheme(theme,
-                                                                             @"windowBackgroundColor",
-                                                                             [NSColor windowBackgroundColor]),
-                                                    0.35);
-                }
-
-              /* White on the grey circle: selectedControlTextColor is the
-                 text-on-accent colour, black in the dark palette. */
-              WinUIThemeDrawDismissGlyph(cellFrame,
-                                         circleFill,
-                                         [NSColor whiteColor]);
+              WinUIThemeDrawCrossGlyph(WinUIThemeCenteredRect(cellFrame, 10.0, 10.0), glyphColor);
             }
           return;
         }

@@ -303,6 +303,7 @@ QuirkProbeModuleOfAddress(void *address)
 - (void) checkTextBox;
 - (void) checkComboBoxes;
 - (void) checkListSelection;
+- (void) checkSearchField;
 - (void) createLateWindow: (NSTimer *)timer;
 - (void) checkLateWindow: (NSTimer *)timer;
 - (void) checkMenuBarTitles: (NSWindow *)window;
@@ -2640,6 +2641,67 @@ QuirkProbeInkIn(NSBitmapImageRep *rep, NSRect area, NSInteger fill, NSInteger th
   [window orderOut: nil];
 }
 
+/* WinUI's AutoSuggestBox (issue #9): an empty search field shows only
+   the magnifier, at its trailing edge, nothing before its text; with
+   text, the delete cross shows just before the magnifier. */
+- (void) checkSearchField
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(420, 780, 300, 80)
+                                     title: @"QuirkProbe Search"];
+  NSSearchField *search = AUTORELEASE([[NSSearchField alloc] initWithFrame: NSMakeRect(20, 24, 240, 32)]);
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale;
+  NSInteger width, height, fill;
+  NSUInteger leading, query, emptyDelete, delete;
+
+  [[search cell] setPlaceholderString: nil];
+  [search setStringValue: @""];
+  [[window contentView] addSubview: search];
+  [window makeKeyAndOrderFront: nil];
+  [window makeFirstResponder: window];
+  [window display];
+
+  rep = QuirkProbeRender(search);
+  scale = QuirkProbeScale(rep, search);
+  width = [rep pixelsWide];
+  height = [rep pixelsHigh];
+  [self saveView: search named: @"search-empty"];
+  fill = QuirkProbeBrightnessAt(rep, scale, NSWidth([search bounds]) / 2.0, NSHeight([search bounds]) / 2.0);
+  leading = QuirkProbeInkIn(rep, NSMakeRect(3 * scale, height * 0.25, 18 * scale, height * 0.5), fill, 150, NULL);
+  query = QuirkProbeInkIn(rep, NSMakeRect(width - 30 * scale, height * 0.25, 24 * scale, height * 0.5),
+                          fill, 150, NULL);
+  emptyDelete = QuirkProbeInkIn(rep, NSMakeRect(width - 60 * scale, height * 0.25, 26 * scale, height * 0.5),
+                                fill, 150, NULL);
+  if (leading == 0 && query >= 8)
+    {
+      [self pass: @"search-query-trailing" detail: @"the magnifier is inside the field, at its trailing edge"];
+    }
+  else
+    {
+      [self fail: @"search-query-trailing" detail: [NSString stringWithFormat:
+        @"%lu px of glyph before the text, %lu px at the trailing edge", (unsigned long)leading,
+        (unsigned long)query]];
+    }
+
+  [search setStringValue: @"q"];
+  [window display];
+  rep = QuirkProbeRender(search);
+  [self saveView: search named: @"search-text"];
+  delete = QuirkProbeInkIn(rep, NSMakeRect(width - 60 * scale, height * 0.25, 26 * scale, height * 0.5),
+                           fill, 150, NULL);
+  if (emptyDelete == 0 && delete >= 6)
+    {
+      [self pass: @"search-delete-with-text" detail: @"the delete cross shows before the magnifier only with text"];
+    }
+  else
+    {
+      [self fail: @"search-delete-with-text" detail: [NSString stringWithFormat:
+        @"before the magnifier: %lu px empty, %lu px with text", (unsigned long)emptyDelete,
+        (unsigned long)delete]];
+    }
+  [window orderOut: nil];
+}
+
 - (void) checkLateWindow: (NSTimer *)timer
 {
   NSMenu *mainMenu = [NSApp mainMenu];
@@ -2945,6 +3007,7 @@ QuirkProbeLastItemOfMenu(NSString *title)
   [self checkTextBox];
   [self checkComboBoxes];
   [self checkListSelection];
+  [self checkSearchField];
   [self checkPopUpClick];
   [self after: QuirkProbeSettleDelay perform: @selector(createLateWindow:)];
 }

@@ -122,7 +122,7 @@ WinUIThemeNormalizedEditorContent(NSTextFieldCell *cell, NSDictionary *attribute
   return mutableContent;
 }
 
-static NSRect
+NSRect
 WinUIThemeCenteredRect(NSRect frame, CGFloat width, CGFloat height)
 {
   return NSMakeRect(NSMidX(frame) - (width / 2.0),
@@ -1031,6 +1031,22 @@ WinUIThemeDrawSearchGlyph(NSRect rect, NSColor *color)
   [path setLineJoinStyle: NSRoundLineJoinStyle];
   [color set];
   [path stroke];
+}
+
+/* A plain cross filling `rect`: WinUI's delete button. */
+void
+WinUIThemeDrawCrossGlyph(NSRect rect, NSColor *color)
+{
+  NSBezierPath *mark = [NSBezierPath bezierPath];
+
+  [mark moveToPoint: NSMakePoint(NSMinX(rect), NSMinY(rect))];
+  [mark lineToPoint: NSMakePoint(NSMaxX(rect), NSMaxY(rect))];
+  [mark moveToPoint: NSMakePoint(NSMinX(rect), NSMaxY(rect))];
+  [mark lineToPoint: NSMakePoint(NSMaxX(rect), NSMinY(rect))];
+  [mark setLineWidth: 1.3];
+  [mark setLineCapStyle: NSRoundLineCapStyle];
+  [color set];
+  [mark stroke];
 }
 
 void
