@@ -22,6 +22,36 @@ static NSString *WinUIThemeRuntimeDefaultsDomain = @"WinUIThemeRuntimeDomain";
      toDictionary: (NSMutableDictionary *)dictionary;
 @end
 
+IMP
+WinUIThemeOriginalMethod(SEL selector, id receiver, Class baseClass)
+{
+  static NSMapTable *prototypes = nil;
+  GSTheme *theme = [GSTheme theme];
+  IMP imp = [theme overriddenMethod: selector for: receiver];
+  id prototype;
+
+  if (imp != NULL || baseClass == Nil)
+    {
+      return imp;
+    }
+  /* An instance of exactly `baseClass`, used only as a lookup key: it is never
+     initialised, messaged, or freed. */
+  if (prototypes == nil)
+    {
+      prototypes = [[NSMapTable alloc]
+        initWithKeyOptions: NSPointerFunctionsOpaqueMemory | NSPointerFunctionsOpaquePersonality
+              valueOptions: NSPointerFunctionsOpaqueMemory | NSPointerFunctionsOpaquePersonality
+                  capacity: 16];
+    }
+  prototype = (id)NSMapGet(prototypes, (void *)baseClass);
+  if (prototype == nil)
+    {
+      prototype = class_createInstance(baseClass, 0);
+      NSMapInsert(prototypes, (void *)baseClass, (void *)prototype);
+    }
+  return [theme overriddenMethod: selector for: prototype];
+}
+
 @implementation WinUITheme
 
 + (NSString *) themeName

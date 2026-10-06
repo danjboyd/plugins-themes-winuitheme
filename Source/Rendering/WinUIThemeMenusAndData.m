@@ -2013,8 +2013,7 @@ WinUIThemeScrollViewNeedsTrailingVerticalScrollerFix(NSScrollView *scrollView,
 - (CGFloat) _overrideNSMenuItemCellMethod_stateImageWidth
 {
   typedef CGFloat (*StateImageWidthIMP)(id, SEL);
-  StateImageWidthIMP originalIMP = (StateImageWidthIMP)[[GSTheme theme] overriddenMethod: _cmd
-                                                                                      for: self];
+  StateImageWidthIMP originalIMP = (StateImageWidthIMP)WinUIThemeOriginalMethod(_cmd, self, [NSMenuItemCell class]);
   NSMenuItemCell *cell = (NSMenuItemCell *)self;
 
   if (WinUIThemeUsesPopupButtonCellLayout(cell))
@@ -2028,8 +2027,7 @@ WinUIThemeScrollViewNeedsTrailingVerticalScrollerFix(NSScrollView *scrollView,
 - (CGFloat) _overrideNSMenuItemCellMethod_keyEquivalentWidth
 {
   typedef CGFloat (*KeyEquivalentWidthIMP)(id, SEL);
-  KeyEquivalentWidthIMP originalIMP = (KeyEquivalentWidthIMP)[[GSTheme theme] overriddenMethod: _cmd
-                                                                                            for: self];
+  KeyEquivalentWidthIMP originalIMP = (KeyEquivalentWidthIMP)WinUIThemeOriginalMethod(_cmd, self, [NSMenuItemCell class]);
   NSMenuItemCell *cell = (NSMenuItemCell *)self;
 
   if (WinUIThemeUsesPopupButtonCellLayout(cell))
@@ -2043,7 +2041,7 @@ WinUIThemeScrollViewNeedsTrailingVerticalScrollerFix(NSScrollView *scrollView,
 - (NSRect) _overrideNSMenuItemCellMethod_stateImageRectForBounds: (NSRect)cellFrame
 {
   typedef NSRect (*StateRectIMP)(id, SEL, NSRect);
-  StateRectIMP originalIMP = (StateRectIMP)[[GSTheme theme] overriddenMethod: _cmd for: self];
+  StateRectIMP originalIMP = (StateRectIMP)WinUIThemeOriginalMethod(_cmd, self, [NSMenuItemCell class]);
   NSMenuItemCell *cell = (NSMenuItemCell *)self;
 
   if (WinUIThemeUsesPopupButtonCellLayout(cell))
@@ -2058,8 +2056,7 @@ WinUIThemeScrollViewNeedsTrailingVerticalScrollerFix(NSScrollView *scrollView,
                                                            inView: (NSView *)controlView
 {
   typedef void (*DrawKeyEquivalentIMP)(id, SEL, NSRect, NSView *);
-  DrawKeyEquivalentIMP originalIMP = (DrawKeyEquivalentIMP)[[GSTheme theme] overriddenMethod: _cmd
-                                                                                           for: self];
+  DrawKeyEquivalentIMP originalIMP = (DrawKeyEquivalentIMP)WinUIThemeOriginalMethod(_cmd, self, [NSMenuItemCell class]);
   NSMenuItemCell *cell = (NSMenuItemCell *)self;
 
   if (WinUIThemeUsesPopupButtonCellLayout(cell))
@@ -2077,8 +2074,7 @@ WinUIThemeScrollViewNeedsTrailingVerticalScrollerFix(NSScrollView *scrollView,
                                                         inView: (NSView *)controlView
 {
   typedef void (*DrawStateImageIMP)(id, SEL, NSRect, NSView *);
-  DrawStateImageIMP originalIMP = (DrawStateImageIMP)[[GSTheme theme] overriddenMethod: _cmd
-                                                                                    for: self];
+  DrawStateImageIMP originalIMP = (DrawStateImageIMP)WinUIThemeOriginalMethod(_cmd, self, [NSMenuItemCell class]);
   NSMenuItemCell *cell = (NSMenuItemCell *)self;
 
   if (WinUIThemeUsesPopupButtonCellLayout(cell))
@@ -2096,7 +2092,7 @@ WinUIThemeScrollViewNeedsTrailingVerticalScrollerFix(NSScrollView *scrollView,
                                                     inView: (NSView *)controlView
 {
   typedef void (*DrawImageIMP)(id, SEL, NSRect, NSView *);
-  DrawImageIMP originalIMP = (DrawImageIMP)[[GSTheme theme] overriddenMethod: _cmd for: self];
+  DrawImageIMP originalIMP = (DrawImageIMP)WinUIThemeOriginalMethod(_cmd, self, [NSMenuItemCell class]);
   NSMenuItemCell *cell = (NSMenuItemCell *)self;
 
   if (WinUIThemeUsesPopupButtonCellLayout(cell))

@@ -1343,7 +1343,7 @@ WinUIThemePopupDisplayString(NSPopUpButtonCell *cell)
 - (NSRect) _overrideNSTextFieldCellMethod_titleRectForBounds: (NSRect)aRect
 {
   typedef NSRect (*TitleRectIMP)(id, SEL, NSRect);
-  TitleRectIMP originalIMP = (TitleRectIMP)[[GSTheme theme] overriddenMethod: _cmd for: self];
+  TitleRectIMP originalIMP = (TitleRectIMP)WinUIThemeOriginalMethod(_cmd, self, [NSTextFieldCell class]);
   NSTextFieldCell *cell = (NSTextFieldCell *)self;
   WinUITheme *theme = WinUIThemeActiveTheme();
   NSRect titleRect = (originalIMP != NULL) ? originalIMP(self, _cmd, aRect) : aRect;
@@ -1371,7 +1371,7 @@ WinUIThemePopupDisplayString(NSPopUpButtonCell *cell)
 {
   typedef NSText *(*SetUpFieldEditorAttributesIMP)(id, SEL, NSText *);
   SetUpFieldEditorAttributesIMP originalIMP
-    = (SetUpFieldEditorAttributesIMP)[[GSTheme theme] overriddenMethod: _cmd for: self];
+    = (SetUpFieldEditorAttributesIMP)WinUIThemeOriginalMethod(_cmd, self, [NSTextFieldCell class]);
   NSTextFieldCell *cell = (NSTextFieldCell *)self;
   NSText *editor = textObject;
   WinUITheme *theme = WinUIThemeActiveTheme();
@@ -1410,7 +1410,7 @@ WinUIThemePopupDisplayString(NSPopUpButtonCell *cell)
                                            withView: (NSView *)view
 {
   typedef void (*DrawSegmentIMP)(id, SEL, NSInteger, NSRect, NSView *);
-  DrawSegmentIMP originalIMP = (DrawSegmentIMP)[[GSTheme theme] overriddenMethod: _cmd for: self];
+  DrawSegmentIMP originalIMP = (DrawSegmentIMP)WinUIThemeOriginalMethod(_cmd, self, [NSSegmentedCell class]);
   WinUITheme *theme = WinUIThemeActiveTheme();
   NSSegmentedCell *cell = (NSSegmentedCell *)self;
   NSString *label = [cell labelForSegment: segmentIndex];
@@ -1471,7 +1471,7 @@ WinUIThemePopupDisplayString(NSPopUpButtonCell *cell)
                                                          inView: (NSView *)controlView
 {
   typedef void (*DrawInteriorIMP)(id, SEL, NSRect, NSView *);
-  DrawInteriorIMP originalIMP = (DrawInteriorIMP)[[GSTheme theme] overriddenMethod: _cmd for: self];
+  DrawInteriorIMP originalIMP = (DrawInteriorIMP)WinUIThemeOriginalMethod(_cmd, self, [NSPopUpButtonCell class]);
   NSPopUpButtonCell *cell = (NSPopUpButtonCell *)self;
   WinUITheme *theme = WinUIThemeActiveTheme();
   id menuItem = nil;
@@ -1548,7 +1548,7 @@ WinUIThemePopupDisplayString(NSPopUpButtonCell *cell)
 - (NSRect) _overrideNSPopUpButtonCellMethod_titleRectForBounds: (NSRect)aRect
 {
   typedef NSRect (*TitleRectIMP)(id, SEL, NSRect);
-  TitleRectIMP originalIMP = (TitleRectIMP)[[GSTheme theme] overriddenMethod: _cmd for: self];
+  TitleRectIMP originalIMP = (TitleRectIMP)WinUIThemeOriginalMethod(_cmd, self, [NSPopUpButtonCell class]);
   WinUITheme *theme = WinUIThemeActiveTheme();
   NSRect rect = (originalIMP != NULL) ? originalIMP(self, _cmd, aRect) : aRect;
 
@@ -1574,7 +1574,7 @@ WinUIThemePopupDisplayString(NSPopUpButtonCell *cell)
                                                       inView: (NSView *)controlView
 {
   typedef void (*DrawTitleIMP)(id, SEL, NSRect, NSView *);
-  DrawTitleIMP originalIMP = (DrawTitleIMP)[[GSTheme theme] overriddenMethod: _cmd for: self];
+  DrawTitleIMP originalIMP = (DrawTitleIMP)WinUIThemeOriginalMethod(_cmd, self, [NSPopUpButtonCell class]);
   WinUITheme *theme = WinUIThemeActiveTheme();
   NSPopUpButtonCell *cell = (NSPopUpButtonCell *)self;
   NSString *title = nil;
@@ -1659,7 +1659,7 @@ WinUIThemePopupDisplayString(NSPopUpButtonCell *cell)
 
   {
     typedef id (*CurrentArrowImageIMP)(id, SEL);
-    CurrentArrowImageIMP originalIMP = (CurrentArrowImageIMP)[[GSTheme theme] overriddenMethod: _cmd for: self];
+    CurrentArrowImageIMP originalIMP = (CurrentArrowImageIMP)WinUIThemeOriginalMethod(_cmd, self, [NSPopUpButtonCell class]);
 
     if (originalIMP != NULL)
       {
@@ -1674,7 +1674,7 @@ WinUIThemePopupDisplayString(NSPopUpButtonCell *cell)
                                                       inView: (NSView *)controlView
 {
   typedef void (*DrawImageIMP)(id, SEL, NSRect, NSView *);
-  DrawImageIMP originalIMP = (DrawImageIMP)[[GSTheme theme] overriddenMethod: _cmd for: self];
+  DrawImageIMP originalIMP = (DrawImageIMP)WinUIThemeOriginalMethod(_cmd, self, [NSPopUpButtonCell class]);
   WinUITheme *theme = WinUIThemeActiveTheme();
 
   if (theme != nil
@@ -1694,7 +1694,7 @@ WinUIThemePopupDisplayString(NSPopUpButtonCell *cell)
                                                       inView: (NSView *)controlView
 {
   typedef void (*DrawInteriorIMP)(id, SEL, NSRect, NSView *);
-  DrawInteriorIMP originalIMP = (DrawInteriorIMP)[[GSTheme theme] overriddenMethod: _cmd for: self];
+  DrawInteriorIMP originalIMP = (DrawInteriorIMP)WinUIThemeOriginalMethod(_cmd, self, [NSComboBoxCell class]);
   WinUITheme *theme = WinUIThemeActiveTheme();
   NSComboBoxCell *cell = (NSComboBoxCell *)self;
   NSRect buttonRect = WinUIThemeComboBoxButtonRect(cellFrame);
@@ -1797,7 +1797,7 @@ WinUIThemePopupDisplayString(NSPopUpButtonCell *cell)
                                      untilMouseUp: (BOOL)flag
 {
   typedef BOOL (*TrackMouseIMP)(id, SEL, NSEvent *, NSRect, NSView *, BOOL);
-  TrackMouseIMP originalIMP = (TrackMouseIMP)[[GSTheme theme] overriddenMethod: _cmd for: self];
+  TrackMouseIMP originalIMP = (TrackMouseIMP)WinUIThemeOriginalMethod(_cmd, self, [NSComboBoxCell class]);
   NSPoint point = [controlView convertPoint: [theEvent locationInWindow] fromView: nil];
   BOOL nonEditableCombo = ([controlView isKindOfClass: [NSComboBox class]]
                            && [(NSComboBox *)controlView isEditable] == NO);
@@ -1850,7 +1850,7 @@ WinUIThemePopupDisplayString(NSPopUpButtonCell *cell)
                                       untilMouseUp: (BOOL)flag
 {
   typedef BOOL (*TrackMouseIMP)(id, SEL, NSEvent *, NSRect, NSView *, BOOL);
-  TrackMouseIMP originalIMP = (TrackMouseIMP)[[GSTheme theme] overriddenMethod: _cmd for: self];
+  TrackMouseIMP originalIMP = (TrackMouseIMP)WinUIThemeOriginalMethod(_cmd, self, [NSSegmentedCell class]);
   WinUITheme *theme = WinUIThemeActiveTheme();
   NSSegmentedCell *cell = (NSSegmentedCell *)self;
   NSPoint point = [controlView convertPoint: [theEvent locationInWindow] fromView: nil];
@@ -1902,7 +1902,7 @@ WinUIThemePopupDisplayString(NSPopUpButtonCell *cell)
                                             inView: (NSView *)controlView
 {
   typedef void (*DrawWithFrameIMP)(id, SEL, NSRect, NSView *);
-  DrawWithFrameIMP originalIMP = (DrawWithFrameIMP)[[GSTheme theme] overriddenMethod: _cmd for: self];
+  DrawWithFrameIMP originalIMP = (DrawWithFrameIMP)WinUIThemeOriginalMethod(_cmd, self, [NSButtonCell class]);
 
   if (WinUIThemeDrawCheckboxOrRadioCell((NSButtonCell *)self, cellFrame, controlView))
     {
@@ -1920,7 +1920,7 @@ WinUIThemePopupDisplayString(NSPopUpButtonCell *cell)
                                          inView: (NSView *)controlView
 {
   typedef void (*DrawImageIMP)(id, SEL, NSImage *, NSRect, NSView *);
-  DrawImageIMP originalIMP = (DrawImageIMP)[[GSTheme theme] overriddenMethod: _cmd for: self];
+  DrawImageIMP originalIMP = (DrawImageIMP)WinUIThemeOriginalMethod(_cmd, self, [NSButtonCell class]);
   WinUITheme *theme = WinUIThemeActiveTheme();
   BOOL radio = (WinUIThemeButtonCellIsRadio((NSButtonCell *)self)
                 || WinUIThemeButtonImageLooksLikeRadio(imageToDisplay));
@@ -1947,7 +1947,7 @@ WinUIThemePopupDisplayString(NSPopUpButtonCell *cell)
                                                     inView: (NSView *)controlView
 {
   typedef void (*DrawInteriorIMP)(id, SEL, NSRect, NSView *);
-  DrawInteriorIMP originalIMP = (DrawInteriorIMP)[[GSTheme theme] overriddenMethod: _cmd for: self];
+  DrawInteriorIMP originalIMP = (DrawInteriorIMP)WinUIThemeOriginalMethod(_cmd, self, [NSButtonCell class]);
   NSButtonCell *cell = (NSButtonCell *)self;
   WinUITheme *theme = WinUIThemeActiveTheme();
 
