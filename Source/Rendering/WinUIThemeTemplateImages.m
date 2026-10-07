@@ -38,6 +38,85 @@ WinUIThemeImageIsTemplate(NSImage *image)
   return [name hasSuffix: @"Template"] || [name hasSuffix: @"-symbolic"];
 }
 
+/* The image's largest bitmap, as its PNG loads, or nil. */
+static NSBitmapImageRep *
+WinUIThemeLargestBitmap(NSImage *image)
+{
+  NSEnumerator *enumerator = [[image representations] objectEnumerator];
+  NSImageRep *rep = nil;
+  NSBitmapImageRep *largest = nil;
+
+  while ((rep = [enumerator nextObject]) != nil)
+    {
+      if ([rep isKindOfClass: [NSBitmapImageRep class]]
+          && [rep pixelsWide] > 0 && [rep pixelsHigh] > 0
+          && (largest == nil || [rep pixelsWide] > [largest pixelsWide]))
+        {
+          largest = (NSBitmapImageRep *)rep;
+        }
+    }
+  return largest;
+}
+
+/* `source`'s alpha in `rgb`, as a new image of `size`: its pixels
+   recoloured, without drawing. An image drawn into with -lockFocus before
+   any window is on screen comes out blank on Windows (issue #64). */
+static NSImage *
+WinUIThemeRecolouredBitmap(NSBitmapImageRep *source, NSColor *rgb, NSSize size)
+{
+  NSInteger width = [source pixelsWide];
+  NSInteger height = [source pixelsHigh];
+  CGFloat red = [rgb redComponent];
+  CGFloat green = [rgb greenComponent];
+  CGFloat blue = [rgb blueComponent];
+  CGFloat alpha = [rgb alphaComponent];
+  NSBitmapImageRep *rep = nil;
+  NSImage *result = nil;
+  unsigned char *data = NULL;
+  NSInteger bytesPerRow, x, y;
+
+  rep = AUTORELEASE([[NSBitmapImageRep alloc]
+                      initWithBitmapDataPlanes: NULL
+                                    pixelsWide: width
+                                    pixelsHigh: height
+                                 bitsPerSample: 8
+                               samplesPerPixel: 4
+                                      hasAlpha: YES
+                                      isPlanar: NO
+                                colorSpaceName: NSCalibratedRGBColorSpace
+                                   bytesPerRow: 0
+                                  bitsPerPixel: 0]);
+  data = [rep bitmapData];
+  if (data == NULL)
+    {
+      return nil;
+    }
+  bytesPerRow = [rep bytesPerRow];
+  for (y = 0; y < height; y++)
+    {
+      CREATE_AUTORELEASE_POOL(pool);
+
+      for (x = 0; x < width; x++)
+        {
+          /* Premultiplied, as a rep without NSAlphaNonpremultipliedBitmapFormat is. */
+          CGFloat a = [[source colorAtX: x y: y] alphaComponent] * alpha;
+          unsigned char *pixel = data + y * bytesPerRow + x * 4;
+
+          pixel[0] = (unsigned char)lround(red * a * 255.0);
+          pixel[1] = (unsigned char)lround(green * a * 255.0);
+          pixel[2] = (unsigned char)lround(blue * a * 255.0);
+          pixel[3] = (unsigned char)lround(a * 255.0);
+        }
+      RELEASE(pool);
+    }
+  [rep setSize: size];
+  result = AUTORELEASE([[NSImage alloc] initWithSize: size]);
+  [result addRepresentation: rep];
+  /* Drawn from the bitmap, not a copy GNUstep caches in a window. */
+  [result setCacheMode: NSImageCacheNever];
+  return result;
+}
+
 /* The image's shape in `color`, kept with the image for each colour it's
    drawn in (a few: the states of the palette in use). */
 NSImage *
@@ -47,6 +126,7 @@ WinUIThemeTintedImage(NSImage *image, NSColor *color)
   NSColor *rgb = [color colorUsingColorSpaceName: NSCalibratedRGBColorSpace];
   NSSize size = [image size];
   NSRect rect = NSMakeRect(0.0, 0.0, size.width, size.height);
+  NSBitmapImageRep *bitmap = nil;
   NSString *key = nil;
   NSImage *result = nil;
 
@@ -68,13 +148,24 @@ WinUIThemeTintedImage(NSImage *image, NSColor *color)
       objc_setAssociatedObject(image, &WinUIThemeTintedImagesKey, tinted,
                                OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
+  bitmap = WinUIThemeLargestBitmap(image);
+  if (bitmap != nil)
+    {
+      result = WinUIThemeRecolouredBitmap(bitmap, rgb, size);
+    }
+  if (result != nil)
+    {
+      [tinted setObject: result forKey: key];
+      return result;
+    }
+  /* An image with no bitmap (drawn, or vector) is drawn into a copy, which
+     isn't kept: one made before a window is on screen may be blank. */
   result = AUTORELEASE([[NSImage alloc] initWithSize: size]);
   [result lockFocus];
   [image drawInRect: rect fromRect: NSZeroRect operation: NSCompositeSourceOver fraction: 1.0];
   [rgb set];
   NSRectFillUsingOperation(rect, NSCompositeSourceIn);
   [result unlockFocus];
-  [tinted setObject: result forKey: key];
   return result;
 }
 
