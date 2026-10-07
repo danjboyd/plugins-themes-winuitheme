@@ -543,6 +543,16 @@ WinUIThemeUsesInputBorder(NSBorderType aType, NSView *view)
   return NO;
 }
 
+/* YES when `image` is the image named `name`. Where gnustep-gui's images
+   aren't installed, +imageNamed: answers nil, and a button without an image
+   would match it: an MSI that left them out drew every button and menu item
+   as a radio button. */
+static BOOL
+WinUIThemeImageIsNamed(NSImage *image, NSString *name)
+{
+  return image != nil && image == [NSImage imageNamed: name];
+}
+
 BOOL
 WinUIThemeButtonCellIsCheckbox(NSButtonCell *cell)
 {
@@ -571,10 +581,10 @@ WinUIThemeButtonCellIsCheckbox(NSButtonCell *cell)
         }
     }
 
-  return (image == [NSImage imageNamed: @"NSSwitch"]
-          || alternateImage == [NSImage imageNamed: @"NSHighlightedSwitch"]
-          || image == [NSImage imageNamed: @"GSSwitch"]
-          || alternateImage == [NSImage imageNamed: @"GSSwitchSelected"]
+  return (WinUIThemeImageIsNamed(image, @"NSSwitch")
+          || WinUIThemeImageIsNamed(alternateImage, @"NSHighlightedSwitch")
+          || WinUIThemeImageIsNamed(image, @"GSSwitch")
+          || WinUIThemeImageIsNamed(alternateImage, @"GSSwitchSelected")
           || (imageName != nil
               && [imageName rangeOfString: @"switch"
                                    options: NSCaseInsensitiveSearch].location != NSNotFound)
@@ -609,10 +619,10 @@ WinUIThemeButtonCellIsRadio(NSButtonCell *cell)
         }
     }
 
-  return (image == [NSImage imageNamed: @"NSRadioButton"]
-          || alternateImage == [NSImage imageNamed: @"NSHighlightedRadioButton"]
-          || image == [NSImage imageNamed: @"GSRadio"]
-          || alternateImage == [NSImage imageNamed: @"GSRadioSelected"]
+  return (WinUIThemeImageIsNamed(image, @"NSRadioButton")
+          || WinUIThemeImageIsNamed(alternateImage, @"NSHighlightedRadioButton")
+          || WinUIThemeImageIsNamed(image, @"GSRadio")
+          || WinUIThemeImageIsNamed(alternateImage, @"GSRadioSelected")
           || (imageName != nil
               && [imageName rangeOfString: @"radio"
                                    options: NSCaseInsensitiveSearch].location != NSNotFound)
@@ -624,20 +634,20 @@ WinUIThemeButtonCellIsRadio(NSButtonCell *cell)
 BOOL
 WinUIThemeButtonCellUsesLegacyReturnImage(NSButtonCell *cell)
 {
-  return ([cell image] == [NSImage imageNamed: @"common_ret"]
-          || [cell alternateImage] == [NSImage imageNamed: @"common_retH"]);
+  return (WinUIThemeImageIsNamed([cell image], @"common_ret")
+          || WinUIThemeImageIsNamed([cell alternateImage], @"common_retH"));
 }
 
 BOOL
 WinUIThemeButtonCellUsesSearchImage(NSButtonCell *cell)
 {
-  return ([cell image] == [NSImage imageNamed: @"GSSearch"]);
+  return WinUIThemeImageIsNamed([cell image], @"GSSearch");
 }
 
 BOOL
 WinUIThemeButtonCellUsesCancelImage(NSButtonCell *cell)
 {
-  return ([cell image] == [NSImage imageNamed: @"GSStop"]);
+  return WinUIThemeImageIsNamed([cell image], @"GSStop");
 }
 
 NSFont *
