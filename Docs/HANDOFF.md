@@ -1,6 +1,6 @@
 # Handoff: Adwaita parity work
 
-State as of 2026-10-06, for picking the work up in a fresh session. The goal
+State as of 2026-10-07, for picking the work up in a fresh session. The goal
 (tracking issue #50): unmodified GNUstep apps look like first-rate WinUI 3
 apps under this theme, at parity with what the Adwaita theme
 (`C:\Users\Support\git\plugins-themes-Adwaita`) does for GNOME. The audit
@@ -39,34 +39,48 @@ order:
 | #59 | `adwaita-parity-phase-c` | phase B | #54, #53, #24, #23, #34, #18 |
 | #60 | `adwaita-parity-phase-d` | phase C | #25, #21, #38, #10, #35, #39, #29 |
 | #61 | `adwaita-parity-phase-e` | phase D | #36, #37, #40, #8, #43, #51, #9 |
+| (none yet) | `adwaita-parity-phase-f` | phase E | #14, #44, #41, #42, #28, #46, #5 |
 
-None are merged. The issues close when their commits (`Fixes #N`) reach
+None are merged, and phase F is local: it waits for the owner to push it
+and open its PR. The issues close when their commits (`Fixes #N`) reach
 `main`. If a base branch is deleted when its PR merges, retarget the next PR
 by hand.
 
 Other repositories:
 
 - ObjcMarkdown: build issues #55-#57. The owner may have someone else on them.
+  MarkdownViewer now runs here, from `MarkdownViewer-dev.ps1`.
 - Adwaita theme: #45 (plist).
+
+The theme is also installed system-wide
+(`/clang64/lib/GNUstep/Themes/WinUITheme.theme`, built from `effae64`), so
+MarkdownViewer loads it; `C:\Users\Support\GNUstep\Defaults\NSGlobalDomain.plist`
+selects it. Reinstall with `make GNUSTEP_INSTALLATION_DOMAIN=SYSTEM install`
+in a CLANG64 shell; never install it into
+`C:\Users\Support\GNUstep\Library\Themes`, where a copy would shadow it.
 
 ### Open issues not yet addressed
 
 | Area | Issues |
 | --- | --- |
-| Correctness | #14 sizeToFit/cellSize vs. drawn geometry; #13 NSTextAlignment numbering; #5 checkbox/radio bitmaps (ThemeDemo draws them as vectors now, so check what's left) |
-| Fidelity | #44 typography (Segoe UI Variable ramp, Semibold); #41 slider; #42 ProgressBar/ProgressRing; #28 table defaults; #27 NSBox/forms as cards; #26 colour well; #48 segmented control; #49 tab view; #22 tool tips (colours done in #39; padding and font remain); #30 popup window owner/tool-window style |
-| System | #46 live settings changes; #45 high-contrast system colours; #47 Mica (investigate, upstream) |
+| Correctness | #13 NSTextAlignment numbering |
+| Fidelity | #27 NSBox/forms as cards; #26 colour well; #48 segmented control; #49 tab view; #22 tool tips (colours done in #39; padding and font remain); #30 popup window owner/tool-window style |
+| System | #45 high-contrast system colours; #47 Mica (investigate, upstream) |
 | Nib apps | #31 compact metrics for nib/Gorm apps; #32 Gorm palette; #33 document window titles |
 | Controls | #56 NSDatePicker; #57 NSLevelIndicator; #58 NSBrowser |
 | Testing | #17 ThemeDemo automation; #19 real-app backlog; #20 native dialogs at run time |
 
 **Suggested next five:**
 
-1. **#14 sizeToFit:** text gets clipped wherever an app sizes controls with `-sizeToFit`.
-2. **#44 typography:** it touches everything, and the controls have now settled.
-3. **#28 table defaults**, with the remaining row-hover gap from #43.
-4. **#41 and #42 slider and progress:** small, very visible, and similar work.
-5. **#46 live settings:** theme, accent, contrast and DPI changes without relaunching.
+1. **#31 compact metrics for nib apps:** real apps (SystemPreferences) draw
+   22pt nib controls with 32-34pt metrics; now that #14 sizes controls from
+   the drawing, this is the biggest real-app gap.
+2. **#13 NSTextAlignment numbering:** a correctness bug, small.
+3. **#48 and #49 segmented control and tab view:** visible on every
+   settings-style window, and similar work.
+4. **#27 NSBox and forms as cards:** WinUI's settings surfaces.
+5. **#45 high-contrast system colours:** high contrast skips the most probe
+   checks, and #46 now refreshes colours live.
 
 ### Known gaps in finished work
 
@@ -77,13 +91,24 @@ Other repositories:
   and its cairo build turns borderless windows into captionless
   `WS_OVERLAPPED` windows rather than `WS_POPUP`. Either may stop DWM
   rounding menus on real hardware. Check on Windows 11 with a GPU.
-- **No hover fill on table rows (#43):** libs-gui tracks no row hover.
 - **Combo box list:** the list that opens from a combo box is still
   libs-gui's.
-- **Untested states:**
-  - editable combo boxes while editing (ThemeDemo's combo box isn't editable);
-  - the search field's pressed fill;
-  - the scroll bar's expanded hover state (#29), checked only on screenshots.
+- **Live settings (#46):** checked by sending the theme's listener window
+  ImmersiveColorSet with an accent override, not by changing Windows'
+  settings, which would disturb the desktop. Toggle light/dark, the accent
+  and a contrast theme by hand once. libs-back's windows are DPI-unaware, so
+  Windows sends no `WM_DPICHANGED`. After a text-size change only controls
+  made afterwards get the new fonts.
+- **Hover when the pointer is already inside:** a tracking rect added under
+  the pointer gets no entering, only the exit. Tables work round it from
+  `-mouseMoved:`; buttons and scroll bars show their hover once the pointer
+  has crossed their edge.
+- **No paused or error progress state, no slider ticks:** NSProgressIndicator
+  has no such states, and libs-gui draws no tick marks.
+- **Pointer checks can flake** when something else on the desktop takes the
+  pointer or focus: once in this work, `button-hover`, `table-row-hover` and
+  `scroller-hover-expands` all failed in one configuration and passed on
+  reruns. Rerun before suspecting the theme.
 
 ## Toolchain
 
@@ -111,15 +136,18 @@ Other repositories:
 
 `Tests/Scripts/Invoke-QuirkProbe.ps1` runs `Examples/QuirkProbe`.
 
-- **Configurations:** light, dark, high-contrast and light-150 (150% desktop
-  scale). The exit code is the number of failures.
+- **Configurations:** light, dark, high-contrast, light-150 (150% desktop
+  scale) and large-text (150% Windows text size). The exit code is the
+  number of failures.
 - **Options:**
   - `-NoPointer` skips checks that move the real pointer;
   - `-Configuration light,dark` picks configurations;
   - `-Theme <path>` checks another build;
   - `-OutputDirectory <dir>` saves renders.
-- **Coverage:** about 55 checks in light, dark and 150%. In high contrast
-  some checks skip with a reason.
+- **Coverage:** about 75 checks in light, dark and the 150% configurations.
+  In high contrast some checks skip with a reason.
+- **Desktop scale:** the theme scales metrics by `--scale`, the probe's
+  drawing stays 1:1; `QuirkProbeDesktopScale()` gives the factor.
 
 **Every fix gets a check that fails on the previous build and passes on the
 new one.** Build the previous phase's theme in a scratch worktree
@@ -173,6 +201,12 @@ How checks are written (`Examples/QuirkProbe/QuirkProbe.m`):
   `Source/Rendering/WinUIThemePalette.m`. Metrics:
   `Source/Settings/WinUIThemeMetrics.m`, scaled by desktop DPI. Settings and
   registry: `Source/Settings/WinUIThemeSettings.m`.
+- **Type:** Segoe UI Variable at 14px times Windows' text size
+  (`-textScaleFactor`). For bold use `WinUIThemeSemiboldFont(font, size)`,
+  WinUI's Semibold; `NSBoldFont` is set to it.
+- **Live settings:** `-[WinUITheme systemSettingsDidChange]` reloads, posts
+  `GSThemeDidActivateNotification` (NSColor recaches its system colours only
+  then) and redraws. The integration controller's listener window calls it.
 - **Shared drawing** (`Source/Rendering/WinUIThemeDrawing.h`):
   - `WinUIThemeDrawButtonChrome` for buttons, pop-ups and non-editable combo
     boxes;
@@ -180,7 +214,8 @@ How checks are written (`Examples/QuirkProbe/QuirkProbe.m`):
   - `WinUIThemeControlCornerRadius` (4pt) and `WinUIThemeOverlayCornerRadius`
     (8pt);
   - `WinUIThemeTrackHover` and `WinUIThemeViewIsHovered`, pointer-over state
-    from a tracking rect added on first draw;
+    from a tracking rect added on first draw; `WinUIThemeSetViewHovered` for
+    views that learn of the pointer otherwise (tables, from `-mouseMoved:`);
   - `WinUIThemeKeyboardFocusVisible`.
 - **Files by area:**
 
@@ -227,3 +262,13 @@ How checks are written (`Examples/QuirkProbe/QuirkProbe.m`):
   screen height.
 - **Command key:** GNUstep's Command modifier is left Ctrl on Windows.
   Shortcuts show as "Ctrl+Shift+Z" via the theme's `-keyForKeyEquivalent:`.
+- **Win32 callbacks in Objective-C:** Objective-C's `BOOL` is a `signed char`;
+  declare Win32 callbacks (`EnumThreadWindows` and the like) as `WINBOOL`.
+- **Tracking rects:** a rect added while the pointer is already inside gets
+  no `mouseEntered:`, only the exit. Probe checks move the pointer outside
+  the window first, and make the window key.
+- **Spinners:** a stopped `NSProgressIndicatorSpinningStyle` indicator hides
+  itself unless `-setDisplayedWhenStopped: YES`, as in Cocoa.
+- **Theme metrics vs. the probe:** with `--scale`, the theme scales its
+  metrics while the probe draws 1:1; expect `20 * QuirkProbeDesktopScale()`,
+  not 20 times the render's scale.

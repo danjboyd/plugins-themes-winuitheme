@@ -32,6 +32,13 @@ Regression checks live in `Examples/QuirkProbe`; run
 | Pop-up buttons had a tinted lane and divider; a focused combo box showed an empty field and GNUstep's "..." button (#40, #8) | WinUI ComboBox: one box, chevron, accent pill on the selected drop-down item; no editor in a non-editable combo box; QuirkProbe `popup-no-lane`, `popup-title-primary`, `combobox-focused-keeps-value` | ThemeDemo |
 | Table and outline selection was a light-blue fill with a border; nested outline rows drew their chevron over the title (#43, #51) | WinUI ListView/TreeView selection with an accent pill; the chevron placed once from the indented edge; QuirkProbe `list-selection-*`, `outline-chevron-before-title` | ThemeDemo |
 | A search field's magnifier and cancel button sat outside the field; the cancel button didn't clear text being typed (#9) | WinUI AutoSuggestBox layout and glyphs; the field editor is cleared too; QuirkProbe `search-*` | ThemeDemo |
+| Controls sized with `-sizeToFit` cut their titles: "Sign In" showed "ign I", "Errors only" "Errors", a 44pt "20" nothing (#14) | `-cellSize` measures with the theme's insets and font; a button's title sits between WinUI's 11pt margins; padding gives way before a title is cut; QuirkProbe `size-to-fit-*` | the Adwaita audit (its rows 2, 3, 58) |
+| Interface text was Segoe UI at 13px, and bold was Tahoma Bold (#44) | Segoe UI Variable at 14px (Segoe UI on Windows 10), Semibold for bold, Windows' text size honoured; headers grow and TextBoxes keep their underline at larger sizes; QuirkProbe `typography-*` and the `large-text` configuration | the parity audit |
+| The slider was a plain circle on a bordered 5-6px track (#41) | WinUI Slider: 4px track, 20px thumb, 12px accent dot (14 under the pointer, 10 pressed); QuirkProbe `slider-*` | ThemeDemo |
+| Progress bars were bordered bezels; the indeterminate chunk followed the redraw count; spinners were GNUstep's NeXT spinner (#42) | WinUI ProgressBar (1px track, 3px bar, clock-timed segments) and ProgressRing; QuirkProbe `progress-*` | ThemeDemo |
+| Tables built in code had 16pt rows, spaced cells, dividers between every header column, header titles 16pt in, and no row hover (#28, #43) | WinUI list defaults (32pt rows, no grid or spacing), dividers under the pointer, titles 12pt in, a hover fill; QuirkProbe `table-code-defaults`, `table-header-dividers`, `table-header-title-inset`, `table-row-hover` | ThemeDemo, the audit |
+| Theme, accent and contrast changes showed only after a window's focus changed, and AppKit's system colours stayed stale (#46) | a hidden listener window hears Windows' broadcasts; reloads tell NSColor; QuirkProbe `live-accent-change` | the parity audit |
+| Checkboxes and radios were 14-18px with an 8px radio dot; the plist still mapped five light-mode bitmaps (#5) | WinUI CheckBox and RadioButton at 20px; the bitmaps are gone; QuirkProbe `checkbox-indicator-size`, `radio-centre-dot` | ThemeDemo |
 
 ## Found in real apps
 
@@ -48,8 +55,10 @@ Run on 2026-10-06 with gnustep-gui 0.32 (MSYS2 clang64), branch
 
 ## Not yet exercised
 
-- **ObjcMarkdown** doesn't build on this machine, for reasons in that
-  repository, not the theme:
+- **ObjcMarkdown** now runs here (`MarkdownViewer-dev.ps1`), and its
+  MarkdownViewer loads the installed theme (2026-10-06, built from
+  `effae64`), but hasn't been reviewed under it. Earlier it didn't build, for
+  reasons in that repository, not the theme:
   - `main` (`e71e0ed`): `OMMarkdownRendererMath.m` calls static functions
     that `fe770f5` ("Split OMMarkdownRenderer.m along its topics") left in
     `OMMarkdownRenderer.m` (danjboyd/ObjcMarkdown#55).
