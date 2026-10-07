@@ -1379,6 +1379,10 @@ WinUIThemeDrawTableHover(WinUITheme *theme, NSTableView *tableView, NSRect clipR
                                 bounds.size.width,
                                 [self tabHeightForType: type]);
   BOOL flipped = [view isFlipped];
+  /* A strip too short for a label and the pill (compact metrics' GSTheme
+     height, #31): the label centred, the pill across the card's top edge,
+     where WinUI's Pivot draws its indicator. */
+  BOOL tight = (NSHeight(stripRect) < 28.0);
   CGFloat x = bounds.origin.x + 4.0;
   NSUInteger index = 0;
   NSColor *accent = WinUIThemeColorFromTheme(self, @"accentColor", [NSColor selectedControlColor]);
@@ -1424,15 +1428,17 @@ WinUIThemeDrawTableHover(WinUITheme *theme, NSTableView *tableView, NSRect clipR
       if (selected)
         {
           NSRect pill = NSMakeRect(floor(NSMidX(tabRect) - 8.0),
-                                   flipped ? NSMaxY(tabRect) - 5.0 : NSMinY(tabRect) + 2.0,
+                                   tight ? (flipped ? NSMaxY(tabRect) - 1.5 : NSMinY(tabRect) - 1.5)
+                                         : (flipped ? NSMaxY(tabRect) - 5.0 : NSMinY(tabRect) + 2.0),
                                    16.0, 3.0);
 
           [accent set];
           [WinUIThemeRoundedPath(pill, 1.5) fill];
         }
 
-      /* Centred, 2pt up, clear of the pill. */
-      labelRect.origin.y = floor(NSMidY(tabRect) - (labelSize.height / 2.0)) + (flipped ? -2.0 : 2.0);
+      /* Centred, 2pt up, clear of the pill (centred in a tight strip). */
+      labelRect.origin.y = floor(NSMidY(tabRect) - (labelSize.height / 2.0))
+        + (tight ? 0.0 : (flipped ? -2.0 : 2.0));
       labelRect.size.height = labelSize.height;
       [title drawInRect: labelRect withAttributes: attributes];
       x += tabWidth;
