@@ -29,21 +29,21 @@ in `Docs/IMPROVEMENTS.md`.
 
 ## Where things stand
 
-The work is a stack of PRs, each based on the one before. Merge them in this
-order:
+Phases A to F are merged into `main`:
 
-| PR | Branch | Base | Issues |
-| --- | --- | --- | --- |
-| #52 | `adwaita-parity-phase-a` | `main` | #11, #2, #1, #4, #3, #16 |
-| #55 | `adwaita-parity-phase-b` | phase A | #15, #19, #12, #6, #7 |
-| #59 | `adwaita-parity-phase-c` | phase B | #54, #53, #24, #23, #34, #18 |
-| #60 | `adwaita-parity-phase-d` | phase C | #25, #21, #38, #10, #35, #39, #29 |
-| #61 | `adwaita-parity-phase-e` | phase D | #36, #37, #40, #8, #43, #51, #9 |
-| #63 | `adwaita-parity-phase-f` | phase E | #14, #44, #41, #42, #28, #46, #5 |
+| PR | Branch | Issues |
+| --- | --- | --- |
+| #52 | `adwaita-parity-phase-a` | #11, #2, #1, #4, #3, #16 |
+| #55 | `adwaita-parity-phase-b` | #15, #19, #12, #6, #7 |
+| #59 | `adwaita-parity-phase-c` | #54, #53, #24, #23, #34, #18 |
+| #60 | `adwaita-parity-phase-d` | #25, #21, #38, #10, #35, #39, #29 |
+| #61 | `adwaita-parity-phase-e` | #36, #37, #40, #8, #43, #51, #9 |
+| #63 | `adwaita-parity-phase-f` | #14, #44, #41, #42, #28, #46, #5 |
+| #65 | `fix-early-template-tint` | #64 |
 
-None are merged. The issues close when their commits (`Fixes #N`) reach
-`main`. If a base branch is deleted when its PR merges, retarget the next PR
-by hand.
+Phase G, on `adwaita-parity-phase-g` from `main` (`0501cef`), isn't pushed
+yet: #62 (the LGPL-2.1-or-later license), #13, #57, #56 and #58. The issues
+close when their commits (`Fixes #N`) reach `main`.
 
 Other repositories:
 
@@ -62,11 +62,9 @@ in a CLANG64 shell; never install it into
 
 | Area | Issues |
 | --- | --- |
-| Correctness | #13 NSTextAlignment numbering |
 | Fidelity | #27 NSBox/forms as cards; #26 colour well; #48 segmented control; #49 tab view; #22 tool tips (colours done in #39; padding and font remain); #30 popup window owner/tool-window style |
 | System | #45 high-contrast system colours; #47 Mica (investigate, upstream) |
 | Nib apps | #31 compact metrics for nib/Gorm apps; #32 Gorm palette; #33 document window titles |
-| Controls | #56 NSDatePicker; #57 NSLevelIndicator; #58 NSBrowser |
 | Testing | #17 ThemeDemo automation; #19 real-app backlog; #20 native dialogs at run time |
 
 **Suggested next five:**
@@ -74,12 +72,15 @@ in a CLANG64 shell; never install it into
 1. **#31 compact metrics for nib apps:** real apps (SystemPreferences) draw
    22pt nib controls with 32-34pt metrics; now that #14 sizes controls from
    the drawing, this is the biggest real-app gap.
-2. **#13 NSTextAlignment numbering:** a correctness bug, small.
-3. **#48 and #49 segmented control and tab view:** visible on every
+2. **#48 and #49 segmented control and tab view:** visible on every
    settings-style window, and similar work.
-4. **#27 NSBox and forms as cards:** WinUI's settings surfaces.
-5. **#45 high-contrast system colours:** high contrast skips the most probe
+3. **#27 NSBox and forms as cards:** WinUI's settings surfaces, and the
+   last unthemed group on ThemeDemo's More Surfaces page.
+4. **#45 high-contrast system colours:** high contrast skips the most probe
    checks, and #46 now refreshes colours live.
+5. **#17 ThemeDemo command automation:** the date picker flyout and the
+   browser were checked by hand in ThemeDemo; scripted pages would cover
+   them.
 
 ### Known gaps in finished work
 
@@ -108,6 +109,26 @@ in a CLANG64 shell; never install it into
   pointer or focus: once in this work, `button-hover`, `table-row-hover` and
   `scroller-hover-expands` all failed in one configuration and passed on
   reruns. Rerun before suspecting the theme.
+- **Date picker (#56):**
+  - A picker with a date and a time shares one hover state between its two
+    fields.
+  - The flyout has no up and down buttons at its columns' ends; the wheel,
+    clicks and arrow keys move them.
+  - On libs-gui after 0.32 the theme's flyout replaces libs-gui's field
+    selection and stepper, so a field can't be stepped from the keyboard
+    without opening the flyout.
+  - The clock style (time only, calendar style) draws a TimePicker field;
+    a calendar-style picker with a time shows only the calendar.
+  - TimePicker has no seconds, so a picker set to show seconds hides them.
+- **Browser (#58):** rows have no hover fill. The columns are cards 8pt
+  apart, as in the reference app, rather than one surface split by
+  hairlines.
+- **Overriding NSBrowser methods breaks the fonts.** GSTheme sends each
+  overridden class a message while it loads the theme, before the theme's
+  font defaults are set. +[NSBrowser initialize] makes a title cell, which
+  fixes the system font at Tahoma 12 for the session. #58's hooks are on
+  the columns' scroll views instead. Check `typography-body` after adding an
+  override for a new class.
 
 ## Toolchain
 
@@ -118,6 +139,13 @@ in a CLANG64 shell; never install it into
   - Sources are in `C:\Users\Support\git\gnustep\libs-gui` (and `libs-back`).
     They're newer than the installed 0.32. For example, they have
     `-[GSTheme buttonPushInOffsetForCell:]`, which 0.32 lacks.
+  - **Testing against libs-gui master:** export the sources (`git archive
+    HEAD`) to a scratch directory, `./configure && make` there in a CLANG64
+    shell, then copy `QuirkProbe.app` and put
+    `Source/obj/gnustep-gui-0_32.dll` beside its exe as
+    `gnustep-gui-0.dll`. Windows loads the DLL from the exe's directory
+    first, so the probe and the theme run on master's gui. Phase G's checks
+    pass there too.
 - **Building:**
   - `Scripts/Invoke-GNUstepMake.ps1 -Directory <dir> [-Clean]` builds the
     theme (repo root, giving `WinUITheme.theme`), `Examples/QuirkProbe` and
@@ -143,8 +171,9 @@ in a CLANG64 shell; never install it into
   - `-Configuration light,dark` picks configurations;
   - `-Theme <path>` checks another build;
   - `-OutputDirectory <dir>` saves renders.
-- **Coverage:** about 75 checks in light, dark and the 150% configurations.
-  In high contrast some checks skip with a reason.
+- **Coverage:** 91 checks in light, dark and the 150% configurations, and 4
+  more that move the pointer. In high contrast some checks skip with a
+  reason.
 - **Desktop scale:** the theme scales metrics by `--scale`, the probe's
   drawing stays 1:1; `QuirkProbeDesktopScale()` gives the factor.
 
