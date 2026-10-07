@@ -324,6 +324,7 @@ QuirkProbeModuleOfAddress(void *address)
 - (void) checkSlider;
 - (void) checkProgress;
 - (void) checkLevelIndicator;
+- (void) checkDatePicker;
 - (void) checkTableDefaults;
 - (void) checkLiveSettings;
 - (void) checkIndicators;
@@ -2295,6 +2296,345 @@ QuirkProbeLevelIndicator(NSView *content, NSRect frame, NSLevelIndicatorStyle st
   [window orderOut: nil];
 }
 
+/* How many columns of `area` (pixels) have accepted pixels in at least
+   `minimum` of its rows, and the first of them in `first`. */
+static NSUInteger
+QuirkProbeSolidColumns(NSBitmapImageRep *rep, QuirkProbePixelTest test, NSRect area,
+                       NSUInteger minimum, NSInteger *first)
+{
+  NSUInteger solid = 0;
+  NSInteger x;
+
+  if (first != NULL)
+    {
+      *first = -1;
+    }
+  for (x = (NSInteger)NSMinX(area); x < (NSInteger)NSMaxX(area); x++)
+    {
+      if (QuirkProbeColumnCount(rep, test, x, (NSInteger)NSMinY(area), (NSInteger)NSMaxY(area)) >= minimum)
+        {
+          if (first != NULL && *first < 0)
+            {
+              *first = x;
+            }
+          solid++;
+        }
+    }
+  return solid;
+}
+
+/* YES when Windows' time format is a 12-hour clock. */
+static BOOL
+QuirkProbeTwelveHourClock(void)
+{
+#ifdef _WIN32
+  wchar_t format[80];
+
+  if (GetLocaleInfoEx(LOCALE_NAME_USER_DEFAULT, LOCALE_STIMEFORMAT, format, 80) > 0)
+    {
+      return wcschr(format, L'H') == NULL;
+    }
+#endif
+  return YES;
+}
+
+- (void) datePickerChanged: (id)sender
+{
+  _datePickerActions++;
+}
+
+/* Renders the date picker flyout while it's open, then accepts it with
+   Enter (see checkDatePicker). */
+- (void) inspectDatePickerFlyout: (NSTimer *)timer
+{
+  NSEnumerator *enumerator = [[NSApp windows] objectEnumerator];
+  NSWindow *window = nil;
+  NSView *flyout = nil;
+  NSWindow *owner = [timer userInfo];
+
+  while ((window = [enumerator nextObject]) != nil)
+    {
+      if ([window isVisible]
+          && [NSStringFromClass([[window contentView] class]) isEqualToString: @"WinUIThemeDatePickerFlyoutView"])
+        {
+          flyout = [window contentView];
+        }
+    }
+  if (flyout == nil)
+    {
+      [self fail: @"date-picker-flyout-band" detail: @"no flyout opened"];
+    }
+  else
+    {
+      NSBitmapImageRep *rep = QuirkProbeRender(flyout);
+      CGFloat scale = QuirkProbeScale(rep, flyout);
+      QuirkProbeInk band = QuirkProbeMeasureIn(rep, QuirkProbeIsAccentBlue, NSZeroRect);
+      CGFloat centre = (band.minY + band.height / 2.0) / scale;
+
+      [self saveView: flyout named: @"date-picker-flyout"];
+      if (band.count > 0 && band.width >= [rep pixelsWide] - 10 * scale
+          && fabs(band.height / scale - 36.0) <= 2.0 && fabs(centre - 180.0) <= 2.0)
+        {
+          [self pass: @"date-picker-flyout-band" detail: [NSString stringWithFormat:
+            @"an accent band %.0fx%.0fpt across the flyout's middle row",
+            band.width / scale, band.height / scale]];
+        }
+      else
+        {
+          [self fail: @"date-picker-flyout-band" detail: [NSString stringWithFormat:
+            @"accent %ldx%ld px centred %.0fpt down (expected the flyout's width, 36pt, at 180pt)",
+            (long)band.width, (long)band.height, centre]];
+        }
+    }
+  [NSApp postEvent: [NSEvent keyEventWithType: NSKeyDown
+                                     location: NSZeroPoint
+                                modifierFlags: 0
+                                    timestamp: 0
+                                 windowNumber: [owner windowNumber]
+                                      context: nil
+                                   characters: @"\r"
+                  charactersIgnoringModifiers: @"\r"
+                                    isARepeat: NO
+                                      keyCode: 0]
+           atStart: NO];
+  /* Ends the click's tracking where no flyout took it. */
+  [NSApp postEvent: [NSEvent mouseEventWithType: NSLeftMouseUp
+                                       location: NSMakePoint(80, 386)
+                                  modifierFlags: 0
+                                      timestamp: 0
+                                   windowNumber: [owner windowNumber]
+                                        context: nil
+                                    eventNumber: 0
+                                     clickCount: 1
+                                       pressure: 0.0]
+           atStart: NO];
+}
+
+/* NSDatePicker as WinUI's DatePicker, TimePicker and CalendarView (issue
+   #56). gui 0.32 drew "2026-10-05 19:00:00 -0500" as plain text, with no
+   chrome and no way to edit it. */
+- (void) checkDatePicker
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(120, 120, 640, 420)
+                                     title: @"QuirkProbe Date Picker"];
+  NSView *content = [window contentView];
+  NSDatePicker *date = AUTORELEASE([[NSDatePicker alloc] initWithFrame: NSMakeRect(20, 370, 296, 32)]);
+  NSDatePicker *time = AUTORELEASE([[NSDatePicker alloc] initWithFrame: NSMakeRect(340, 370, 242, 32)]);
+  NSDatePicker *calendar = AUTORELEASE([[NSDatePicker alloc] initWithFrame: NSMakeRect(20, 0, 300, 360)]);
+  NSCalendarDate *day = [NSCalendarDate dateWithYear: 2026 month: 10 day: 5 hour: 19 minute: 0 second: 0
+                                            timeZone: [NSTimeZone timeZoneWithName: @"America/Chicago"]];
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale;
+  NSUInteger red, green, blue;
+  BOOL highContrast = QuirkProbeHasArgument(@"--high-contrast", nil);
+
+  [date setDatePickerElements: NSYearMonthDayDatePickerElementFlag];
+  [date setTimeZone: [NSTimeZone timeZoneWithName: @"America/Chicago"]];
+  [date setDateValue: day];
+  [date setTarget: self];
+  [date setAction: @selector(datePickerChanged:)];
+  [time setDatePickerElements: NSHourMinuteDatePickerElementFlag];
+  [time setTimeZone: [NSTimeZone timeZoneWithName: @"America/Chicago"]];
+  [time setDateValue: day];
+  [calendar setDatePickerStyle: NSClockAndCalendarDatePickerStyle];
+  [calendar setDatePickerElements: NSYearMonthDayDatePickerElementFlag];
+  [calendar setDateValue: [NSDate date]];
+  [content addSubview: date];
+  [content addSubview: time];
+  [content addSubview: calendar];
+  [window orderFront: nil];
+  [window display];
+
+  /* The DatePicker field: a rounded border, dividers 136pt and 216pt in,
+     and a short label in each part: no time zone, no time. */
+  rep = QuirkProbeRender(date);
+  scale = QuirkProbeScale(rep, date);
+  [self saveView: date named: @"date-picker-field"];
+  QuirkProbePixel(rep, [rep pixelsWide] / 2, 2 * scale, &red, &green, &blue);
+  QuirkProbeInkBackground = red + green + blue;
+  {
+    NSInteger height = [rep pixelsHigh];
+    NSRect inside = NSMakeRect(0, 4 * scale, [rep pixelsWide], height - 8 * scale);
+    NSInteger divider1 = -1, divider2 = -1;
+    NSUInteger lines1 = QuirkProbeSolidColumns(rep, QuirkProbeIsFaintInk,
+                                               NSMakeRect(130 * scale, 4 * scale, 12 * scale, height - 8 * scale),
+                                               height - 9 * scale, &divider1);
+    NSUInteger lines2 = QuirkProbeSolidColumns(rep, QuirkProbeIsFaintInk,
+                                               NSMakeRect(210 * scale, 4 * scale, 12 * scale, height - 8 * scale),
+                                               height - 9 * scale, &divider2);
+    QuirkProbeInk month = QuirkProbeMeasureIn(rep, QuirkProbeIsInk,
+                                              NSMakeRect(2 * scale, NSMinY(inside), 128 * scale, NSHeight(inside)));
+    QuirkProbeInk dayInk = QuirkProbeMeasureIn(rep, QuirkProbeIsInk,
+                                               NSMakeRect(142 * scale, NSMinY(inside), 68 * scale, NSHeight(inside)));
+    QuirkProbeInk year = QuirkProbeMeasureIn(rep, QuirkProbeIsInk,
+                                             NSMakeRect(222 * scale, NSMinY(inside), 70 * scale, NSHeight(inside)));
+    NSUInteger edgeRed, edgeGreen, edgeBlue;
+
+    QuirkProbePixel(rep, 0, height / 2, &edgeRed, &edgeGreen, &edgeBlue);
+    if (lines1 >= 1 && lines1 <= 2 * ceil(scale) && lines2 >= 1 && lines2 <= 2 * ceil(scale)
+        && fabs(divider1 / scale - 136.0) <= 2.0 && fabs(divider2 / scale - 216.0) <= 2.0
+        && llabs((long long)(edgeRed + edgeGreen + edgeBlue) - (long long)QuirkProbeInkBackground) >= 12
+        && fabs(height / scale - 32.0) <= 1.0)
+      {
+        [self pass: @"date-picker-field" detail: [NSString stringWithFormat:
+          @"a bordered 32pt field, dividers at %.0f and %.0fpt", divider1 / scale, divider2 / scale]];
+      }
+    else
+      {
+        [self fail: @"date-picker-field" detail: [NSString stringWithFormat:
+          @"dividers %lu px at %.0fpt and %lu px at %.0fpt (expected 136, 216); edge %lu of %lu; %.0fpt high",
+          (unsigned long)lines1, divider1 / scale, (unsigned long)lines2, divider2 / scale,
+          (unsigned long)(edgeRed + edgeGreen + edgeBlue), (unsigned long)QuirkProbeInkBackground,
+          height / scale]];
+      }
+    /* The month from 12pt in; "5" centred in its 80pt; "2026" in its,
+       with room to spare even in large text. */
+    if (month.count > 0 && fabs(month.minX / scale - 12.0) <= 2.5
+        && dayInk.count > 0 && dayInk.width / scale <= 24.0
+        && fabs((dayInk.minX + dayInk.width / 2.0) / scale - 176.0) <= 3.0
+        && year.count > 0 && year.width / scale <= 56.0
+        && fabs((year.minX + year.width / 2.0) / scale - 256.0) <= 3.0)
+      {
+        [self pass: @"date-picker-no-offset" detail: [NSString stringWithFormat:
+          @"month %.0fpt in, day %.0fpt and year %.0fpt wide, centred: no time or zone",
+          month.minX / scale, dayInk.width / scale, year.width / scale]];
+      }
+    else
+      {
+        [self fail: @"date-picker-no-offset" detail: [NSString stringWithFormat:
+          @"month ink from %.0fpt, day %.0fpt wide at %.0f, year %.0fpt wide at %.0f",
+          month.count ? month.minX / scale : -1.0,
+          dayInk.width / scale, dayInk.count ? (dayInk.minX + dayInk.width / 2.0) / scale : -1.0,
+          year.width / scale, year.count ? (year.minX + year.width / 2.0) / scale : -1.0]];
+      }
+  }
+
+  /* The TimePicker field: hour, minute and (on a 12-hour clock) AM/PM in
+     equal columns, each with its label. */
+  rep = QuirkProbeRender(time);
+  [self saveView: time named: @"time-picker-field"];
+  {
+    NSUInteger columns = QuirkProbeTwelveHourClock() ? 3 : 2;
+    CGFloat width = 242.0 / columns;
+    NSUInteger index, labelled = 0, dividers = 0;
+
+    for (index = 0; index < columns; index++)
+      {
+        QuirkProbeInk ink = QuirkProbeMeasureIn(rep, QuirkProbeIsInk,
+                                                NSMakeRect((index * width + 4) * scale, 4 * scale,
+                                                           (width - 8) * scale, [rep pixelsHigh] - 8 * scale));
+
+        if (ink.count > 0 && fabs((ink.minX + ink.width / 2.0) / scale - (index + 0.5) * width) <= 3.0)
+          {
+            labelled++;
+          }
+        if (index > 0 && QuirkProbeSolidColumns(rep, QuirkProbeIsFaintInk,
+                                                NSMakeRect((index * width - 3) * scale, 4 * scale, 6 * scale,
+                                                           [rep pixelsHigh] - 8 * scale),
+                                                [rep pixelsHigh] - 9 * scale, NULL) > 0)
+          {
+            dividers++;
+          }
+      }
+    if (labelled == columns && dividers == columns - 1)
+      {
+        [self pass: @"time-picker-field" detail: [NSString stringWithFormat:
+          @"%lu centred parts between %lu dividers", (unsigned long)columns, (unsigned long)dividers]];
+      }
+    else
+      {
+        [self fail: @"time-picker-field" detail: [NSString stringWithFormat:
+          @"%lu of %lu parts centred, %lu dividers", (unsigned long)labelled,
+          (unsigned long)columns, (unsigned long)dividers]];
+      }
+  }
+
+  /* CalendarView: today, picked, filled with the accent and ringed. */
+  rep = QuirkProbeRender(calendar);
+  scale = QuirkProbeScale(rep, calendar);
+  [self saveView: calendar named: @"date-picker-calendar"];
+  if (highContrast)
+    {
+      [self skip: @"date-picker-calendar" detail: @"high contrast's highlight may not be blue"];
+    }
+  else
+    {
+      QuirkProbeInk today = QuirkProbeMeasureIn(rep, QuirkProbeIsAccentBlue, NSZeroRect);
+
+      if (today.count > 0 && today.width / scale >= 32.0 && today.width / scale <= 44.0
+          && today.height / scale >= 32.0 && today.height / scale <= 44.0)
+        {
+          [self pass: @"date-picker-calendar" detail: [NSString stringWithFormat:
+            @"today is an accent circle %.0fpt across", today.width / scale]];
+        }
+      else
+        {
+          [self fail: @"date-picker-calendar" detail: [NSString stringWithFormat:
+            @"the accent covers %.0fx%.0fpt (%lu px); expected one day's circle",
+            today.width / scale, today.height / scale, (unsigned long)today.count]];
+        }
+    }
+
+  /* The flyout: a click opens it over the field; Down moves the month on
+     and Enter accepts. inspectDatePickerFlyout: renders it while open. */
+  if (highContrast)
+    {
+      [self skip: @"date-picker-flyout-band" detail: @"high contrast's highlight may not be blue"];
+      [self skip: @"date-picker-flyout-pick" detail: @"needs the flyout band check"];
+      [window orderOut: nil];
+      return;
+    }
+  {
+    NSTimer *timer = [NSTimer timerWithTimeInterval: 0.3
+                                             target: self
+                                           selector: @selector(inspectDatePickerFlyout:)
+                                           userInfo: window
+                                            repeats: NO];
+    NSEvent *click = [NSEvent mouseEventWithType: NSLeftMouseDown
+                                        location: [date convertPoint: NSMakePoint(60, 16) toView: nil]
+                                   modifierFlags: 0
+                                       timestamp: 0
+                                    windowNumber: [window windowNumber]
+                                         context: nil
+                                     eventNumber: 0
+                                      clickCount: 1
+                                        pressure: 1.0];
+    NSCalendarDate *picked = nil;
+
+    [[NSRunLoop currentRunLoop] addTimer: timer forMode: NSEventTrackingRunLoopMode];
+    [NSApp postEvent: [NSEvent keyEventWithType: NSKeyDown
+                                       location: NSZeroPoint
+                                  modifierFlags: 0
+                                      timestamp: 0
+                                   windowNumber: [window windowNumber]
+                                        context: nil
+                                     characters: [NSString stringWithFormat: @"%C", (unichar)NSDownArrowFunctionKey]
+                    charactersIgnoringModifiers: [NSString stringWithFormat: @"%C", (unichar)NSDownArrowFunctionKey]
+                                      isARepeat: NO
+                                        keyCode: 0]
+             atStart: NO];
+    _datePickerActions = 0;
+    [date mouseDown: click];
+    [timer invalidate];
+
+    picked = [[date dateValue] dateWithCalendarFormat: nil
+                                              timeZone: [NSTimeZone timeZoneWithName: @"America/Chicago"]];
+    if ([picked yearOfCommonEra] == 2026 && [picked monthOfYear] == 11 && [picked dayOfMonth] == 5
+        && _datePickerActions == 1)
+      {
+        [self pass: @"date-picker-flyout-pick" detail: @"Down and Enter in the flyout picked November 5, and sent the action"];
+      }
+    else
+      {
+        [self fail: @"date-picker-flyout-pick" detail: [NSString stringWithFormat:
+          @"after Down and Enter the date is %@ (%lu actions); expected 2026-11-05",
+          [picked descriptionWithCalendarFormat: @"%Y-%m-%d %H:%M %z"],
+          (unsigned long)_datePickerActions]];
+      }
+  }
+  [window orderOut: nil];
+}
+
 /* A table built in code looks like a WinUI list (issue #28): libs-gui's
    16pt rows, grid and 5x2pt spacing become 32pt rows, no grid and none;
    the header shows column dividers only under the pointer; and a row under
@@ -4227,6 +4567,7 @@ QuirkProbeLastItemOfMenu(NSString *title)
   [self checkSlider];
   [self checkProgress];
   [self checkLevelIndicator];
+  [self checkDatePicker];
   [self checkTableDefaults];
   [self checkLiveSettings];
   [self checkIndicators];

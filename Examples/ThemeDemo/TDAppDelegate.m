@@ -1719,7 +1719,7 @@ TDAlertResultString(NSInteger result)
    template images. */
 - (NSView *) surfacesPageViewForPage: (NSDictionary *)page
 {
-  TDFlippedView *view = [[[TDFlippedView alloc] initWithFrame: NSMakeRect(0.0, 0.0, 1040.0, 760.0)] autorelease];
+  TDFlippedView *view = [[[TDFlippedView alloc] initWithFrame: NSMakeRect(0.0, 0.0, 1040.0, 940.0)] autorelease];
   NSFont *sectionFont = [NSFont boldSystemFontOfSize: 15.0];
   NSColorWell *well = nil;
   NSDatePicker *datePicker = nil;
@@ -1742,26 +1742,33 @@ TDAlertResultString(NSInteger result)
   [view addSubview: well];
   [view addSubview: TDLabel(@"Colour well", NSMakeRect(20.0, 122.0, 120.0, 18.0),
                             [NSFont systemFontOfSize: 12.0], [NSColor secondaryLabelColor])];
-  datePicker = [[[NSDatePicker alloc] initWithFrame: NSMakeRect(160.0, 84.0, 200.0, 32.0)] autorelease];
+  datePicker = [[[NSDatePicker alloc] initWithFrame: NSMakeRect(110.0, 84.0, 296.0, 32.0)] autorelease];
+  [datePicker setDatePickerElements: NSYearMonthDayDatePickerElementFlag];
   [datePicker setDateValue: [NSDate dateWithTimeIntervalSince1970: 1791244800.0]];
   [view addSubview: datePicker];
-  [view addSubview: TDLabel(@"Date picker", NSMakeRect(160.0, 122.0, 120.0, 18.0),
+  [view addSubview: TDLabel(@"Date picker", NSMakeRect(110.0, 122.0, 120.0, 18.0),
                             [NSFont systemFontOfSize: 12.0], [NSColor secondaryLabelColor])];
-  level = [[[NSLevelIndicator alloc] initWithFrame: NSMakeRect(400.0, 90.0, 200.0, 20.0)] autorelease];
+  datePicker = [[[NSDatePicker alloc] initWithFrame: NSMakeRect(426.0, 84.0, 242.0, 32.0)] autorelease];
+  [datePicker setDatePickerElements: NSHourMinuteDatePickerElementFlag];
+  [datePicker setDateValue: [NSDate dateWithTimeIntervalSince1970: 1791244800.0]];
+  [view addSubview: datePicker];
+  [view addSubview: TDLabel(@"Time picker", NSMakeRect(426.0, 122.0, 120.0, 18.0),
+                            [NSFont systemFontOfSize: 12.0], [NSColor secondaryLabelColor])];
+  level = [[[NSLevelIndicator alloc] initWithFrame: NSMakeRect(690.0, 90.0, 160.0, 20.0)] autorelease];
   [level setMinValue: 0.0];
   [level setMaxValue: 10.0];
   [level setDoubleValue: 6.0];
   [[level cell] setLevelIndicatorStyle: NSContinuousCapacityLevelIndicatorStyle];
   [view addSubview: level];
-  [view addSubview: TDLabel(@"Level indicator", NSMakeRect(400.0, 122.0, 140.0, 18.0),
+  [view addSubview: TDLabel(@"Level indicator", NSMakeRect(690.0, 122.0, 140.0, 18.0),
                             [NSFont systemFontOfSize: 12.0], [NSColor secondaryLabelColor])];
-  level = [[[NSLevelIndicator alloc] initWithFrame: NSMakeRect(640.0, 90.0, 120.0, 20.0)] autorelease];
+  level = [[[NSLevelIndicator alloc] initWithFrame: NSMakeRect(870.0, 90.0, 120.0, 20.0)] autorelease];
   [[level cell] setLevelIndicatorStyle: NSRatingLevelIndicatorStyle];
   [level setMinValue: 0.0];
   [level setMaxValue: 5.0];
   [level setDoubleValue: 3.0];
   [view addSubview: level];
-  [view addSubview: TDLabel(@"Rating", NSMakeRect(640.0, 122.0, 120.0, 18.0),
+  [view addSubview: TDLabel(@"Rating", NSMakeRect(870.0, 122.0, 120.0, 18.0),
                             [NSFont systemFontOfSize: 12.0], [NSColor secondaryLabelColor])];
 
   [view addSubview: TDLabel(@"Groups And Forms", NSMakeRect(20.0, 168.0, 300.0, 20.0),
@@ -1814,6 +1821,14 @@ TDAlertResultString(NSInteger result)
   [view addSubview: TDLabel(@"Template images: an icon button, an icon and label button, and a segmented control. They should follow the text colour in every palette (#25).",
                             NSMakeRect(20.0, 482.0, 920.0, 20.0),
                             [NSFont systemFontOfSize: 13.0], [NSColor secondaryLabelColor])];
+
+  [view addSubview: TDLabel(@"Calendar", NSMakeRect(20.0, 528.0, 300.0, 20.0),
+                            sectionFont, [NSColor controlTextColor])];
+  datePicker = [[[NSDatePicker alloc] initWithFrame: NSMakeRect(20.0, 560.0, 300.0, 360.0)] autorelease];
+  [datePicker setDatePickerStyle: NSClockAndCalendarDatePickerStyle];
+  [datePicker setDatePickerElements: NSYearMonthDayDatePickerElementFlag];
+  [datePicker setDateValue: [NSDate dateWithTimeIntervalSince1970: 1791244800.0]];
+  [view addSubview: datePicker];
 
   return view;
 }

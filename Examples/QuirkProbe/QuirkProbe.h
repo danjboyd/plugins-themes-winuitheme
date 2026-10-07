@@ -35,5 +35,6 @@
   NSUInteger _failed;
   NSUInteger _known;
   NSUInteger _skipped;
+  NSUInteger _datePickerActions;
 }
 @end
