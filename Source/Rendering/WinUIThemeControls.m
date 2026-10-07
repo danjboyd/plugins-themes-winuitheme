@@ -866,6 +866,11 @@ WinUIThemeDrawProgressRing(WinUITheme *theme, NSRect bounds, NSColor *color,
       WinUIThemeDrawTextBoxChrome(self, frame, view, WinUIThemeControlEnabled(view));
       return;
     }
+  if (aType != NSNoBorder && WinUIThemeIsBrowserColumn(view))
+    {
+      WinUIThemeDrawBrowserColumnCard(self, frame);
+      return;
+    }
 
   [super drawBorderType: aType frame: frame view: view];
 }

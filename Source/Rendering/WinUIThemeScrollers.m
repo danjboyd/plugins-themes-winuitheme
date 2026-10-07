@@ -398,6 +398,8 @@ WinUIThemeUpdateOverlayTracking(NSScrollView *scrollView, WinUIThemeOverlayState
   id documentView;
   WinUIThemeOverlayState *state = WinUIThemeOverlayStateFor(scrollView, NO);
 
+  WinUIThemeSyncBrowserColumn(scrollView);
+
   if (state != nil && state->adjusting)
     {
       return;
@@ -605,7 +607,9 @@ WinUIThemeUpdateOverlayTracking(NSScrollView *scrollView, WinUIThemeOverlayState
   typedef BOOL (*OpaqueIMP)(id, SEL);
   OpaqueIMP originalIMP;
 
-  if (WinUIThemeUsesOverlayScrollers() && [[(NSView *)self superview] isKindOfClass: [NSScrollView class]])
+  if ((WinUIThemeUsesOverlayScrollers() && [[(NSView *)self superview] isKindOfClass: [NSScrollView class]])
+      || ([[(NSView *)self superview] isKindOfClass: [NSBrowser class]]
+          && [[GSTheme theme] isKindOfClass: [WinUITheme class]]))
     {
       return NO;
     }
@@ -644,6 +648,13 @@ WinUIThemeUpdateOverlayTracking(NSScrollView *scrollView, WinUIThemeOverlayState
   WinUITheme *theme = [current isKindOfClass: [WinUITheme class]] ? (WinUITheme *)current : nil;
   NSView *superview = [scroller superview];
 
+  /* NSBrowser's horizontal scroller (#58), shown only when there are
+     columns to scroll to: the thin bar, on no rail. */
+  if (theme != nil && [superview isKindOfClass: [NSBrowser class]])
+    {
+      WinUIThemeDrawScrollBar(theme, scroller, 1.0, YES, nil);
+      return;
+    }
   if (theme == nil || [superview isKindOfClass: [NSScrollView class]] == NO)
     {
       if (originalIMP != NULL)
@@ -667,6 +678,19 @@ WinUIThemeUpdateOverlayTracking(NSScrollView *scrollView, WinUIThemeOverlayState
       return;
     }
 
+  /* Where scroll bars are always shown (high contrast), a browser
+     column's shows only when its rows overflow, as a WinUI list's (#58).
+     -setAutohidesScrollers: would re-tile the column into a loop. The
+     scroller's state doesn't tell (enabled, proportion 0): the rows'
+     height against the column's does. */
+  if (WinUIThemeIsBrowserColumn(superview)
+      && NSHeight([[(NSScrollView *)superview documentView] frame])
+         <= [(NSScrollView *)superview contentSize].height + 0.5)
+    {
+      [WinUIThemeBrowserCardColor(theme) set];
+      NSRectFill(rect);
+      return;
+    }
   [theme drawScrollerRect: rect inView: scroller hitPart: [scroller hitPart]
              isHorizontal: WinUIThemeScrollerIsHorizontal(scroller)];
 }

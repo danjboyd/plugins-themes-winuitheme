@@ -200,4 +200,11 @@ void WinUIThemeRangeColors(WinUITheme *theme, BOOL enabled,
                            NSColor **thumbOut, NSColor **borderOut, NSColor **bottomOut);
 NSRect WinUIThemeSliderTrackRect(WinUITheme *theme, NSRect rect, BOOL horizontal);
 
+/* NSBrowser's columns (WinUIThemeBrowser.m): YES for a column's scroll
+   view; its card, drawn as its border. */
+BOOL WinUIThemeIsBrowserColumn(NSView *view);
+void WinUIThemeDrawBrowserColumnCard(WinUITheme *theme, NSRect frame);
+NSColor *WinUIThemeBrowserCardColor(WinUITheme *theme);
+void WinUIThemeSyncBrowserColumn(NSScrollView *scrollView);
+
 #endif

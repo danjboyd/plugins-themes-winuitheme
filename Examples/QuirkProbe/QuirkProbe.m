@@ -325,6 +325,7 @@ QuirkProbeModuleOfAddress(void *address)
 - (void) checkProgress;
 - (void) checkLevelIndicator;
 - (void) checkDatePicker;
+- (void) checkBrowser;
 - (void) checkTableDefaults;
 - (void) checkLiveSettings;
 - (void) checkIndicators;
@@ -556,6 +557,24 @@ QuirkProbeModuleOfAddress(void *address)
 
 - (void) toolbarItemClicked: (id)sender
 {
+}
+
+#pragma mark Browser delegate
+
+/* Four rows a column; the browser's tag is the column whose rows are
+   leaves. */
+- (NSInteger) browser: (NSBrowser *)browser numberOfRowsInColumn: (NSInteger)column
+{
+  return 4;
+}
+
+- (void) browser: (NSBrowser *)browser
+ willDisplayCell: (id)cell
+           atRow: (NSInteger)row
+          column: (NSInteger)column
+{
+  [cell setStringValue: [NSString stringWithFormat: @"Item %ld.%ld", (long)column, (long)row]];
+  [cell setLeaf: column >= [browser tag]];
 }
 
 #pragma mark Table data source
@@ -2635,6 +2654,262 @@ QuirkProbeTwelveHourClock(void)
   [window orderOut: nil];
 }
 
+static NSBrowser *
+QuirkProbeBrowser(QuirkProbe *probe, NSView *content, NSRect frame, NSInteger leafColumn, NSInteger depth)
+{
+  NSBrowser *browser = AUTORELEASE([[NSBrowser alloc] initWithFrame: frame]);
+  NSInteger column;
+
+  [browser setTag: leafColumn];
+  [browser setDelegate: (id)probe];
+  [browser setMaxVisibleColumns: 3];
+  [browser setTitled: NO];
+  [content addSubview: browser];
+  [browser loadColumnZero];
+  for (column = 0; column < depth; column++)
+    {
+      [browser selectRow: (column == 0) ? 2 : 1 inColumn: column];
+    }
+  return browser;
+}
+
+/* NSBrowser as WinUI lists side by side (issue #58): ListView's selection
+   (a subtle fill and a 3pt accent pill) rather than a saturated bar with
+   white text, a secondary chevron on branch rows, and no horizontal
+   scroller while every column fits; when there are columns to scroll to,
+   WinUI's thin bar. libs-gui drew the scroller as a heavy grey strip under
+   the columns, always. */
+- (void) checkBrowser
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(160, 140, 600, 420)
+                                     title: @"QuirkProbe Browser"];
+  NSView *content = [window contentView];
+  NSBrowser *fits = QuirkProbeBrowser(self, content, NSMakeRect(20, 220, 540, 170), 2, 2);
+  NSBrowser *scrolls = QuirkProbeBrowser(self, content, NSMakeRect(20, 20, 540, 170), 5, 4);
+  NSScrollView *column = nil;
+  NSMatrix *matrix = nil;
+  NSBitmapImageRep *rep = nil;
+  NSScroller *scroller = nil;
+  CGFloat scale;
+  NSUInteger red, green, blue;
+  BOOL highContrast = QuirkProbeHasArgument(@"--high-contrast", nil);
+
+  /* Key, so the pill is the accent. */
+  [window makeKeyAndOrderFront: nil];
+  [window display];
+
+  /* The selection in the first column: row 2. */
+  matrix = [fits matrixInColumn: 0];
+  column = [matrix enclosingScrollView];
+  if (matrix == nil || column == nil)
+    {
+      [self fail: @"browser-selection" detail: @"the browser has no first column"];
+      [window orderOut: nil];
+      return;
+    }
+  rep = QuirkProbeRender(column);
+  scale = QuirkProbeScale(rep, column);
+  [self saveView: column named: @"browser-column"];
+  if (highContrast)
+    {
+      [self skip: @"browser-selection" detail: @"high contrast keeps the system highlight"];
+    }
+  else
+    {
+      NSRect row = [column convertRect: [matrix cellFrameAtRow: 2 column: 0] fromView: matrix];
+      NSRect pixels = QuirkProbePixelRect(column, row, scale);
+      QuirkProbeInk accent = QuirkProbeMeasureIn(rep, QuirkProbeIsAccentBlue, pixels);
+      NSUInteger fill, card;
+
+      QuirkProbePixel(rep, (NSInteger)(NSMinX(pixels) + 90 * scale), (NSInteger)NSMidY(pixels) - 6 * scale,
+                      &red, &green, &blue);
+      fill = red + green + blue;
+      QuirkProbePixel(rep, (NSInteger)(NSMinX(pixels) + 90 * scale), (NSInteger)NSMaxY(pixels) + 6 * scale,
+                      &red, &green, &blue);
+      card = red + green + blue;
+      if (accent.count > 0 && accent.width <= ceil(3.0 * scale) + 1
+          && (accent.minX - NSMinX(pixels)) / scale <= 8.0
+          && llabs((long long)fill - (long long)card) >= 3 && llabs((long long)fill - (long long)card) <= 60)
+        {
+          [self pass: @"browser-selection" detail: [NSString stringWithFormat:
+            @"a %ld px accent pill %.0fpt in; a subtle fill (%lu over the card's %lu)",
+            (long)accent.width, (accent.minX - NSMinX(pixels)) / scale,
+            (unsigned long)fill, (unsigned long)card]];
+        }
+      else
+        {
+          [self fail: @"browser-selection" detail: [NSString stringWithFormat:
+            @"accent %ld px wide from %.0fpt; the row's fill %lu over the card's %lu",
+            (long)accent.width, accent.count ? (accent.minX - NSMinX(pixels)) / scale : -1.0,
+            (unsigned long)fill, (unsigned long)card]];
+        }
+    }
+
+  /* A branch row's chevron, fainter than its title; none on a leaf. */
+  {
+    NSRect branch = QuirkProbePixelRect(column, [column convertRect: [matrix cellFrameAtRow: 0 column: 0]
+                                                           fromView: matrix], scale);
+    NSScrollView *leaves = [[fits matrixInColumn: 2] enclosingScrollView];
+    NSUInteger titleContrast = 0, chevronContrast = 0, background;
+    NSInteger x, y;
+    QuirkProbeInk chevron, leafInk = { 0, 0, 0, 0, 0 };
+
+    /* The row's top edge, clear of its title at any text size. */
+    QuirkProbePixel(rep, (NSInteger)NSMidX(branch), (NSInteger)NSMinY(branch) + 1, &red, &green, &blue);
+    background = red + green + blue;
+    QuirkProbeInkBackground = background;
+    chevron = QuirkProbeMeasureIn(rep, QuirkProbeIsFaintInk,
+                                  NSMakeRect(NSMaxX(branch) - 28 * scale, NSMinY(branch),
+                                             20 * scale, NSHeight(branch)));
+    for (y = (NSInteger)NSMinY(branch); y < (NSInteger)NSMaxY(branch); y++)
+      {
+        for (x = (NSInteger)NSMinX(branch); x < (NSInteger)NSMaxX(branch); x++)
+          {
+            NSUInteger contrast;
+
+            QuirkProbePixel(rep, x, y, &red, &green, &blue);
+            contrast = (NSUInteger)llabs((long long)(red + green + blue) - (long long)background);
+            if (x >= NSMaxX(branch) - 28 * scale)
+              {
+                chevronContrast = MAX(chevronContrast, contrast);
+              }
+            else
+              {
+                titleContrast = MAX(titleContrast, contrast);
+              }
+          }
+      }
+    if (leaves != nil)
+      {
+        NSBitmapImageRep *leafRep = QuirkProbeRender(leaves);
+        NSMatrix *leafMatrix = [fits matrixInColumn: 2];
+        NSRect leaf = QuirkProbePixelRect(leaves, [leaves convertRect: [leafMatrix cellFrameAtRow: 0 column: 0]
+                                                             fromView: leafMatrix], scale);
+
+        QuirkProbePixel(leafRep, (NSInteger)NSMidX(leaf), (NSInteger)NSMinY(leaf) + 1, &red, &green, &blue);
+        QuirkProbeInkBackground = red + green + blue;
+        leafInk = QuirkProbeMeasureIn(leafRep, QuirkProbeIsFaintInk,
+                                      NSMakeRect(NSMaxX(leaf) - 28 * scale, NSMinY(leaf) + 2 * scale,
+                                                 20 * scale, NSHeight(leaf) - 4 * scale));
+      }
+    if (chevron.count > 0 && chevron.width / scale <= 7.0 && chevron.height / scale <= 11.0
+        && (highContrast || chevronContrast < titleContrast) && leaves != nil && leafInk.count == 0)
+      {
+        [self pass: @"browser-chevron" detail: [NSString stringWithFormat:
+          @"a %.0fx%.0fpt chevron at %lu contrast (the title's %lu); none on a leaf",
+          chevron.width / scale, chevron.height / scale,
+          (unsigned long)chevronContrast, (unsigned long)titleContrast]];
+      }
+    else
+      {
+        [self fail: @"browser-chevron" detail: [NSString stringWithFormat:
+          @"the branch mark is %.0fx%.0fpt at %lu contrast (the title's %lu); %lu px on a leaf",
+          chevron.width / scale, chevron.height / scale, (unsigned long)chevronContrast,
+          (unsigned long)titleContrast, (unsigned long)leafInk.count]];
+      }
+  }
+
+  /* Every column fits: no horizontal scroller, and the columns reach the
+     browser's foot. */
+  {
+    NSRect last = [[[fits matrixInColumn: 2] enclosingScrollView] frame];
+    CGFloat foot = [fits isFlipped] ? NSHeight([fits bounds]) - NSMaxY(last) : NSMinY(last);
+    NSScroller *horizontal = nil;
+    NSEnumerator *enumerator = [[fits subviews] objectEnumerator];
+    NSView *subview = nil;
+
+    while ((subview = [enumerator nextObject]) != nil)
+      {
+        if ([subview isKindOfClass: [NSScroller class]])
+          {
+            horizontal = (NSScroller *)subview;
+          }
+      }
+    if ((horizontal == nil || [horizontal isHidden]) && foot <= 1.0)
+      {
+        [self pass: @"browser-scroller-hidden" detail: @"all three columns fit: no scroller, the columns reach the foot"];
+      }
+    else
+      {
+        [self fail: @"browser-scroller-hidden" detail: [NSString stringWithFormat:
+          @"the scroller is %@, the columns stop %.0fpt above the foot",
+          (horizontal == nil || [horizontal isHidden]) ? @"hidden" : @"shown", foot]];
+      }
+  }
+
+  /* Five columns in three: the thin bar, its 6pt thumb. */
+  {
+    NSEnumerator *enumerator = [[scrolls subviews] objectEnumerator];
+    NSView *subview = nil;
+
+    while ((subview = [enumerator nextObject]) != nil)
+      {
+        if ([subview isKindOfClass: [NSScroller class]])
+          {
+            scroller = (NSScroller *)subview;
+          }
+      }
+    if (scroller == nil || [scroller isHidden])
+      {
+        [self fail: @"browser-scroller-shown" detail: @"five columns in three, and no scroller"];
+      }
+    else
+      {
+        NSBitmapImageRep *bar = nil;
+        QuirkProbeInk thumb;
+
+        [scrolls display];
+        bar = QuirkProbeRender(scrolls);
+        scale = QuirkProbeScale(bar, scrolls);
+        [self saveView: scrolls named: @"browser-scrolls"];
+        /* The strip's edge, beside the thumb. */
+        {
+          NSRect strip = QuirkProbePixelRect(scrolls, [scroller frame], scale);
+
+          QuirkProbePixel(bar, (NSInteger)NSMidX(strip), (NSInteger)NSMinY(strip), &red, &green, &blue);
+          QuirkProbeInkBackground = red + green + blue;
+        }
+        thumb = QuirkProbeMeasureIn(bar, QuirkProbeIsInk,
+                                    QuirkProbePixelRect(scrolls, NSInsetRect([scroller frame], 16.0, 0.0), scale));
+        if (thumb.count > 0 && thumb.height / scale <= 7.0 && thumb.width / scale >= 40.0)
+          {
+            [self pass: @"browser-scroller-shown" detail: [NSString stringWithFormat:
+              @"five columns in three: a %.0fpt thumb %.0fpt long", thumb.height / scale, thumb.width / scale]];
+          }
+        else
+          {
+            [self fail: @"browser-scroller-shown" detail: [NSString stringWithFormat:
+              @"the scroller's ink is %.0fx%.0fpt; expected a thin thumb",
+              thumb.width / scale, thumb.height / scale]];
+          }
+      }
+  }
+
+  /* A column whose rows fit shows no scroll bar (the strip clear of the
+     card's corners). */
+  {
+    NSRect strip = NSMakeRect(NSWidth([column bounds]) - 7.0, 8.0, 5.0, NSHeight([column bounds]) - 16.0);
+    QuirkProbeInk bar;
+
+    rep = QuirkProbeRender(column);
+    scale = QuirkProbeScale(rep, column);
+    QuirkProbePixel(rep, (NSInteger)(NSWidth([column bounds]) * scale / 2),
+                    [rep pixelsHigh] - (NSInteger)(10 * scale), &red, &green, &blue);
+    QuirkProbeInkBackground = red + green + blue;
+    bar = QuirkProbeMeasureIn(rep, QuirkProbeIsInk, QuirkProbePixelRect(column, strip, scale));
+    if (bar.count == 0)
+      {
+        [self pass: @"browser-column-scroller" detail: @"a column whose rows fit shows no scroll bar"];
+      }
+    else
+      {
+        [self fail: @"browser-column-scroller" detail: [NSString stringWithFormat:
+          @"%lu px of scroll bar beside rows that fit", (unsigned long)bar.count]];
+      }
+  }
+  [window orderOut: nil];
+}
+
 /* A table built in code looks like a WinUI list (issue #28): libs-gui's
    16pt rows, grid and 5x2pt spacing become 32pt rows, no grid and none;
    the header shows column dividers only under the pointer; and a row under
@@ -4568,6 +4843,7 @@ QuirkProbeLastItemOfMenu(NSString *title)
   [self checkProgress];
   [self checkLevelIndicator];
   [self checkDatePicker];
+  [self checkBrowser];
   [self checkTableDefaults];
   [self checkLiveSettings];
   [self checkIndicators];
