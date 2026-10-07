@@ -326,6 +326,7 @@ QuirkProbeModuleOfAddress(void *address)
 - (void) checkLevelIndicator;
 - (void) checkDatePicker;
 - (void) checkBrowser;
+- (void) checkColorWell;
 - (void) checkTableDefaults;
 - (void) checkLiveSettings;
 - (void) checkIndicators;
@@ -2910,6 +2911,89 @@ QuirkProbeBrowser(QuirkProbe *probe, NSView *content, NSRect frame, NSInteger le
   [window orderOut: nil];
 }
 
+static BOOL
+QuirkProbeIsSwatchRed(NSUInteger red, NSUInteger green, NSUInteger blue)
+{
+  return red > 200 && green < 60 && blue < 60;
+}
+
+/* NSColorWell as WinUI's colour button (issue #26): the theme's button
+   holding a rounded swatch 6pt in from its sides; checked (accent chrome)
+   while the colour panel is attached. libs-gui drew NeXT's bevelled well,
+   its swatch 2pt in, square. */
+- (void) checkColorWell
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(200, 200, 260, 120)
+                                     title: @"QuirkProbe Colour Well"];
+  NSColorWell *rest = AUTORELEASE([[NSColorWell alloc] initWithFrame: NSMakeRect(20, 60, 64, 32)]);
+  NSColorWell *active = AUTORELEASE([[NSColorWell alloc] initWithFrame: NSMakeRect(120, 60, 64, 32)]);
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale;
+  QuirkProbeInk swatch;
+  NSUInteger red, green, blue, corner;
+  BOOL highContrast = QuirkProbeHasArgument(@"--high-contrast", nil);
+
+  [rest setColor: [NSColor colorWithCalibratedRed: 1.0 green: 0.0 blue: 0.0 alpha: 1.0]];
+  [active setColor: [NSColor colorWithCalibratedRed: 1.0 green: 0.0 blue: 0.0 alpha: 1.0]];
+  [[window contentView] addSubview: rest];
+  [[window contentView] addSubview: active];
+  [window orderFront: nil];
+  [window display];
+
+  /* At rest: the swatch 6pt and 5pt in, its corners rounded (a point
+     more in high contrast, whose solid edge covers the swatch's rim). */
+  rep = QuirkProbeRender(rest);
+  scale = QuirkProbeScale(rep, rest);
+  [self saveView: rest named: @"colour-well"];
+  swatch = QuirkProbeMeasureIn(rep, QuirkProbeIsSwatchRed, NSZeroRect);
+  QuirkProbePixel(rep, swatch.minX, swatch.minY, &red, &green, &blue);
+  corner = (QuirkProbeIsSwatchRed(red, green, blue) ? 1 : 0);
+  if (swatch.count > 0 && fabs(swatch.minX / scale - 6.0) <= 1.5 && fabs(swatch.minY / scale - 5.0) <= 1.5
+      && fabs(swatch.width / scale - 52.0) <= 2.5 && corner == 0)
+    {
+      [self pass: @"colour-well-swatch" detail: [NSString stringWithFormat:
+        @"a %.0fx%.0fpt swatch %.0fpt in, its corners rounded",
+        swatch.width / scale, swatch.height / scale, swatch.minX / scale]];
+    }
+  else
+    {
+      [self fail: @"colour-well-swatch" detail: [NSString stringWithFormat:
+        @"the swatch is %.0fx%.0fpt, %.0fpt in from the left and %.0fpt from the top; its corner is %@",
+        swatch.width / scale, swatch.height / scale, swatch.minX / scale, swatch.minY / scale,
+        corner ? @"square" : @"rounded"]];
+    }
+
+  /* Active: the accent chrome round the swatch. */
+  if (highContrast)
+    {
+      [self skip: @"colour-well-active" detail: @"high contrast's highlight may not be blue"];
+    }
+  else
+    {
+      QuirkProbeInk accentInk;
+
+      [active activate: YES];
+      [window display];
+      rep = QuirkProbeRender(active);
+      [self saveView: active named: @"colour-well-active"];
+      accentInk = QuirkProbeMeasureIn(rep, QuirkProbeIsAccentBlue, NSZeroRect);
+      [active deactivate];
+      [[NSColorPanel sharedColorPanel] orderOut: nil];
+      if (accentInk.count >= (NSUInteger)(100 * scale * scale) && accentInk.width >= [rep pixelsWide] - 4)
+        {
+          [self pass: @"colour-well-active" detail: [NSString stringWithFormat:
+            @"with the colour panel attached, %lu px of accent chrome", (unsigned long)accentInk.count]];
+        }
+      else
+        {
+          [self fail: @"colour-well-active" detail: [NSString stringWithFormat:
+            @"with the colour panel attached, %lu accent px across %ld of %ld px",
+            (unsigned long)accentInk.count, (long)accentInk.width, (long)[rep pixelsWide]]];
+        }
+    }
+  [window orderOut: nil];
+}
+
 /* A table built in code looks like a WinUI list (issue #28): libs-gui's
    16pt rows, grid and 5x2pt spacing become 32pt rows, no grid and none;
    the header shows column dividers only under the pointer; and a row under
@@ -4844,6 +4928,7 @@ QuirkProbeLastItemOfMenu(NSString *title)
   [self checkLevelIndicator];
   [self checkDatePicker];
   [self checkBrowser];
+  [self checkColorWell];
   [self checkTableDefaults];
   [self checkLiveSettings];
   [self checkIndicators];
