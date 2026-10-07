@@ -14,6 +14,19 @@
            inFrame: (NSRect)cellFrame;
 @end
 
+/* A mutable copy of a cell's typing attributes, which the caller releases.
+   libs-gui's -_nonAutoreleasedTypingAttributes returns a retained
+   dictionary, so it's released here. */
+static NSMutableDictionary *
+WinUIThemeMutableTypingAttributes(NSCell *cell)
+{
+  NSDictionary *typing = [cell _nonAutoreleasedTypingAttributes];
+  NSMutableDictionary *attributes = [typing mutableCopy];
+
+  RELEASE(typing);
+  return attributes;
+}
+
 static inline WinUITheme *
 WinUIThemeActiveTheme(void)
 {
@@ -138,21 +151,6 @@ WinUIThemeDrawButtonChrome(WinUITheme *theme, NSRect frame, NSView *view, BOOL e
   return titleColor;
 }
 
-static NSColor *
-WinUIThemeAccentStrokeColor(WinUITheme *theme)
-{
-  NSColor *accent = WinUIThemeColorFromTheme(theme,
-                                             @"accentColor",
-                                             [NSColor selectedControlColor]);
-
-  if ([[theme settings] prefersDarkAppearance])
-    {
-      return WinUIThemeBlendColor(accent, [NSColor blackColor], 0.28);
-    }
-
-  return WinUIThemeBlendColor(accent, [NSColor blackColor], 0.16);
-}
-
 static BOOL
 WinUIThemeButtonImageLooksLikeSwitch(NSImage *image)
 {
@@ -183,6 +181,42 @@ WinUIThemeButtonImageLooksLikeRadio(NSImage *image)
                               options: NSCaseInsensitiveSearch].location != NSNotFound)));
 }
 
+/* A checkbox or radio: its indicator 1pt in, then an 8pt gap before the
+   title. -cellSize measures with these (#14). */
+static const CGFloat WinUIThemeIndicatorLeading = 1.0;
+static const CGFloat WinUIThemeIndicatorLabelGap = 8.0;
+
+/* WinUI's 20px indicator, scaled with the desktop, or smaller in a frame
+   too short for it. */
+static CGFloat
+WinUIThemeIndicatorSizeForHeight(WinUITheme *theme, CGFloat height)
+{
+  CGFloat full = round(20.0 * MAX(1.0, [[theme settings] desktopScaleFactor]));
+
+  return MIN(full, MAX(12.0, floor(height - 2.0)));
+}
+
+/* How much narrower a cell's -drawingRectForBounds: is than its bounds. */
+static CGFloat
+WinUIThemeCellHorizontalMargins(NSCell *cell)
+{
+  NSRect bounds = NSMakeRect(0.0, 0.0, 1000.0, 1000.0);
+
+  return NSWidth(bounds) - NSWidth([cell drawingRectForBounds: bounds]);
+}
+
+/* WinUI's CheckBox and RadioButton (#5): a 20px indicator (4pt corners on
+   a box), scaled with the desktop. Fluent's colours are white or black at
+   an opacity, blended over the window:
+   - unchecked: ControlAltFillColorSecondary, Tertiary under the pointer,
+     Quarternary pressed, inside a ControlStrongStrokeColorDefault border;
+   - checked or mixed: the accent, at 90% under the pointer and 80%
+     pressed, with a check or dash in TextOnAccentFillColorPrimary;
+   - a checked radio: the accent ring around a centre dot of 12px, 14px
+     under the pointer, 10px pressed;
+   - disabled: ControlStrongStrokeColorDisabled outlines and
+     AccentFillColorDisabled fills.
+   High contrast: the highlight for checked, the text colour for borders. */
 static void
 WinUIThemeDrawCheckboxOrRadioIndicator(WinUITheme *theme,
                                        NSButtonCell *cell,
@@ -191,104 +225,102 @@ WinUIThemeDrawCheckboxOrRadioIndicator(WinUITheme *theme,
                                        BOOL radio)
 {
   BOOL enabled = [cell isEnabled];
-  BOOL highlighted = [cell isHighlighted];
+  BOOL pressed = enabled && [cell isHighlighted];
+  BOOL hover = NO;
+  BOOL dark = [[theme settings] prefersDarkAppearance];
+  BOOL highContrast = [[theme settings] highContrastEnabled];
   NSInteger state = [cell state];
-  CGFloat indicatorSize = MIN(18.0,
-                              MAX(14.0, floor(MIN(indicatorFrame.size.width,
-                                                  indicatorFrame.size.height) - 1.0)));
+  BOOL on = (state == NSOnState || state == NSMixedState);
+  CGFloat scale = MAX(1.0, [[theme settings] desktopScaleFactor]);
+  CGFloat indicatorSize = WinUIThemeIndicatorSizeForHeight(theme, MIN(NSWidth(indicatorFrame),
+                                                                      NSHeight(indicatorFrame)) + 2.0);
   NSRect indicatorRect = NSMakeRect(floor(NSMidX(indicatorFrame) - (indicatorSize / 2.0)),
                                     floor(NSMidY(indicatorFrame) - (indicatorSize / 2.0)),
                                     indicatorSize,
                                     indicatorSize);
+  NSColor *window = WinUIThemeColorFromTheme(theme, @"windowBackgroundColor",
+                                             [NSColor windowBackgroundColor]);
+  NSColor *ink = dark ? [NSColor whiteColor] : [NSColor blackColor];
+  NSColor *accent = WinUIThemeColorFromTheme(theme, @"accentColor", [NSColor selectedControlColor]);
+  NSColor *onAccent = WinUIThemeColorFromTheme(theme, @"selectedControlTextColor",
+                                               [NSColor selectedControlTextColor]);
   NSColor *fillColor = nil;
   NSColor *borderColor = nil;
   NSColor *markColor = nil;
   NSBezierPath *path = nil;
 
-  if (state == NSOnState || state == NSMixedState)
+  if ([controlView isKindOfClass: [NSButton class]])
     {
-      fillColor = WinUIThemeColorFromTheme(theme,
-                                           @"accentColor",
-                                           [NSColor selectedControlColor]);
-      borderColor = WinUIThemeAccentStrokeColor(theme);
-      markColor = WinUIThemeColorFromTheme(theme,
-                                           @"selectedControlTextColor",
-                                           [NSColor selectedControlTextColor]);
+      WinUIThemeTrackHover(controlView);
+      hover = enabled && WinUIThemeViewIsHovered(controlView);
+    }
+
+  if (highContrast)
+    {
+      NSColor *text = WinUIThemeColorFromTheme(theme, @"labelColor", [NSColor controlTextColor]);
+      NSColor *disabled = WinUIThemeColorFromTheme(theme, @"disabledControlTextColor",
+                                                   [NSColor disabledControlTextColor]);
+
+      fillColor = (on && enabled) ? accent : window;
+      borderColor = enabled ? (on ? accent : text) : disabled;
+      markColor = enabled ? onAccent : disabled;
+    }
+  else if (on)
+    {
+      fillColor = enabled
+        ? (pressed ? WinUIThemeBlendColor(window, accent, 0.80)
+                   : (hover ? WinUIThemeBlendColor(window, accent, 0.90) : accent))
+        : WinUIThemeBlendColor(window, ink, dark ? 0.16 : 0.22);
+      borderColor = fillColor;
+      markColor = enabled ? onAccent
+        : (dark ? WinUIThemeBlendColor(fillColor, [NSColor whiteColor], 0.53) : [NSColor whiteColor]);
     }
   else
     {
-      NSColor *separator = WinUIThemeColorFromTheme(theme,
-                                                    @"separatorColor",
-                                                    [NSColor controlShadowColor]);
-      NSColor *labelColor = WinUIThemeColorFromTheme(theme,
-                                                     @"labelColor",
-                                                     [NSColor controlTextColor]);
+      CGFloat fill = pressed ? (dark ? 0.07 : 0.09) : (hover ? (dark ? 0.04 : 0.06) : (dark ? 0.0 : 0.024));
 
-      fillColor = WinUIThemeColorFromTheme(theme,
-                                           @"fieldBackgroundColor",
-                                           [NSColor textBackgroundColor]);
-      borderColor = WinUIThemeBlendColor(separator, labelColor, 0.12);
-      markColor = labelColor;
-    }
-
-  if (highlighted && enabled)
-    {
-      fillColor = WinUIThemeBlendColor(fillColor,
-                                       WinUIThemeColorFromTheme(theme,
-                                                                @"separatorColor",
-                                                                [NSColor controlShadowColor]),
-                                       0.12);
-    }
-  if (enabled == NO)
-    {
-      fillColor = WinUIThemeBlendColor(fillColor,
-                                       WinUIThemeColorFromTheme(theme,
-                                                                @"windowBackgroundColor",
-                                                                [NSColor windowBackgroundColor]),
-                                       0.35);
-      borderColor = WinUIThemeBlendColor(borderColor, fillColor, 0.30);
-      markColor = WinUIThemeColorFromTheme(theme,
-                                           @"disabledControlTextColor",
-                                           [NSColor disabledControlTextColor]);
+      /* Dark's ControlAltFillColorSecondary is black at 10%. */
+      fillColor = (dark && pressed == NO && hover == NO)
+        ? WinUIThemeBlendColor(window, [NSColor blackColor], 0.10)
+        : WinUIThemeBlendColor(window, ink, fill);
+      borderColor = enabled
+        ? WinUIThemeBlendColor(window, ink, dark ? 0.54 : 0.45)
+        : WinUIThemeBlendColor(window, ink, dark ? 0.16 : 0.22);
+      markColor = borderColor;
+      if (enabled == NO)
+        {
+          fillColor = window;
+        }
     }
 
-  if (radio)
-    {
-      path = [NSBezierPath bezierPathWithOvalInRect: NSInsetRect(indicatorRect, 0.5, 0.5)];
-    }
-  else
-    {
-      path = WinUIThemeRoundedPath(NSInsetRect(indicatorRect, 0.5, 0.5), 4.0);
-    }
-
+  path = radio
+    ? [NSBezierPath bezierPathWithOvalInRect: NSInsetRect(indicatorRect, 0.5, 0.5)]
+    : WinUIThemeRoundedPath(NSInsetRect(indicatorRect, 0.5, 0.5), round(4.0 * scale));
   [fillColor set];
   [path fill];
   [borderColor set];
   [path setLineWidth: 1.0];
   [path stroke];
 
-  if (state == NSOnState)
+  if (radio && (state == NSOnState || (pressed && state == NSOffState)))
     {
-      if (radio)
-        {
-          WinUIThemeDrawRadioDot(NSInsetRect(indicatorRect,
-                                             indicatorSize * 0.28,
-                                             indicatorSize * 0.28),
-                                 markColor);
-        }
-      else
-        {
-          WinUIThemeDrawCheckmark(indicatorRect, markColor);
-        }
-    }
-  else if (state == NSMixedState)
-    {
-      NSRect dashRect = NSMakeRect(NSMinX(indicatorRect) + indicatorSize * 0.22,
-                                   NSMidY(indicatorRect) - 1.5,
-                                   indicatorSize * 0.56,
-                                   3.0);
+      /* A checked radio's centre; pressed, an unchecked one shows it too,
+         in the border's colour. */
+      CGFloat dot = round((pressed ? 10.0 : (hover ? 14.0 : 12.0)) * scale);
 
-      WinUIThemeFillAndStrokeRoundedRect(dashRect, 1.5, markColor, nil, 0.0);
+      WinUIThemeDrawRadioDot(WinUIThemeCenteredRect(indicatorRect, dot, dot),
+                             state == NSOnState ? markColor : borderColor);
+    }
+  else if (radio == NO && state == NSOnState)
+    {
+      WinUIThemeDrawCheckmark(indicatorRect, markColor);
+    }
+  else if (radio == NO && state == NSMixedState)
+    {
+      NSRect dashRect = WinUIThemeCenteredRect(indicatorRect, round(8.0 * scale), MAX(1.5, round(1.5 * scale)));
+
+      [markColor set];
+      NSRectFill(NSIntegralRect(dashRect));
     }
 }
 
@@ -309,14 +341,14 @@ WinUIThemeDrawCheckboxOrRadioCell(NSButtonCell *cell,
   {
     BOOL enabled = [cell isEnabled];
     NSRect contentRect = [cell drawingRectForBounds: cellFrame];
-    CGFloat indicatorSize = MIN(18.0, MAX(14.0, floor(contentRect.size.height - 2.0)));
-    NSRect indicatorRect = NSMakeRect(contentRect.origin.x + 1.0,
+    CGFloat indicatorSize = WinUIThemeIndicatorSizeForHeight(theme, contentRect.size.height);
+    NSRect indicatorRect = NSMakeRect(contentRect.origin.x + WinUIThemeIndicatorLeading,
                                       floor(NSMidY(contentRect) - (indicatorSize / 2.0)),
                                       indicatorSize,
                                       indicatorSize);
     NSRect titleRect = contentRect;
 
-    titleRect.origin.x = NSMaxX(indicatorRect) + 8.0;
+    titleRect.origin.x = NSMaxX(indicatorRect) + WinUIThemeIndicatorLabelGap;
     titleRect.size.width = MAX(0.0, NSMaxX(contentRect) - titleRect.origin.x);
     WinUIThemeDrawCheckboxOrRadioIndicator(theme, cell, indicatorRect, controlView, radio);
 
@@ -377,7 +409,7 @@ WinUIThemeSegmentedLabelAttributes(NSSegmentedCell *cell,
       return nil;
     }
 
-  attributes = [[cell _nonAutoreleasedTypingAttributes] mutableCopy];
+  attributes = WinUIThemeMutableTypingAttributes(cell);
   font = WinUIThemePreferredControlFont(theme,
                                         [attributes objectForKey: NSFontAttributeName],
                                         selected);
@@ -523,6 +555,11 @@ WinUIThemeDrawSegmentedImage(NSImage *image,
            fraction: fraction];
 }
 
+/* A pop-up's title runs from 12pt in to 33pt short of its right side,
+   clear of the chevron. -cellSize measures with these (#14). */
+static const CGFloat WinUIThemePopupTitleLeading = 12.0;
+#define WinUIThemePopupTitleTrailing (WinUIThemeComboBoxGlyphInset + 13.0)
+
 static NSString *
 WinUIThemePopupDisplayString(NSPopUpButtonCell *cell)
 {
@@ -575,6 +612,119 @@ WinUIThemePopupDisplayString(NSPopUpButtonCell *cell)
     }
 
   return (title != nil) ? title : @"";
+}
+
+/* Slider and progress colours (#41, #42). Fluent's are white or black at
+   an opacity, blended over the window here:
+   - track: ControlStrongFillColorDefault (ControlStrongStroke, the
+     progress track line, has the same values), or ...Disabled;
+   - value: the accent, or AccentFillColorDisabled;
+   - the thumb: ControlSolidFillColorDefault, its border
+     ControlStrokeColorDefault, darker (...Secondary) along its bottom.
+   High contrast: text-colour track, highlight value, window-coloured
+   thumb. Any argument may be NULL. */
+static void
+WinUIThemeRangeColors(WinUITheme *theme, BOOL enabled,
+                      NSColor **trackOut, NSColor **valueOut,
+                      NSColor **thumbOut, NSColor **borderOut, NSColor **bottomOut)
+{
+  BOOL dark = [[theme settings] prefersDarkAppearance];
+  NSColor *window = WinUIThemeColorFromTheme(theme, @"windowBackgroundColor",
+                                             [NSColor windowBackgroundColor]);
+  NSColor *ink = dark ? [NSColor whiteColor] : [NSColor blackColor];
+  NSColor *accent = WinUIThemeColorFromTheme(theme, @"accentColor", [NSColor selectedControlColor]);
+  NSColor *track = nil, *value = nil, *thumb = nil, *border = nil, *bottom = nil;
+
+  if ([[theme settings] highContrastEnabled])
+    {
+      NSColor *text = WinUIThemeColorFromTheme(theme, @"labelColor", [NSColor controlTextColor]);
+      NSColor *disabled = WinUIThemeColorFromTheme(theme, @"disabledControlTextColor",
+                                                   [NSColor disabledControlTextColor]);
+
+      track = enabled ? text : disabled;
+      value = enabled ? accent : disabled;
+      thumb = window;
+      border = bottom = enabled ? text : disabled;
+    }
+  else
+    {
+      track = WinUIThemeBlendColor(window, ink, enabled ? (dark ? 0.54 : 0.45) : (dark ? 0.25 : 0.22));
+      value = enabled ? accent : WinUIThemeBlendColor(window, ink, dark ? 0.16 : 0.22);
+      thumb = dark ? [NSColor colorWithCalibratedWhite: 0x45 / 255.0 alpha: 1.0]
+                   : [NSColor whiteColor];
+      border = WinUIThemeBlendColor(thumb, ink, dark ? 0.07 : 0.06);
+      bottom = WinUIThemeBlendColor(thumb, ink, dark ? 0.09 : 0.16);
+    }
+
+  if (trackOut != NULL) *trackOut = track;
+  if (valueOut != NULL) *valueOut = value;
+  if (thumbOut != NULL) *thumbOut = thumb;
+  if (borderOut != NULL) *borderOut = border;
+  if (bottomOut != NULL) *bottomOut = bottom;
+}
+
+/* WinUI's 20px Slider thumb, scaled with the desktop. */
+static CGFloat
+WinUIThemeSliderThumbSize(WinUITheme *theme)
+{
+  return round(20.0 * MAX(1.0, [[theme settings] desktopScaleFactor]));
+}
+
+/* WinUI's ProgressRing: an accent arc, its stroke an eighth of the ring's
+   size (4px at the default 32px), on no track. Indeterminate, it spins
+   once every 2s while its length swings between 10 and 270 degrees;
+   determinate, it runs clockwise from the top for the fraction. */
+static void
+WinUIThemeDrawProgressRing(WinUITheme *theme, NSRect bounds, NSColor *color,
+                           BOOL indeterminate, double fraction)
+{
+  CGFloat size = floor(MIN(NSWidth(bounds), NSHeight(bounds)));
+  CGFloat stroke = MAX(2.0, round(size / 8.0));
+  CGFloat radius = (size - stroke) / 2.0;
+  NSPoint centre = NSMakePoint(NSMidX(bounds), NSMidY(bounds));
+  BOOL flipped = [[NSView focusView] isFlipped];
+  NSBezierPath *arc = [NSBezierPath bezierPath];
+  CGFloat start, sweep;
+
+  (void)theme;
+  if (radius <= 0.0)
+    {
+      return;
+    }
+  if (indeterminate)
+    {
+      double t = [NSDate timeIntervalSinceReferenceDate];
+      double phase = fmod(t, 2.0) / 2.0;
+
+      sweep = 10.0 + 260.0 * (0.5 - 0.5 * cos(phase * 2.0 * M_PI));
+      start = 90.0 - fmod(t * 180.0, 360.0);
+    }
+  else
+    {
+      if (fraction <= 0.0)
+        {
+          return;
+        }
+      sweep = 360.0 * MIN(1.0, fraction);
+      start = 90.0;
+    }
+
+  /* Clockwise as the user sees it: in a flipped view, angles run the
+     other way, and the top is -90 degrees. */
+  if (flipped)
+    {
+      [arc appendBezierPathWithArcWithCenter: centre radius: radius
+                                  startAngle: -start endAngle: -start + sweep clockwise: NO];
+    }
+  else
+    {
+      [arc appendBezierPathWithArcWithCenter: centre radius: radius
+                                  startAngle: start endAngle: start - sweep clockwise: YES];
+    }
+  [arc setLineWidth: stroke];
+  [arc setLineCapStyle: NSRoundLineCapStyle];
+  [color set];
+  [arc stroke];
 }
 
 @implementation WinUITheme (Controls)
@@ -941,133 +1091,107 @@ WinUIThemeSwitchColors(WinUITheme *theme,
   [self drawSwitchKnob: rect forState: state enabled: enabled];
 }
 
+/* WinUI's ProgressBar (#42): a 1px track line in ControlStrongStroke under
+   a 3px rounded accent bar, without the bezel. Indeterminate, two accent
+   segments slide across, timed by the clock rather than the redraw count
+   so they move evenly. The spinning style is a ProgressRing. */
 - (void) drawProgressIndicator: (NSProgressIndicator *)progress
                     withBounds: (NSRect)bounds
                       withClip: (NSRect)rect
                        atCount: (int)count
                       forValue: (double)val
 {
-  NSRect contentRect = bounds;
   BOOL enabled = WinUIThemeControlEnabled(progress);
   BOOL vertical = [progress isVertical];
   double fraction = WinUIThemeClamp(val, 0.0, 1.0);
+  NSColor *track = nil;
+  NSColor *bar = nil;
+  NSRect barArea = NSIntegralRect(bounds);
+  CGFloat thickness = MIN(3.0, vertical ? NSWidth(barArea) : NSHeight(barArea));
+  NSRect trackLine;
+
+  (void)rect;
+  (void)count;
+  WinUIThemeRangeColors(self, enabled, &track, &bar, NULL, NULL, NULL);
 
   if ([progress style] == NSProgressIndicatorSpinningStyle)
     {
-      [super drawProgressIndicator: progress
-                        withBounds: bounds
-                          withClip: rect
-                           atCount: count
-                          forValue: val];
+      WinUIThemeDrawProgressRing(self, bounds, bar, [progress isIndeterminate], fraction);
       return;
     }
 
-  if ([progress isBezeled])
+  /* The bar, centred across the control; the track line through its middle. */
+  if (vertical)
     {
-      contentRect = [self drawProgressIndicatorBezel: bounds withClip: rect];
+      barArea = NSMakeRect(floor(NSMidX(barArea) - thickness / 2.0), NSMinY(barArea),
+                           thickness, NSHeight(barArea));
+      trackLine = NSMakeRect(floor(NSMidX(barArea) - 0.5), NSMinY(barArea), 1.0, NSHeight(barArea));
     }
+  else
+    {
+      barArea = NSMakeRect(NSMinX(barArea), floor(NSMidY(barArea) - thickness / 2.0),
+                           NSWidth(barArea), thickness);
+      trackLine = NSMakeRect(NSMinX(barArea), floor(NSMidY(barArea) - 0.5), NSWidth(barArea), 1.0);
+    }
+  [track set];
+  NSRectFill(trackLine);
 
   if ([progress isIndeterminate])
     {
-      NSRect chunkRect = contentRect;
-      CGFloat phase = ((count % 24) / 23.0);
+      double t = fmod([NSDate timeIntervalSinceReferenceDate], 2.0) / 2.0;
+      CGFloat length = vertical ? NSHeight(barArea) : NSWidth(barArea);
+      /* The first segment, 40% long, crosses in the first three quarters
+         of a 2s cycle; the second, 25%, in the last half. */
+      CGFloat starts[2] = { -0.4 + 1.4 * MIN(1.0, t / 0.75), -0.25 + 1.25 * MAX(0.0, (t - 0.5) / 0.5) };
+      CGFloat sizes[2] = { 0.4, 0.25 };
+      BOOL shown[2] = { t < 0.75, t >= 0.5 };
+      NSUInteger index;
 
-      if (vertical)
+      [NSGraphicsContext saveGraphicsState];
+      NSRectClip(barArea);
+      for (index = 0; index < 2; index++)
         {
-          CGFloat chunkHeight = MAX(8.0, floor(contentRect.size.height * 0.34));
+          NSRect segment = barArea;
 
-          chunkRect.size.height = MIN(chunkHeight, contentRect.size.height);
-          chunkRect.origin.y = contentRect.origin.y + floor((contentRect.size.height - chunkRect.size.height) * phase);
+          if (shown[index] == NO)
+            {
+              continue;
+            }
+          if (vertical)
+            {
+              segment.origin.y += floor(starts[index] * length);
+              segment.size.height = floor(sizes[index] * length);
+            }
+          else
+            {
+              segment.origin.x += floor(starts[index] * length);
+              segment.size.width = floor(sizes[index] * length);
+            }
+          WinUIThemeFillAndStrokeRoundedRect(segment, thickness / 2.0, bar, nil, 0.0);
         }
-      else
-        {
-          CGFloat chunkWidth = MAX(16.0, floor(contentRect.size.width * 0.32));
-
-          chunkRect.size.width = MIN(chunkWidth, contentRect.size.width);
-          chunkRect.origin.x = contentRect.origin.x + floor((contentRect.size.width - chunkRect.size.width) * phase);
-        }
-
-      [self drawProgressIndicatorBarDeterminate: chunkRect];
+      [NSGraphicsContext restoreGraphicsState];
       return;
     }
 
   if (vertical)
     {
-      CGFloat fillHeight = floor(contentRect.size.height * fraction);
-      NSRect fillRect = NSMakeRect(contentRect.origin.x,
-                                   [progress isFlipped]
-                                     ? NSMaxY(contentRect) - fillHeight
-                                     : contentRect.origin.y,
-                                   contentRect.size.width,
-                                   fillHeight);
+      CGFloat fillHeight = floor(NSHeight(barArea) * fraction);
 
-      if (fillRect.size.height > 0.0)
-        {
-          [self drawProgressIndicatorBarDeterminate: fillRect];
-        }
+      barArea.origin.y = [progress isFlipped] ? NSMaxY(barArea) - fillHeight : NSMinY(barArea);
+      barArea.size.height = fillHeight;
     }
   else
     {
-      NSRect fillRect = NSMakeRect(contentRect.origin.x,
-                                   contentRect.origin.y,
-                                   floor(contentRect.size.width * fraction),
-                                   contentRect.size.height);
-
-      if (fillRect.size.width > 0.0)
-        {
-          [self drawProgressIndicatorBarDeterminate: fillRect];
-        }
+      barArea.size.width = floor(NSWidth(barArea) * fraction);
     }
-
-  if (enabled == NO)
+  if (NSWidth(barArea) > 0.0 && NSHeight(barArea) > 0.0)
     {
-      [WinUIThemeColorWithAlpha([NSColor windowBackgroundColor], 0.20) set];
-      NSRectFillUsingOperation(contentRect, NSCompositeSourceOver);
+      WinUIThemeFillAndStrokeRoundedRect(barArea, thickness / 2.0, bar, nil, 0.0);
     }
 }
 
-- (NSRect) drawProgressIndicatorBezel: (NSRect)bounds withClip: (NSRect)rect
-{
-  BOOL dark = [[self settings] prefersDarkAppearance];
-  NSColor *surface = WinUIThemeColorFromTheme(self,
-                                              @"surfaceColor",
-                                              [NSColor controlBackgroundColor]);
-  NSColor *separator = WinUIThemeColorFromTheme(self,
-                                                @"separatorColor",
-                                                [NSColor controlShadowColor]);
-  NSRect drawRect = NSInsetRect(NSIntegralRect(bounds), 0.5, 0.5);
-  CGFloat radius = MIN(MAX(4.0, [[self metrics] controlCornerRadius]),
-                       floor(drawRect.size.height / 2.0));
-  NSBezierPath *trackPath = WinUIThemeRoundedPath(drawRect, radius);
-
-  [WinUIThemeBlendColor(surface,
-                        WinUIThemeColorFromTheme(self,
-                                                 @"windowBackgroundColor",
-                                                 [NSColor windowBackgroundColor]),
-                        dark ? 0.12 : 0.04) set];
-  [trackPath fill];
-
-  [WinUIThemeBlendColor(separator, surface, 0.12) set];
-  [trackPath setLineWidth: 1.0];
-  [trackPath stroke];
-
-  (void)rect;
-  return NSInsetRect(drawRect, 2.0, 2.0);
-}
-
-- (void) drawProgressIndicatorBarDeterminate: (NSRect)bounds
-{
-  NSColor *accent = WinUIThemeColorFromTheme(self,
-                                             @"accentColor",
-                                             [NSColor selectedControlColor]);
-  NSBezierPath *fillPath = WinUIThemeRoundedPath(bounds,
-                                                 MIN(floor(bounds.size.height / 2.0),
-                                                     MAX(3.0, [[self metrics] controlCornerRadius] - 1.0)));
-
-  [accent set];
-  [fillPath fill];
-}
-
+/* WinUI's Slider (#41): a 4px track in ControlStrongFill, the value part
+   in the accent, under the thumb. */
 - (void) drawSliderBorderAndBackground: (NSBorderType)aType
                                  frame: (NSRect)cellFrame
                                 inCell: (NSCell *)cell
@@ -1075,13 +1199,7 @@ WinUIThemeSwitchColors(WinUITheme *theme,
 {
   NSSliderCell *sliderCell = (NSSliderCell *)cell;
   NSRect trackRect = NSIntegralRect(WinUIThemeSliderTrackRect(self, cellFrame, horizontal));
-  NSColor *surface = WinUIThemeColorFromTheme(self,
-                                              @"surfaceColor",
-                                              [NSColor controlBackgroundColor]);
-  NSColor *separator = WinUIThemeColorFromTheme(self,
-                                                @"separatorColor",
-                                                [NSColor controlShadowColor]);
-  NSBezierPath *trackPath = nil;
+  NSColor *track = nil;
 
   if ([sliderCell sliderType] != NSLinearSlider)
     {
@@ -1092,29 +1210,19 @@ WinUIThemeSwitchColors(WinUITheme *theme,
       return;
     }
 
-  trackPath = WinUIThemeRoundedPath(trackRect, trackRect.size.height / 2.0);
-  [WinUIThemeBlendColor(surface,
-                        WinUIThemeColorFromTheme(self,
-                                                 @"windowBackgroundColor",
-                                                 [NSColor windowBackgroundColor]),
-                        0.08) set];
-  [trackPath fill];
-
-  [WinUIThemeBlendColor(separator, surface, 0.10) set];
-  [trackPath setLineWidth: 1.0];
-  [trackPath stroke];
+  WinUIThemeRangeColors(self, WinUIThemeControlEnabled(cell), &track, NULL, NULL, NULL, NULL);
+  WinUIThemeFillAndStrokeRoundedRect(trackRect, 2.0, track, nil, 0.0);
 }
 
 - (void) drawBarInside: (NSRect)rect inCell: (NSCell *)cell flipped: (BOOL)flipped
 {
   NSSliderCell *sliderCell = (NSSliderCell *)cell;
-  NSView *controlView = [cell controlView];
-  NSRect knobRect = [sliderCell knobRectFlipped: flipped];
+  CGFloat thumb = WinUIThemeSliderThumbSize(self);
+  NSRect knobRect;
   BOOL horizontal = (rect.size.width >= rect.size.height);
   NSRect trackRect = WinUIThemeSliderTrackRect(self, rect, horizontal);
   NSRect activeRect = trackRect;
-  double range = [sliderCell maxValue] - [sliderCell minValue];
-  double fraction = range == 0.0 ? 0.0 : ([sliderCell doubleValue] - [sliderCell minValue]) / range;
+  NSColor *value = nil;
 
   if ([sliderCell sliderType] != NSLinearSlider)
     {
@@ -1122,7 +1230,13 @@ WinUIThemeSwitchColors(WinUITheme *theme,
       return;
     }
 
-  fraction = WinUIThemeClamp(fraction, 0.0, 1.0);
+  /* The thumb's travel: the theme's knob image is 20pt; at a larger
+     desktop scale the thumb is larger. */
+  if ([sliderCell knobThickness] > 0.0 && fabs([sliderCell knobThickness] - thumb) > 0.5)
+    {
+      [sliderCell setKnobThickness: thumb];
+    }
+  knobRect = [sliderCell knobRectFlipped: flipped];
 
   if (horizontal)
     {
@@ -1138,44 +1252,32 @@ WinUIThemeSwitchColors(WinUITheme *theme,
       activeRect.size.height = MAX(0.0, MIN(trackRect.size.height, NSMidY(knobRect) - trackRect.origin.y));
     }
 
-  if ((horizontal && activeRect.size.width <= 0.0)
-      || (horizontal == NO && activeRect.size.height <= 0.0))
+  if (NSWidth(activeRect) <= 0.0 || NSHeight(activeRect) <= 0.0)
     {
       return;
     }
 
-  [self drawProgressIndicatorBarDeterminate: activeRect];
-
-  if (controlView != nil && fabs(fraction - 0.5) < 0.001)
-    {
-      [controlView setNeedsDisplayInRect: knobRect];
-    }
+  WinUIThemeRangeColors(self, WinUIThemeControlEnabled(cell), NULL, &value, NULL, NULL, NULL);
+  WinUIThemeFillAndStrokeRoundedRect(NSIntegralRect(activeRect), 2.0, value, nil, 0.0);
 }
 
+/* The thumb: a 20px circle in ControlSolidFill with the elevation border,
+   around an accent dot of 12px, 14px under the pointer and 10px pressed. */
 - (void) drawKnobInCell: (NSCell *)cell
 {
   NSSliderCell *sliderCell = (NSSliderCell *)cell;
   NSView *controlView = [cell controlView];
   BOOL enabled = WinUIThemeControlEnabled(cell);
-  BOOL dark = [[self settings] prefersDarkAppearance];
-  NSColor *surface = WinUIThemeColorFromTheme(self,
-                                              @"fieldBackgroundColor",
-                                              [NSColor controlBackgroundColor]);
-  NSColor *separator = WinUIThemeColorFromTheme(self,
-                                                @"separatorColor",
-                                                [NSColor controlShadowColor]);
-  NSColor *accent = WinUIThemeColorFromTheme(self,
-                                             @"accentColor",
-                                             [NSColor selectedControlColor]);
-  NSRect knobRect = [sliderCell knobRectFlipped: [controlView isFlipped]];
-  CGFloat diameter = MIN(knobRect.size.width, knobRect.size.height) - 1.0;
-  NSRect circleRect = NSMakeRect(NSMidX(knobRect) - (diameter / 2.0),
-                                 NSMidY(knobRect) - (diameter / 2.0),
-                                 diameter,
-                                 diameter);
-  NSBezierPath *knobPath = nil;
-  NSColor *fillColor = nil;
-  NSColor *borderColor = nil;
+  CGFloat scale = [[self settings] desktopScaleFactor];
+  CGFloat thumb = WinUIThemeSliderThumbSize(self);
+  NSRect knobRect;
+  NSRect circleRect;
+  NSColor *fill = nil;
+  NSColor *border = nil;
+  NSColor *bottom = nil;
+  NSColor *dot = nil;
+  CGFloat dotSize = 12.0;
+  NSBezierPath *path = nil;
 
   if ([sliderCell sliderType] != NSLinearSlider)
     {
@@ -1183,18 +1285,54 @@ WinUIThemeSwitchColors(WinUITheme *theme,
       return;
     }
 
-  fillColor = enabled ? surface : WinUIThemeBlendColor(surface, separator, 0.24);
-  borderColor = enabled
-    ? WinUIThemeBlendColor(separator, accent, dark ? 0.10 : 0.18)
-    : WinUIThemeBlendColor(separator, surface, 0.35);
-  knobPath = [NSBezierPath bezierPathWithOvalInRect: circleRect];
+  knobRect = [sliderCell knobRectFlipped: [controlView isFlipped]];
+  circleRect = NSMakeRect(floor(NSMidX(knobRect) - thumb / 2.0) + 0.5,
+                          floor(NSMidY(knobRect) - thumb / 2.0) + 0.5,
+                          thumb - 1.0, thumb - 1.0);
+  WinUIThemeRangeColors(self, enabled, NULL, &dot, &fill, &border, &bottom);
 
-  [fillColor set];
-  [knobPath fill];
+  if ([controlView isKindOfClass: [NSView class]])
+    {
+      WinUIThemeTrackHover(controlView);
+    }
+  if (enabled && [cell isHighlighted])
+    {
+      dotSize = 10.0;
+    }
+  else if (enabled && controlView != nil && WinUIThemeViewIsHovered(controlView))
+    {
+      dotSize = 14.0;
+    }
+  dotSize = round(dotSize * MAX(1.0, scale));
 
-  [borderColor set];
-  [knobPath setLineWidth: 1.0];
-  [knobPath stroke];
+  path = [NSBezierPath bezierPathWithOvalInRect: circleRect];
+  [fill set];
+  [path fill];
+  [path setLineWidth: 1.0];
+  [border set];
+  [path stroke];
+  /* The elevation border's darker lower half. */
+  if ([bottom isEqual: border] == NO)
+    {
+      NSRect lower = circleRect;
+
+      lower.size.height = NSHeight(circleRect) / 2.0;
+      if ([controlView isFlipped])
+        {
+          lower.origin.y = NSMidY(circleRect);
+        }
+      lower = NSInsetRect(lower, -1.0, -1.0);
+      [NSGraphicsContext saveGraphicsState];
+      NSRectClip(lower);
+      [bottom set];
+      [path stroke];
+      [NSGraphicsContext restoreGraphicsState];
+    }
+
+  [dot set];
+  [[NSBezierPath bezierPathWithOvalInRect:
+     NSMakeRect(NSMidX(circleRect) - dotSize / 2.0, NSMidY(circleRect) - dotSize / 2.0,
+                dotSize, dotSize)] fill];
 }
 
 @end
@@ -1247,16 +1385,30 @@ WinUIThemeSwitchColors(WinUITheme *theme,
     }
 
   /* Table and outline rows: text 12pt in from the column's edge, as the
-     headers' titles, clear of the selection pill (#43). */
+     headers' titles, clear of the selection pill (#43). The cell starts
+     half the intercell spacing in, none in a table built in code (#28). */
   if ([cell isBezeled] == NO && [cell isBordered] == NO
       && [[cell controlView] isKindOfClass: [NSTableView class]])
     {
-      titleRect.origin.x += 10.0;
-      titleRect.size.width = MAX(0.0, titleRect.size.width - 10.0);
+      CGFloat inset = MAX(0.0, 12.0 - [(NSTableView *)[cell controlView] intercellSpacing].width / 2.0);
+
+      titleRect.origin.x += inset;
+      titleRect.size.width = MAX(0.0, titleRect.size.width - inset);
     }
 
   titleRect.origin.y = aRect.origin.y + floor((aRect.size.height - titleSize.height) / 2.0);
   titleRect.size.height = ceil(titleSize.height);
+
+  /* A TextBox keeps its text, and the field editor's background, off its
+     border and focus underline, however large Windows' text size makes the
+     font (#44). */
+  if (([cell isBezeled] || [cell isBordered])
+      && [cell isKindOfClass: [NSTableHeaderCell class]] == NO
+      && NSHeight(titleRect) > NSHeight(aRect) - 4.0)
+    {
+      titleRect.origin.y = aRect.origin.y + 2.0;
+      titleRect.size.height = MAX(0.0, NSHeight(aRect) - 4.0);
+    }
 
   return titleRect;
 }
@@ -1524,7 +1676,7 @@ WinUIThemeSwitchColors(WinUITheme *theme,
       return;
     }
 
-  attributes = [[cell _nonAutoreleasedTypingAttributes] mutableCopy];
+  attributes = WinUIThemeMutableTypingAttributes(cell);
   font = WinUIThemePreferredControlFont(theme,
                                         [attributes objectForKey: NSFontAttributeName],
                                         NO);
@@ -1541,9 +1693,10 @@ WinUIThemeSwitchColors(WinUITheme *theme,
   [attributes setObject: textColor forKey: NSForegroundColorAttributeName];
 
   drawRect = NSInsetRect(NSIntegralRect(cellFrame), 1.0, 1.0);
-  titleRect = drawRect;
-  titleRect.origin.x += 11.0;
-  titleRect.size.width = MAX(0.0, titleRect.size.width - (WinUIThemeComboBoxGlyphInset + 23.0));
+  titleRect = NSIntegralRect(cellFrame);
+  titleRect.origin.x += WinUIThemePopupTitleLeading;
+  titleRect.size.width = MAX(0.0, titleRect.size.width
+                                    - WinUIThemePopupTitleLeading - WinUIThemePopupTitleTrailing);
   titleSize = [title sizeWithAttributes: attributes];
   titleRect.origin.y = floor(NSMidY(drawRect) - (titleSize.height / 2.0));
   titleRect.size.height = ceil(titleSize.height) + 1.0;
@@ -1562,6 +1715,48 @@ WinUIThemeSwitchColors(WinUITheme *theme,
     }
 
   RELEASE(attributes);
+}
+
+/* As wide as -drawTitleWithFrame:inView: needs for the longest item (#14).
+   libs-gui leaves room for its arrow image, which the theme replaces with
+   a wider chevron, so a pop-up sized to fit cut its title. */
+- (NSSize) _overrideNSPopUpButtonCellMethod_cellSize
+{
+  typedef NSSize (*CellSizeIMP)(id, SEL);
+  CellSizeIMP originalIMP = (CellSizeIMP)WinUIThemeOriginalMethod(_cmd, self, [NSPopUpButtonCell class]);
+  WinUITheme *theme = WinUIThemeActiveTheme();
+  NSPopUpButtonCell *cell = (NSPopUpButtonCell *)self;
+  NSSize size = (originalIMP != NULL) ? originalIMP(self, _cmd) : NSZeroSize;
+  NSMutableDictionary *attributes = nil;
+  NSFont *font = nil;
+  NSArray *titles = nil;
+  NSEnumerator *enumerator = nil;
+  NSString *title = nil;
+  CGFloat widest = 0.0;
+
+  if (theme == nil)
+    {
+      return size;
+    }
+
+  attributes = WinUIThemeMutableTypingAttributes(cell);
+  font = WinUIThemePreferredControlFont(theme, [attributes objectForKey: NSFontAttributeName], NO);
+  if (font != nil)
+    {
+      [attributes setObject: font forKey: NSFontAttributeName];
+    }
+  titles = ([cell numberOfItems] > 0) ? [cell itemTitles]
+    : [NSArray arrayWithObject: ([cell title] != nil ? [cell title] : @"")];
+  enumerator = [titles objectEnumerator];
+  while ((title = [enumerator nextObject]) != nil)
+    {
+      widest = MAX(widest, [title sizeWithAttributes: attributes].width);
+    }
+  RELEASE(attributes);
+
+  size.width = ceil(widest) + WinUIThemePopupTitleLeading + WinUIThemePopupTitleTrailing
+    + WinUIThemeCellHorizontalMargins(cell);
+  return size;
 }
 
 - (NSImage *) _overrideNSPopUpButtonCellMethod__currentArrowImage
@@ -1745,7 +1940,7 @@ static const CGFloat WinUIThemeSearchDeleteWidth = 28.0;
 
   if ([displayString length] > 0)
     {
-      attributes = [[cell _nonAutoreleasedTypingAttributes] mutableCopy];
+      attributes = WinUIThemeMutableTypingAttributes(cell);
       font = WinUIThemePreferredControlFont(theme,
                                             [attributes objectForKey: NSFontAttributeName],
                                             NO);
@@ -2115,6 +2310,52 @@ static const CGFloat WinUIThemeSearchDeleteWidth = 28.0;
                                 NO);
       return;
     }
+}
+
+/* Measured with the drawing's geometry (#14). libs-gui's -cellSize adds
+   6pt beside the margins and measures the title in the cell's font, and
+   knows nothing of the indicator and gap the theme draws for a checkbox
+   or radio, so a control sized to fit cut its title. */
+- (NSSize) _overrideNSButtonCellMethod_cellSize
+{
+  typedef NSSize (*CellSizeIMP)(id, SEL);
+  CellSizeIMP originalIMP = (CellSizeIMP)WinUIThemeOriginalMethod(_cmd, self, [NSButtonCell class]);
+  WinUITheme *theme = WinUIThemeActiveTheme();
+  NSButtonCell *cell = (NSButtonCell *)self;
+  NSSize size = (originalIMP != NULL) ? originalIMP(self, _cmd) : NSZeroSize;
+
+  if (theme == nil || [cell isKindOfClass: [NSMenuItemCell class]])
+    {
+      return size;
+    }
+
+  if (WinUIThemeButtonCellIsCheckbox(cell) || WinUIThemeButtonCellIsRadio(cell))
+    {
+      CGFloat indicatorSize = WinUIThemeIndicatorSizeForHeight(theme, CGFLOAT_MAX);
+      NSSize titleSize = ([cell imagePosition] == NSImageOnly) ? NSZeroSize
+        : [[cell attributedTitle] size];
+
+      size.width = WinUIThemeIndicatorLeading + indicatorSize
+        + ((titleSize.width > 0.0) ? WinUIThemeIndicatorLabelGap + ceil(titleSize.width)
+                                   : WinUIThemeIndicatorLeading)
+        + WinUIThemeCellHorizontalMargins(cell);
+      size.height = MAX(ceil(titleSize.height), indicatorSize + 2.0);
+      return size;
+    }
+
+  /* The buttons whose title -drawInteriorWithFrame:inView: draws. */
+  if (WinUIThemeButtonCellUsesSearchImage(cell) || WinUIThemeButtonCellUsesCancelImage(cell)
+      || ([cell image] != nil && WinUIThemeButtonCellUsesLegacyReturnImage(cell) == NO)
+      || ([cell alternateImage] != nil
+          && [cell alternateImage] != [NSImage imageNamed: @"common_retH"])
+      || [[cell title] length] == 0)
+    {
+      return size;
+    }
+
+  size.width = ceil(WinUIThemeButtonTitleSize(theme, cell).width)
+    + 2.0 * WinUIThemeButtonTitleInset(cell) + WinUIThemeCellHorizontalMargins(cell);
+  return size;
 }
 
 @end

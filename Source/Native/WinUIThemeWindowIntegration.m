@@ -44,7 +44,10 @@ static void WinUIThemeForgetPopupCorners(NSWindow *window);
   BOOL _lastSystemHighContrast;
   BOOL _lastSystemReducedTransparency;
   unsigned int _lastSystemAccent;
+  unsigned int _lastSystemTextScale;
   BOOL _reloadingTheme;
+  void *_listener;
+  BOOL _pendingForcedRefresh;
 }
 
 - (id) initWithTheme: (WinUITheme *)theme;
@@ -53,6 +56,7 @@ static void WinUIThemeForgetPopupCorners(NSWindow *window);
 - (void) synchronizeWindow: (NSWindow *)window forceRedraw: (BOOL)forceRedraw;
 - (void) forgetWindow: (NSWindow *)window;
 - (void) restoreAllWindows;
+- (void) systemSettingsMayHaveChanged: (BOOL)certainly;
 
 @end
 
@@ -150,6 +154,81 @@ WinUIThemeSystemAccent(void)
     }
 
   return (unsigned int)accent;
+}
+
+/* Settings > Accessibility > Text size, as a percentage (100 to 225). */
+static unsigned int
+WinUIThemeSystemTextScale(void)
+{
+  DWORD scale = 100;
+
+  if (WinUIThemeReadRegistryDWORD(@"Software\\Microsoft\\Accessibility",
+                                  @"TextScaleFactor",
+                                  &scale) == NO)
+    {
+      return 100;
+    }
+  return (unsigned int)scale;
+}
+
+/* Live settings changes (#46): a hidden top-level window hears what
+   Windows broadcasts when the theme, accent, contrast, colours or
+   displays change (a message-only window hears no broadcasts). libs-back
+   dispatches every message on its thread, this window's included. */
+static const wchar_t *WinUIThemeSettingsListenerClass = L"WinUIThemeSettingsListener";
+
+static LRESULT CALLBACK
+WinUIThemeSettingsListenerProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
+{
+  switch (message)
+    {
+      case WM_SETTINGCHANGE:
+        {
+          /* Theme or accent (ImmersiveColorSet), contrast: certainly.
+             Anything else, such as text size, when the settings differ. */
+          const wchar_t *area = (const wchar_t *)lParam;
+          BOOL certainly = (wParam == SPI_SETHIGHCONTRAST
+                            || (area != NULL
+                                && (wcscmp(area, L"ImmersiveColorSet") == 0
+                                    || wcscmp(area, L"WindowsThemeElement") == 0)));
+
+          [WinUIThemeSharedWindowIntegration systemSettingsMayHaveChanged: certainly];
+          break;
+        }
+      case WM_SYSCOLORCHANGE:
+      case WM_THEMECHANGED:
+        [WinUIThemeSharedWindowIntegration systemSettingsMayHaveChanged: YES];
+        break;
+      case WM_DISPLAYCHANGE:
+        [WinUIThemeSharedWindowIntegration systemSettingsMayHaveChanged: NO];
+        break;
+      default:
+        break;
+    }
+  return DefWindowProcW(hwnd, message, wParam, lParam);
+}
+
+static HWND
+WinUIThemeCreateSettingsListener(void)
+{
+  static BOOL registered = NO;
+  const wchar_t *className = WinUIThemeSettingsListenerClass;
+  HINSTANCE instance = GetModuleHandleW(NULL);
+
+  if (registered == NO)
+    {
+      WNDCLASSW windowClass;
+
+      memset(&windowClass, 0, sizeof(windowClass));
+      windowClass.lpfnWndProc = WinUIThemeSettingsListenerProc;
+      windowClass.hInstance = instance;
+      windowClass.lpszClassName = className;
+      registered = (RegisterClassW(&windowClass) != 0
+                    || GetLastError() == ERROR_CLASS_ALREADY_EXISTS);
+    }
+  /* Never shown: a tool window keeps it off the taskbar and Alt+Tab. */
+  return CreateWindowExW(WS_EX_TOOLWINDOW, className, L"", WS_POPUP,
+                         0, 0, 0, 0, NULL, NULL, instance, NULL);
 }
 
 static BOOL
@@ -494,6 +573,9 @@ WinUIThemeApplyWindowIdentity(NSWindow *window,
                      name: NSApplicationDidChangeScreenParametersNotification
                    object: NSApp];
 
+#ifdef _WIN32
+      _listener = (void *)WinUIThemeCreateSettingsListener();
+#endif
       [self updateTheme: theme];
     }
 
@@ -502,6 +584,14 @@ WinUIThemeApplyWindowIdentity(NSWindow *window,
 
 - (void) dealloc
 {
+  [NSObject cancelPreviousPerformRequestsWithTarget: self];
+#ifdef _WIN32
+  if (_listener != NULL)
+    {
+      DestroyWindow((HWND)_listener);
+      _listener = NULL;
+    }
+#endif
   [[NSNotificationCenter defaultCenter] removeObserver: self];
   RELEASE(_windowScaleFactors);
   RELEASE(_theme);
@@ -515,6 +605,7 @@ WinUIThemeApplyWindowIdentity(NSWindow *window,
   _lastSystemHighContrast = WinUIThemeSystemHighContrastEnabled();
   _lastSystemReducedTransparency = WinUIThemeSystemReducedTransparency();
   _lastSystemAccent = WinUIThemeSystemAccent();
+  _lastSystemTextScale = WinUIThemeSystemTextScale();
   _hasSystemSnapshot = YES;
 #endif
 }
@@ -526,6 +617,7 @@ WinUIThemeApplyWindowIdentity(NSWindow *window,
   BOOL highContrast = NO;
   BOOL reducedTransparency = NO;
   unsigned int accent = 0;
+  unsigned int textScale = WinUIThemeSystemTextScale();
 
   prefersDark = WinUIThemeSystemPrefersDarkAppearance();
   highContrast = WinUIThemeSystemHighContrastEnabled();
@@ -538,6 +630,7 @@ WinUIThemeApplyWindowIdentity(NSWindow *window,
       _lastSystemHighContrast = highContrast;
       _lastSystemReducedTransparency = reducedTransparency;
       _lastSystemAccent = accent;
+      _lastSystemTextScale = textScale;
       _hasSystemSnapshot = YES;
       return;
     }
@@ -546,17 +639,19 @@ WinUIThemeApplyWindowIdentity(NSWindow *window,
       && (prefersDark != _lastSystemPrefersDark
           || highContrast != _lastSystemHighContrast
           || reducedTransparency != _lastSystemReducedTransparency
-          || accent != _lastSystemAccent))
+          || accent != _lastSystemAccent
+          || textScale != _lastSystemTextScale))
     {
       _lastSystemPrefersDark = prefersDark;
       _lastSystemHighContrast = highContrast;
       _lastSystemReducedTransparency = reducedTransparency;
       _lastSystemAccent = accent;
+      _lastSystemTextScale = textScale;
 
       if (_theme != nil)
         {
           _reloadingTheme = YES;
-          [_theme reloadConfiguration];
+          [_theme systemSettingsDidChange];
           _reloadingTheme = NO;
           return;
         }
@@ -566,7 +661,38 @@ WinUIThemeApplyWindowIdentity(NSWindow *window,
   _lastSystemHighContrast = highContrast;
   _lastSystemReducedTransparency = reducedTransparency;
   _lastSystemAccent = accent;
+  _lastSystemTextScale = textScale;
 #endif
+}
+
+/* From the listener window: a burst of messages (Windows sends several
+   for one change) becomes one refresh, a tenth of a second later. */
+- (void) systemSettingsMayHaveChanged: (BOOL)certainly
+{
+  _pendingForcedRefresh = _pendingForcedRefresh || certainly;
+  [NSObject cancelPreviousPerformRequestsWithTarget: self
+                                           selector: @selector(_refreshAfterSystemSettingsChange)
+                                             object: nil];
+  [self performSelector: @selector(_refreshAfterSystemSettingsChange)
+             withObject: nil
+             afterDelay: 0.1];
+}
+
+- (void) _refreshAfterSystemSettingsChange
+{
+  BOOL forced = _pendingForcedRefresh;
+
+  _pendingForcedRefresh = NO;
+  if (forced && _theme != nil && _reloadingTheme == NO)
+    {
+      [self _captureSystemSnapshot];
+      _reloadingTheme = YES;
+      [_theme systemSettingsDidChange];
+      _reloadingTheme = NO;
+      return;
+    }
+  [self _refreshThemeIfSystemStateChanged];
+  [self synchronizeAllWindowsForceRedraw: NO];
 }
 
 - (void) updateTheme: (WinUITheme *)theme

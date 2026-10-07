@@ -134,21 +134,7 @@ WinUIThemeAlertStyleText(NSTextField *field, NSFont *font, NSColor *color)
 static NSFont *
 WinUIThemeDialogTitleFont(NSFont *bodyFont)
 {
-  NSFontManager *manager = [NSFontManager sharedFontManager];
-  NSFont *font = nil;
-
-  font = [manager fontWithFamily: [bodyFont familyName]
-                          traits: 0
-                          weight: 8
-                            size: WinUIThemeDialogTitleSize];
-  if (font == nil || [[font fontName] isEqualToString: [bodyFont fontName]])
-    {
-      font = [manager fontWithFamily: [bodyFont familyName]
-                              traits: NSBoldFontMask
-                              weight: 9
-                                size: WinUIThemeDialogTitleSize];
-    }
-  return (font != nil) ? font : [NSFont boldSystemFontOfSize: WinUIThemeDialogTitleSize];
+  return WinUIThemeSemiboldFont(bodyFont, WinUIThemeDialogTitleSize);
 }
 
 @implementation WinUITheme (Alerts)

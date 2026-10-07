@@ -626,7 +626,6 @@ WinUIThemePreferredControlFont(WinUITheme *theme,
                                BOOL emphasized)
 {
   NSFontManager *fontManager = [NSFontManager sharedFontManager];
-  NSString *familyName = nil;
   NSFont *resolvedFont = nil;
   CGFloat pointSize = 0.0;
 
@@ -654,21 +653,8 @@ WinUIThemePreferredControlFont(WinUITheme *theme,
       return font;
     }
 
-  familyName = [font familyName];
-  if ([familyName length] > 0)
-    {
-      resolvedFont = [fontManager fontWithFamily: familyName
-                                          traits: NSBoldFontMask
-                                          weight: 9
-                                            size: [font pointSize]];
-      if (resolvedFont != nil)
-        {
-          return resolvedFont;
-        }
-    }
-
-  resolvedFont = [fontManager convertFont: font toHaveTrait: NSBoldFontMask];
-  return resolvedFont != nil ? resolvedFont : [NSFont boldSystemFontOfSize: [font pointSize]];
+  /* Emphasis is Semibold, WinUI's BodyStrong (#44). */
+  return WinUIThemeSemiboldFont(font, [font pointSize]);
 }
 
 NSFont *
@@ -870,21 +856,80 @@ WinUIThemeRemoveDefaultButtonGlyph(NSButtonCell *cell)
     }
 }
 
+/* The size of a button's title in the font the theme draws it in. */
+NSSize
+WinUIThemeButtonTitleSize(WinUITheme *theme, NSButtonCell *cell)
+{
+  NSMutableAttributedString *title = AUTORELEASE([[cell attributedTitle] mutableCopy]);
+  NSFont *font = WinUIThemePreferredControlFont(theme, [cell font], NO);
+
+  if ([title length] == 0)
+    {
+      return NSZeroSize;
+    }
+  if (font != nil)
+    {
+      [title addAttribute: NSFontAttributeName
+                    value: font
+                    range: NSMakeRange(0, [title length])];
+    }
+  return [title size];
+}
+
+/* Between a button's margins (WinUI's 11pt padding), or 4pt in from a
+   borderless button's sides. -cellSize leaves this much room (#14), and
+   when a frame is narrower the padding gives way before the title is
+   cut, down to 2pt from the sides. */
+CGFloat
+WinUIThemeButtonTitleInset(NSButtonCell *cell)
+{
+  return ([cell isBordered] || [cell isBezeled]) ? 0.0 : 4.0;
+}
+
 NSRect
 WinUIThemeButtonTitleRect(NSButtonCell *cell, NSRect cellFrame)
 {
   NSRect titleRect = [cell drawingRectForBounds: cellFrame];
-  CGFloat leftInset = ([cell isBordered] || [cell isBezeled]) ? 11.0 : 4.0;
+  CGFloat leftInset = WinUIThemeButtonTitleInset(cell);
   CGFloat rightInset = leftInset;
+  CGFloat titleWidth = 0.0;
+  WinUITheme *theme = nil;
 
   if ([cell isKindOfClass: [NSPopUpButtonCell class]])
     {
       leftInset = 14.0;
       rightInset = WinUIThemeComboBoxButtonWidth(cellFrame) + 12.0;
+      titleRect.origin.x += leftInset;
+      titleRect.size.width = MAX(0.0, titleRect.size.width - leftInset - rightInset);
+      return titleRect;
     }
 
+  if ([[GSTheme theme] isKindOfClass: [WinUITheme class]])
+    {
+      theme = (WinUITheme *)[GSTheme theme];
+    }
+  titleWidth = ceil(WinUIThemeButtonTitleSize(theme, cell).width);
+
+  /* The padding gives way first, evenly. */
+  if (titleWidth + leftInset + rightInset > NSWidth(titleRect))
+    {
+      leftInset = rightInset = MAX(0.0, floor((NSWidth(titleRect) - titleWidth) / 2.0));
+    }
   titleRect.origin.x += leftInset;
   titleRect.size.width = MAX(0.0, titleRect.size.width - leftInset - rightInset);
+
+  /* Then the margins, to 2pt from the sides. */
+  if (titleWidth > NSWidth(titleRect))
+    {
+      NSRect widest = NSInsetRect(cellFrame, MIN(2.0, NSWidth(cellFrame) / 4.0), 0.0);
+      CGFloat grow = MIN(titleWidth, NSWidth(widest)) - NSWidth(titleRect);
+
+      if (grow > 0.0)
+        {
+          titleRect.origin.x = MAX(NSMinX(widest), NSMinX(titleRect) - floor(grow / 2.0));
+          titleRect.size.width = MIN(NSMaxX(widest) - NSMinX(titleRect), NSWidth(titleRect) + grow);
+        }
+    }
 
   return titleRect;
 }
@@ -1513,7 +1558,8 @@ WinUIThemeSwitchTrackRect(NSRect rect)
 NSRect
 WinUIThemeSliderTrackRect(WinUITheme *theme, NSRect rect, BOOL horizontal)
 {
-  CGFloat thickness = MAX(4.0, MIN(6.0, round([[theme metrics] controlHeight] / 7.0)));
+  /* WinUI's 4px Slider track (#41). */
+  CGFloat thickness = round(4.0 * MAX(1.0, [[theme settings] desktopScaleFactor]));
 
   if (horizontal)
     {

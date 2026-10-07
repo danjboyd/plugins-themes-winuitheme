@@ -50,6 +50,7 @@ BOOL WinUIThemeKeyboardFocusVisible(void);
 /* Pointer-over state (WinUIThemeHover.m). */
 void WinUIThemeTrackHover(NSView *view);
 BOOL WinUIThemeViewIsHovered(NSView *view);
+void WinUIThemeSetViewHovered(NSView *view, BOOL hovered);
 
 CGFloat WinUIThemeClamp(CGFloat value, CGFloat minimum, CGFloat maximum);
 NSColor *WinUIThemeColorFromTheme(WinUITheme *theme, NSString *key, NSColor *fallback);
@@ -108,6 +109,8 @@ void WinUIThemeApplyButtonTitleAttributes(WinUITheme *theme,
                                           NSColor *textColor,
                                           BOOL emphasized);
 void WinUIThemeRemoveDefaultButtonGlyph(NSButtonCell *cell);
+NSSize WinUIThemeButtonTitleSize(WinUITheme *theme, NSButtonCell *cell);
+CGFloat WinUIThemeButtonTitleInset(NSButtonCell *cell);
 NSRect WinUIThemeButtonTitleRect(NSButtonCell *cell, NSRect cellFrame);
 void WinUIThemeDrawButtonLabel(WinUITheme *theme,
                                NSButtonCell *cell,

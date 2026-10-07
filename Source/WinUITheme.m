@@ -98,6 +98,25 @@ WinUIThemeOriginalMethod(SEL selector, id receiver, Class baseClass)
     }
 }
 
+- (void) systemSettingsDidChange
+{
+  [self reloadConfiguration];
+  if ([GSTheme theme] == self)
+    {
+      /* NSColor keeps the palette it had at activation; this notification
+         has it take the new one and recache every system colour. Window
+         decorations, browsers and the interface style refresh too. */
+      [[NSNotificationCenter defaultCenter]
+        postNotificationName: GSThemeDidActivateNotification
+                      object: self
+                    userInfo: nil];
+      if ([self shouldUseWindowIntegration])
+        {
+          WinUIThemeWindowIntegrationReloadTheme(self);
+        }
+    }
+}
+
 - (WinUIThemeSettings *) settings
 {
   return _settings;
@@ -309,15 +328,21 @@ WinUIThemeOriginalMethod(SEL selector, id receiver, Class baseClass)
   [self addFont: interfaceFont forKey: @"NSLabelFont" toDictionary: dictionary];
   [self addFont: interfaceFont forKey: @"NSMessageFont" toDictionary: dictionary];
   [self addFont: interfaceFont forKey: @"NSToolTipsFont" toDictionary: dictionary];
+  /* Bold is WinUI's Semibold (#44): left unset, gui's bold system font
+     wasn't Segoe at all. */
+  [self addFont: [_settings semiboldInterfaceFontOfSize: [interfaceFont pointSize]]
+         forKey: @"NSBoldFont"
+   toDictionary: dictionary];
   [self addFont: menuFont forKey: @"NSMenuFont" toDictionary: dictionary];
   [self addFont: menuBarFont forKey: @"NSMenuBarFont" toDictionary: dictionary];
   [self addFont: fixedPitchFont forKey: @"NSUserFixedPitchFont" toDictionary: dictionary];
 
   [dictionary setObject: [NSNumber numberWithFloat: baseFontSize]
                  forKey: @"NSFontSize"];
-  [dictionary setObject: [NSNumber numberWithFloat: MAX(9.0, baseFontSize - 1.0)]
+  /* WinUI's Caption, 12px, and a size below it. */
+  [dictionary setObject: [NSNumber numberWithFloat: MAX(9.0, baseFontSize - 2.0)]
                  forKey: @"NSSmallFontSize"];
-  [dictionary setObject: [NSNumber numberWithFloat: MAX(8.0, baseFontSize - 2.0)]
+  [dictionary setObject: [NSNumber numberWithFloat: MAX(8.0, baseFontSize - 3.0)]
                  forKey: @"NSMiniFontSize"];
   [dictionary setObject: [NSNumber numberWithFloat: [_metrics menuBarHeight]]
                  forKey: @"GSMenuBarHeight"];

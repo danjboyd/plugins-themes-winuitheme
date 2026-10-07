@@ -297,6 +297,13 @@ QuirkProbeModuleOfAddress(void *address)
 - (void) checkAlertLayout;
 - (void) checkTemplateImages;
 - (void) checkButtonChrome;
+- (void) checkSizeToFit;
+- (void) checkTypography;
+- (void) checkSlider;
+- (void) checkProgress;
+- (void) checkTableDefaults;
+- (void) checkLiveSettings;
+- (void) checkIndicators;
 - (void) checkMenuFlyout;
 - (void) checkOverlayScrollers;
 - (void) checkFocusVisual;
@@ -841,8 +848,9 @@ objectValueForTableColumn: (NSTableColumn *)column
                                     titleSize.width * scale, titleSize.height * scale]];
     }
 
+  /* 12pt, and a point or two of the "N"'s side bearing. */
   inset = ink.minX / scale;
-  if (inset >= 10.0 && inset <= 16.0)
+  if (inset >= 11.0 && inset <= 14.5)
     {
       [self pass: @"table-header-title-inset" detail:
         [NSString stringWithFormat: @"title starts %.0fpt in", inset]];
@@ -1745,6 +1753,686 @@ QuirkProbeBrightnessAt(NSBitmapImageRep *rep, CGFloat scale, CGFloat x, CGFloat 
   [window orderOut: nil];
 }
 
+/* The desktop scale the theme was given (--scale), by which it scales its
+   metrics; the probe's drawing stays 1:1. */
+static CGFloat
+QuirkProbeDesktopScale(void)
+{
+  NSArray *arguments = [[NSProcessInfo processInfo] arguments];
+  NSUInteger index = [arguments indexOfObject: @"--scale"];
+
+  if (index != NSNotFound && index + 1 < [arguments count])
+    {
+      return MAX(1.0, [[arguments objectAtIndex: index + 1] doubleValue]);
+    }
+  return 1.0;
+}
+
+/* The pixels in column `x` (pixels) of `rep` that pass `test`, between
+   rows y0 and y1. */
+static NSUInteger
+QuirkProbeColumnCount(NSBitmapImageRep *rep, QuirkProbePixelTest test,
+                      NSInteger x, NSInteger y0, NSInteger y1)
+{
+  NSUInteger count = 0;
+  NSInteger y;
+
+  for (y = y0; y < y1; y++)
+    {
+      NSUInteger red, green, blue;
+
+      if (QuirkProbePixel(rep, x, y, &red, &green, &blue) && test(red, green, blue))
+        {
+          count++;
+        }
+    }
+  return count;
+}
+
+/* WinUI's Slider (issue #41): a 4px track, the value part in the accent,
+   and a 20px thumb around an accent dot, 12px at rest and 10px pressed.
+   The theme drew a plain circle on a 6px bordered track. */
+- (void) checkSlider
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(420, 300, 280, 80)
+                                     title: @"QuirkProbe Slider"];
+  NSSlider *slider = AUTORELEASE([[NSSlider alloc] initWithFrame: NSMakeRect(20, 28, 240, 24)]);
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale, desktop;
+  NSInteger height, centreX, centreY;
+  NSUInteger value, rest, pressed;
+  NSUInteger red, green, blue;
+
+  if (QuirkProbeHasArgument(@"--high-contrast", nil))
+    {
+      [self skip: @"slider-track" detail: @"high contrast's highlight may not be blue"];
+      [self skip: @"slider-thumb-dot" detail: @"high contrast's highlight may not be blue"];
+      return;
+    }
+  [slider setMinValue: 0.0];
+  [slider setMaxValue: 100.0];
+  [slider setDoubleValue: 50.0];
+  [[window contentView] addSubview: slider];
+  [window orderFront: nil];
+  [window display];
+  rep = QuirkProbeRender(slider);
+  scale = QuirkProbeScale(rep, slider);
+  desktop = QuirkProbeDesktopScale();
+  height = [rep pixelsHigh];
+  [self saveView: slider named: @"slider"];
+
+  /* The value part, a quarter of the way along: an accent band 4pt deep. */
+  value = QuirkProbeColumnCount(rep, QuirkProbeIsAccentBlue, (NSInteger)(60 * scale), 0, height);
+  if (fabs(value - 4.0 * desktop * scale) <= 0.5)
+    {
+      [self pass: @"slider-track" detail: [NSString stringWithFormat:
+        @"the value part is %lu px deep", (unsigned long)value]];
+    }
+  else
+    {
+      [self fail: @"slider-track" detail: [NSString stringWithFormat:
+        @"the value part is %lu px deep, expected %.0f", (unsigned long)value, 4.0 * desktop * scale]];
+    }
+
+  /* The thumb's centre: the accent dot, across a row of the thumb. */
+  centreX = (NSInteger)(120 * scale);
+  centreY = height / 2;
+  QuirkProbePixel(rep, centreX, centreY, &red, &green, &blue);
+  rest = QuirkProbeRowCount(rep, QuirkProbeIsAccentBlue, centreY,
+                            centreX - (NSInteger)(9 * desktop * scale),
+                            centreX + (NSInteger)(9 * desktop * scale));
+  [[slider cell] setHighlighted: YES];
+  [slider display];
+  rep = QuirkProbeRender(slider);
+  pressed = QuirkProbeRowCount(rep, QuirkProbeIsAccentBlue, centreY,
+                               centreX - (NSInteger)(9 * desktop * scale),
+                               centreX + (NSInteger)(9 * desktop * scale));
+  [[slider cell] setHighlighted: NO];
+  [slider display];
+  if (QuirkProbeIsAccentBlue(red, green, blue)
+      && fabs(rest - 12.0 * desktop * scale) <= 2.0 && fabs(pressed - 10.0 * desktop * scale) <= 2.0)
+    {
+      [self pass: @"slider-thumb-dot" detail: [NSString stringWithFormat:
+        @"an accent dot %lu px wide, %lu pressed", (unsigned long)rest, (unsigned long)pressed]];
+    }
+  else
+    {
+      [self fail: @"slider-thumb-dot" detail: [NSString stringWithFormat:
+        @"the thumb's centre is %lu,%lu,%lu; accent %lu px across, %lu pressed (expected 12 and 10)",
+        (unsigned long)red, (unsigned long)green, (unsigned long)blue,
+        (unsigned long)rest, (unsigned long)pressed]];
+    }
+  [window orderOut: nil];
+}
+
+/* WinUI's ProgressBar and ProgressRing (issue #42): a 3px accent bar on a
+   1px track line, not a bordered bezel; and an accent ring, hollow, not
+   GNUstep's NeXT spinner. */
+- (void) checkProgress
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(420, 200, 300, 100)
+                                     title: @"QuirkProbe Progress"];
+  NSProgressIndicator *bar = AUTORELEASE([[NSProgressIndicator alloc]
+    initWithFrame: NSMakeRect(20, 60, 200, 20)]);
+  NSProgressIndicator *ring = AUTORELEASE([[NSProgressIndicator alloc]
+    initWithFrame: NSMakeRect(240, 50, 32, 32)]);
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale;
+  NSInteger height;
+  NSUInteger filled, track;
+  QuirkProbeInk ringInk;
+  NSUInteger red, green, blue;
+
+  if (QuirkProbeHasArgument(@"--high-contrast", nil))
+    {
+      [self skip: @"progress-bar" detail: @"high contrast's highlight may not be blue"];
+      [self skip: @"progress-ring" detail: @"high contrast's highlight may not be blue"];
+      return;
+    }
+  [bar setIndeterminate: NO];
+  [bar setMinValue: 0.0];
+  [bar setMaxValue: 100.0];
+  [bar setDoubleValue: 50.0];
+  [ring setStyle: NSProgressIndicatorSpinningStyle];
+  /* Stopped, a spinner hides unless it's displayed when stopped. */
+  [ring setDisplayedWhenStopped: YES];
+  [ring setFrame: NSMakeRect(240, 50, 32, 32)];
+  [ring setIndeterminate: NO];
+  [ring setMinValue: 0.0];
+  [ring setMaxValue: 100.0];
+  [ring setDoubleValue: 75.0];
+  [[window contentView] addSubview: bar];
+  [[window contentView] addSubview: ring];
+  [window orderFront: nil];
+  [window display];
+
+  rep = QuirkProbeRender(bar);
+  scale = QuirkProbeScale(rep, bar);
+  height = [rep pixelsHigh];
+  [self saveView: bar named: @"progress-bar"];
+  QuirkProbePixel(rep, 2, 1, &red, &green, &blue);
+  QuirkProbeInkBackground = red + green + blue;
+  filled = QuirkProbeColumnCount(rep, QuirkProbeIsAccentBlue, (NSInteger)(50 * scale), 0, height);
+  track = QuirkProbeColumnCount(rep, QuirkProbeIsFaintInk, (NSInteger)(150 * scale), 0, height);
+  if (fabs(filled - 3.0 * scale) <= 1.0 && track >= 1 && track <= ceil(scale) + 1)
+    {
+      [self pass: @"progress-bar" detail: [NSString stringWithFormat:
+        @"a %lu px accent bar, a %lu px track", (unsigned long)filled, (unsigned long)track]];
+    }
+  else
+    {
+      [self fail: @"progress-bar" detail: [NSString stringWithFormat:
+        @"the bar is %lu px deep (expected %.0f), the track %lu (expected 1)",
+        (unsigned long)filled, 3.0 * scale, (unsigned long)track]];
+    }
+
+  rep = QuirkProbeRender(ring);
+  [self saveView: ring named: @"progress-ring"];
+  ringInk = QuirkProbeMeasureIn(rep, QuirkProbeIsAccentBlue, NSZeroRect);
+  QuirkProbePixel(rep, [rep pixelsWide] / 2, [rep pixelsHigh] / 2, &red, &green, &blue);
+  if (ringInk.count > 20 && QuirkProbeIsAccentBlue(red, green, blue) == NO
+      && ringInk.width >= [rep pixelsWide] - 4)
+    {
+      [self pass: @"progress-ring" detail: [NSString stringWithFormat:
+        @"an accent ring %ld px across, hollow", (long)ringInk.width]];
+    }
+  else
+    {
+      [self fail: @"progress-ring" detail: [NSString stringWithFormat:
+        @"%lu accent px, %ld px across; the centre is %lu,%lu,%lu",
+        (unsigned long)ringInk.count, (long)ringInk.width,
+        (unsigned long)red, (unsigned long)green, (unsigned long)blue]];
+    }
+  [window orderOut: nil];
+}
+
+/* A table built in code looks like a WinUI list (issue #28): libs-gui's
+   16pt rows, grid and 5x2pt spacing become 32pt rows, no grid and none;
+   the header shows column dividers only under the pointer; and a row under
+   the pointer gets a hover fill (issue #43's gap; only with
+   -ProbeMovesPointer YES). */
+- (void) checkTableDefaults
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(440, 380, 340, 240)
+                                     title: @"QuirkProbe Table Defaults"];
+  QuirkProbeRows *rows = AUTORELEASE([QuirkProbeRows new]);
+  NSScrollView *scrollView = AUTORELEASE([[NSScrollView alloc] initWithFrame: NSMakeRect(10, 10, 320, 220)]);
+  NSTableView *table = AUTORELEASE([[NSTableView alloc] initWithFrame: NSMakeRect(0, 0, 300, 200)]);
+  NSTableColumn *name = AUTORELEASE([[NSTableColumn alloc] initWithIdentifier: @"name"]);
+  NSTableColumn *size = AUTORELEASE([[NSTableColumn alloc] initWithIdentifier: @"size"]);
+  CGFloat desktop = QuirkProbeDesktopScale();
+  CGFloat expectedHeight = MAX(30.0, ceil(32.0 * desktop));
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale;
+  NSString *detail = nil;
+
+  detail = [NSString stringWithFormat: @"rows %.0fpt, grid mask %lu, spacing %.0fx%.0f",
+                     [table rowHeight], (unsigned long)[table gridStyleMask],
+                     [table intercellSpacing].width, [table intercellSpacing].height];
+  if (fabs([table rowHeight] - expectedHeight) < 0.01
+      && [table gridStyleMask] == NSTableViewGridNone
+      && NSEqualSizes([table intercellSpacing], NSZeroSize))
+    {
+      [self pass: @"table-code-defaults" detail: detail];
+    }
+  else
+    {
+      [self fail: @"table-code-defaults" detail: [detail stringByAppendingFormat:
+        @"; expected %.0fpt rows, no grid, no spacing", expectedHeight]];
+    }
+
+  [[name headerCell] setStringValue: @"Name"];
+  [[size headerCell] setStringValue: @"Size"];
+  [name setWidth: 150];
+  [size setWidth: 150];
+  [table addTableColumn: name];
+  [table addTableColumn: size];
+  [table setDataSource: rows];
+  [table setUsesAlternatingRowBackgroundColors: NO];
+  [scrollView setDocumentView: table];
+  [[window contentView] addSubview: scrollView];
+  [window makeKeyAndOrderFront: nil];
+  [table reloadData];
+  [window display];
+
+  /* The header between the columns, mid-height, against its background. */
+  {
+    NSTableHeaderView *header = [table headerView];
+    NSInteger divider, plain;
+
+    rep = QuirkProbeRender(header);
+    scale = QuirkProbeScale(rep, header);
+    [self saveView: header named: @"table-header-dividers"];
+    divider = QuirkProbeBrightnessAt(rep, scale, NSMaxX([table rectOfColumn: 0]) - 0.5,
+                                     NSHeight([header bounds]) / 2.0);
+    plain = QuirkProbeBrightnessAt(rep, scale, NSMaxX([table rectOfColumn: 0]) - 20.0,
+                                   NSHeight([header bounds]) / 2.0);
+    if (QuirkProbeHasArgument(@"--high-contrast", nil))
+      {
+        [self skip: @"table-header-dividers" detail: @"high contrast keeps the dividers"];
+      }
+    else if (llabs((long long)(divider - plain)) <= 6)
+      {
+        [self pass: @"table-header-dividers" detail: @"no column divider at rest"];
+      }
+    else
+      {
+        [self fail: @"table-header-dividers" detail: [NSString stringWithFormat:
+          @"a divider between the columns at rest: %ld against %ld (of 765)", (long)divider, (long)plain]];
+      }
+  }
+
+  if ([[NSUserDefaults standardUserDefaults] boolForKey: @"ProbeMovesPointer"] == NO)
+    {
+      [self skip: @"table-row-hover" detail: @"moves the pointer: needs -ProbeMovesPointer YES"];
+    }
+  else if (QuirkProbeHasArgument(@"--high-contrast", nil))
+    {
+      [self skip: @"table-row-hover" detail: @"high contrast has no hover fill"];
+    }
+  else
+    {
+      NSRect first = [table rectOfRow: 0];
+      NSRect third = [table rectOfRow: 2];
+      NSInteger over, rest, after;
+
+      QuirkProbeSetPointer([window convertBaseToScreen:
+        [table convertPoint: NSMakePoint(120, NSMidY(first)) toView: nil]]);
+      QuirkProbeDispatchEvents(0.4);
+      [window display];
+      rep = QuirkProbeRender(table);
+      scale = QuirkProbeScale(rep, table);
+      [self saveView: table named: @"table-row-hover"];
+      over = QuirkProbeBrightnessAt(rep, scale, 120, NSMidY(first));
+      rest = QuirkProbeBrightnessAt(rep, scale, 120, NSMidY(third));
+      QuirkProbeSetPointer([window convertBaseToScreen:
+        [table convertPoint: NSMakePoint(120, NSMidY(third)) toView: nil]]);
+      QuirkProbeDispatchEvents(0.4);
+      [window display];
+      rep = QuirkProbeRender(table);
+      after = QuirkProbeBrightnessAt(rep, scale, 120, NSMidY(first));
+      QuirkProbeSetPointer([window convertBaseToScreen: NSMakePoint(-40, -40)]);
+      QuirkProbeDispatchEvents(0.3);
+      if (llabs((long long)(over - rest)) >= 9 && llabs((long long)(after - rest)) <= 3)
+        {
+          [self pass: @"table-row-hover" detail: [NSString stringWithFormat:
+            @"the row under the pointer is %ld, others %ld (of 765), and it clears", (long)over, (long)rest]];
+        }
+      else
+        {
+          [self fail: @"table-row-hover" detail: [NSString stringWithFormat:
+            @"under the pointer %ld, another row %ld, the first row after leaving %ld (of 765)",
+            (long)over, (long)rest, (long)after]];
+        }
+    }
+  [table setDataSource: nil];
+  [window orderOut: nil];
+}
+
+#ifdef _WIN32
+static WINBOOL CALLBACK
+QuirkProbeFindListener(HWND hwnd, LPARAM found)
+{
+  wchar_t name[64];
+
+  if (GetClassNameW(hwnd, name, 64) > 0 && wcscmp(name, L"WinUIThemeSettingsListener") == 0)
+    {
+      *(HWND *)found = hwnd;
+      return FALSE;
+    }
+  return TRUE;
+}
+#endif
+
+/* Live settings changes (issue #46): the theme hears Windows' broadcasts
+   through a hidden window, and on "ImmersiveColorSet" (a theme or accent
+   change) reloads, and AppKit's system colours follow. The probe stands
+   in an accent (WinUIThemeAccentColorHex, red) for Settings' and sends
+   the message to this thread's listener. */
+- (void) checkLiveSettings
+{
+#ifdef _WIN32
+  NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+  NSMutableArray *searchList = nil;
+  HWND listener = NULL;
+  NSColor *changed = nil;
+  NSColor *restored = nil;
+
+  EnumThreadWindows(GetCurrentThreadId(), QuirkProbeFindListener, (LPARAM)&listener);
+  if (listener == NULL)
+    {
+      [self fail: @"live-accent-change" detail: @"the theme has no settings listener window"];
+      return;
+    }
+  if (QuirkProbeHasArgument(@"--high-contrast", nil))
+    {
+      [self skip: @"live-accent-change" detail: @"high contrast uses the contrast theme's colours"];
+      return;
+    }
+
+  [defaults setVolatileDomain: [NSDictionary dictionaryWithObject: @"C42B1C"
+                                                           forKey: @"WinUIThemeAccentColorHex"]
+                      forName: @"QuirkProbeLive"];
+  searchList = AUTORELEASE([[defaults searchList] mutableCopy]);
+  [searchList insertObject: @"QuirkProbeLive" atIndex: 0];
+  [defaults setSearchList: searchList];
+  SendMessageW(listener, WM_SETTINGCHANGE, 0, (LPARAM)L"ImmersiveColorSet");
+  QuirkProbeDispatchEvents(0.6);
+  changed = [[NSColor selectedControlColor] colorUsingColorSpaceName: NSCalibratedRGBColorSpace];
+
+  [searchList removeObject: @"QuirkProbeLive"];
+  [defaults setSearchList: searchList];
+  [defaults removeVolatileDomainForName: @"QuirkProbeLive"];
+  SendMessageW(listener, WM_SETTINGCHANGE, 0, (LPARAM)L"ImmersiveColorSet");
+  QuirkProbeDispatchEvents(0.6);
+  restored = [[NSColor selectedControlColor] colorUsingColorSpaceName: NSCalibratedRGBColorSpace];
+
+  if ([changed redComponent] > [changed blueComponent] + 0.25
+      && QuirkProbeIsAccentBlue([restored redComponent] * 255, [restored greenComponent] * 255,
+                                [restored blueComponent] * 255))
+    {
+      [self pass: @"live-accent-change" detail: [NSString stringWithFormat:
+        @"the accent followed the change (%.2f,%.2f,%.2f) and came back",
+        [changed redComponent], [changed greenComponent], [changed blueComponent]]];
+    }
+  else
+    {
+      [self fail: @"live-accent-change" detail: [NSString stringWithFormat:
+        @"after the change the accent was %.2f,%.2f,%.2f, after restoring %.2f,%.2f,%.2f",
+        [changed redComponent], [changed greenComponent], [changed blueComponent],
+        [restored redComponent], [restored greenComponent], [restored blueComponent]]];
+    }
+#else
+  [self skip: @"live-accent-change" detail: @"Windows only"];
+#endif
+}
+
+/* WinUI's CheckBox and RadioButton (issue #5): a 20px indicator, and a
+   checked radio's accent ring around a 12px centre dot. The theme drew
+   18px indicators and an 8px dot. */
+- (void) checkIndicators
+{
+  CGFloat desktop = QuirkProbeDesktopScale();
+  /* Frames with room for the indicator at the desktop's scale: a shorter
+     one gets a smaller indicator. */
+  NSWindow *window = [self windowWithFrame: NSMakeRect(440, 300, 220, 120)
+                                     title: @"QuirkProbe Indicators"];
+  NSButton *checkbox = AUTORELEASE([[NSButton alloc] initWithFrame:
+    NSMakeRect(20, 64, 160, 24 * desktop)]);
+  NSButton *radio = AUTORELEASE([[NSButton alloc] initWithFrame:
+    NSMakeRect(20, 16, 160, 24 * desktop)]);
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale;
+  QuirkProbeInk box, ring;
+  NSInteger centreY, x, dot = 0;
+
+  if (QuirkProbeHasArgument(@"--high-contrast", nil))
+    {
+      [self skip: @"checkbox-indicator-size" detail: @"high contrast's highlight may not be blue"];
+      [self skip: @"radio-centre-dot" detail: @"high contrast's highlight may not be blue"];
+      return;
+    }
+  [checkbox setButtonType: NSSwitchButton];
+  [checkbox setTitle: @"Checked"];
+  [checkbox setState: NSOnState];
+  [radio setButtonType: NSRadioButton];
+  [radio setTitle: @"Selected"];
+  [radio setState: NSOnState];
+  [[window contentView] addSubview: checkbox];
+  [[window contentView] addSubview: radio];
+  [window orderFront: nil];
+  [window display];
+
+  rep = QuirkProbeRender(checkbox);
+  scale = QuirkProbeScale(rep, checkbox);
+  [self saveView: checkbox named: @"checkbox-indicator"];
+  box = QuirkProbeMeasureIn(rep, QuirkProbeIsAccentBlue, NSMakeRect(0, 0, 40 * desktop * scale, [rep pixelsHigh]));
+  if (llabs((long long)box.width - (long long)round(20.0 * desktop * scale)) <= 1
+      && llabs((long long)box.height - (long long)round(20.0 * desktop * scale)) <= 1)
+    {
+      [self pass: @"checkbox-indicator-size" detail: [NSString stringWithFormat:
+        @"a %ldx%ld px accent box", (long)box.width, (long)box.height]];
+    }
+  else
+    {
+      [self fail: @"checkbox-indicator-size" detail: [NSString stringWithFormat:
+        @"the accent box is %ldx%ld px, expected %.0f", (long)box.width, (long)box.height,
+        round(20.0 * desktop * scale)]];
+    }
+
+  rep = QuirkProbeRender(radio);
+  [self saveView: radio named: @"radio-indicator"];
+  ring = QuirkProbeMeasureIn(rep, QuirkProbeIsAccentBlue, NSMakeRect(0, 0, 40 * desktop * scale, [rep pixelsHigh]));
+  centreY = ring.minY + ring.height / 2;
+  for (x = ring.minX; x < ring.minX + ring.width; x++)
+    {
+      NSUInteger red, green, blue;
+
+      if (QuirkProbePixel(rep, x, centreY, &red, &green, &blue)
+          && QuirkProbeIsAccentBlue(red, green, blue) == NO)
+        {
+          dot++;
+        }
+    }
+  if (llabs((long long)ring.width - (long long)round(20.0 * desktop * scale)) <= 1
+      && fabs(dot - 12.0 * desktop * scale) <= 2.0)
+    {
+      [self pass: @"radio-centre-dot" detail: [NSString stringWithFormat:
+        @"a %ld px ring around a %ld px dot", (long)ring.width, (long)dot]];
+    }
+  else
+    {
+      [self fail: @"radio-centre-dot" detail: [NSString stringWithFormat:
+        @"a %ld px ring around a %ld px dot; expected %.0f and %.0f", (long)ring.width, (long)dot,
+        round(20.0 * desktop * scale), 12.0 * desktop * scale]];
+    }
+  [window orderOut: nil];
+}
+
+/* WinUI's type ramp (issue #44): the interface font is Segoe UI Variable
+   (Segoe UI without it, as on Windows 10) at Body's 14px, scaled by
+   Windows' text size (-WinUIThemeTextScaleFactor stands in for it); bold
+   is the family's Semibold, not another face; a default button's title
+   is regular weight. */
+- (void) checkTypography
+{
+  NSFontManager *manager = [NSFontManager sharedFontManager];
+  NSFont *body = [NSFont systemFontOfSize: 0];
+  NSFont *bold = [NSFont boldSystemFontOfSize: 0];
+  NSString *family = [[manager availableFontFamilies] containsObject: @"Segoe UI Variable"]
+    ? @"Segoe UI Variable" : @"Segoe UI";
+  CGFloat textScale = [[NSUserDefaults standardUserDefaults] floatForKey: @"WinUIThemeTextScaleFactor"];
+  CGFloat size = round(14.0 * ((textScale >= 100.0) ? textScale / 100.0 : 1.0));
+  NSString *detail = nil;
+
+  detail = [NSString stringWithFormat: @"the system font is %@ (%@) at %.1f; expected %@ at %.0f",
+                     [body fontName], [body familyName], [body pointSize], family, size];
+  if ([[body familyName] isEqualToString: family] && fabs([body pointSize] - size) < 0.01)
+    {
+      [self pass: @"typography-body" detail: detail];
+    }
+  else
+    {
+      [self fail: @"typography-body" detail: detail];
+    }
+
+  detail = [NSString stringWithFormat: @"the bold system font is %@ (%@), weight %ld",
+                     [bold fontName], [bold familyName], (long)[manager weightOfFont: bold]];
+  if ([[bold familyName] isEqualToString: [body familyName]] && [manager weightOfFont: bold] == 7)
+    {
+      [self pass: @"typography-bold-semibold" detail: detail];
+    }
+  else
+    {
+      [self fail: @"typography-bold-semibold" detail:
+        [detail stringByAppendingString: @"; expected the body's family at Semibold (7)"]];
+    }
+
+  {
+    NSWindow *window = [self windowWithFrame: NSMakeRect(420, 360, 200, 80)
+                                       title: @"QuirkProbe Typography"];
+    NSButton *button = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(20, 20, 120, 32)]);
+    NSFont *titleFont = nil;
+
+    [button setButtonType: NSMomentaryPushInButton];
+    [button setBezelStyle: NSRoundedBezelStyle];
+    [button setTitle: @"OK"];
+    [button setKeyEquivalent: @"\r"];
+    [[window contentView] addSubview: button];
+    [window orderFront: nil];
+    [window display];
+    titleFont = [[[button cell] attributedTitle] attribute: NSFontAttributeName
+                                                   atIndex: 0
+                                            effectiveRange: NULL];
+    detail = [NSString stringWithFormat: @"the default button's title is %@, weight %ld",
+                       [titleFont fontName], (long)[manager weightOfFont: titleFont]];
+    if (titleFont != nil && [manager weightOfFont: titleFont] <= 5)
+      {
+        [self pass: @"typography-default-button-regular" detail: detail];
+      }
+    else
+      {
+        [self fail: @"typography-default-button-regular" detail: detail];
+      }
+    [window orderOut: nil];
+  }
+}
+
+/* The title's ink in `frame` of `content` (a render `rep`), between
+   `leading` and `trailing` points in from its sides, on the background at
+   `sample` points in from the frame's top left. */
+static QuirkProbeInk
+QuirkProbeTitleInk(NSBitmapImageRep *rep, NSView *content, NSRect frame,
+                   CGFloat leading, CGFloat trailing, NSPoint sample)
+{
+  CGFloat scale = QuirkProbeScale(rep, content);
+  NSRect area = QuirkProbePixelRect(content, frame, scale);
+
+  QuirkProbeInkBackground = QuirkProbeBrightnessAt(rep, 1.0,
+                                                   NSMinX(area) + sample.x * scale,
+                                                   NSMinY(area) + sample.y * scale);
+  area.origin.x += leading * scale;
+  area.size.width -= (leading + trailing) * scale;
+  area.origin.y += 3 * scale;
+  area.size.height -= 6 * scale;
+  return QuirkProbeMeasureIn(rep, QuirkProbeIsInk, area);
+}
+
+/* -sizeToFit and -cellSize measure with the theme's drawing geometry
+   (issue #14): a control sized to fit shows as much of its title as one
+   200pt wider, and a narrow button's padding gives way before its title.
+   Under Adwaita "Sign In" became "Sign", and a 44pt "20" drew nothing. */
+- (void) checkSizeToFit
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(300, 120, 640, 260)
+                                     title: @"QuirkProbe Size To Fit"];
+  NSView *content = [window contentView];
+  NSString *names[5] = { @"button", @"narrow-button", @"checkbox", @"radio", @"popup" };
+  NSControl *fitted[5];
+  NSControl *wide[5];
+  NSBitmapImageRep *rep = nil;
+  NSUInteger index;
+
+  for (index = 0; index < 5; index++)
+    {
+      NSInteger pass;
+
+      for (pass = 0; pass < 2; pass++)
+        {
+          NSRect frame = NSMakeRect(20, 210 - 45 * index, 100, 32);
+          NSControl *control = nil;
+
+          if (index == 4)
+            {
+              NSPopUpButton *popup = AUTORELEASE([[NSPopUpButton alloc] initWithFrame: frame
+                                                                              pullsDown: NO]);
+
+              [popup addItemWithTitle: @"Errors only"];
+              [popup addItemWithTitle: @"All"];
+              control = popup;
+            }
+          else
+            {
+              NSButton *button = AUTORELEASE([[NSButton alloc] initWithFrame: frame]);
+
+              if (index <= 1)
+                {
+                  [button setButtonType: NSMomentaryPushInButton];
+                  [button setBezelStyle: NSRoundedBezelStyle];
+                  [button setTitle: (index == 0) ? @"Sign In" : @"20"];
+                }
+              else
+                {
+                  [button setButtonType: (index == 2) ? NSSwitchButton : NSRadioButton];
+                  [button setTitle: @"Errors only"];
+                }
+              control = button;
+            }
+          [content addSubview: control];
+          if (index == 1)
+            {
+              [control setFrameSize: NSMakeSize(44, 32)];
+            }
+          else
+            {
+              [control sizeToFit];
+            }
+          if (pass == 1)
+            {
+              NSSize size = [fitted[index] frame].size;
+
+              [control setFrame: NSMakeRect(300, NSMinY(frame), size.width + 200, size.height)];
+              wide[index] = control;
+            }
+          else
+            {
+              fitted[index] = control;
+            }
+        }
+    }
+  [window orderFront: nil];
+  [window display];
+  rep = QuirkProbeRender(content);
+  [self saveView: content named: @"size-to-fit"];
+
+  for (index = 0; index < 5; index++)
+    {
+      /* Buttons: all of the interior, on the fill. Checkboxes and radios:
+         right of the indicator, on the window. Pop-ups: left of the
+         chevron, on the fill. A checkbox's title runs to its frame's edge. */
+      CGFloat leading = (index == 2 || index == 3) ? 24 : 3;
+      CGFloat trailing = (index == 4) ? 30 : ((index == 2 || index == 3) ? 0 : 3);
+      NSPoint sample = (index == 2 || index == 3) ? NSMakePoint(-2, 2)
+        : NSMakePoint(4, NSHeight([fitted[index] frame]) / 2.0);
+      QuirkProbeInk fittedInk = QuirkProbeTitleInk(rep, content, [fitted[index] frame],
+                                                   leading, trailing, sample);
+      QuirkProbeInk wideInk = QuirkProbeTitleInk(rep, content, [wide[index] frame],
+                                                 leading, trailing, sample);
+      NSString *check = [@"size-to-fit-" stringByAppendingString: names[index]];
+      NSString *detail = [NSString stringWithFormat:
+        @"%.0fpt wide: title ink %ld px wide (%lu px), %ld px (%lu px) with 200pt more",
+        NSWidth([fitted[index] frame]), (long)fittedInk.width, (unsigned long)fittedInk.count,
+        (long)wideInk.width, (unsigned long)wideInk.count];
+
+      if (wideInk.count > 20
+          && llabs((long long)(fittedInk.width - wideInk.width)) <= 1
+          && fittedInk.count * 20 >= wideInk.count * 19)
+        {
+          [self pass: check detail: detail];
+        }
+      else
+        {
+          [self fail: check detail: [detail stringByAppendingString: @": the title is cut"]];
+        }
+    }
+  for (index = 0; index < 5; index++)
+    {
+      [fitted[index] removeFromSuperview];
+      [wide[index] removeFromSuperview];
+    }
+  [window orderOut: nil];
+}
+
 /* The top and bottom pixel rows of item `index` in a render of `view`. */
 static void
 QuirkProbeMenuRows(NSMenuView *view, NSBitmapImageRep *rep, NSInteger index,
@@ -2060,6 +2748,7 @@ QuirkProbeStripInk(NSScrollView *scrollView, NSUInteger fill, CGFloat inset)
       [self skip: @"scroller-indicator-fades" detail: @"high contrast keeps classic scroll bars"];
       [self skip: @"scroller-classic-setting" detail: @"high contrast keeps classic scroll bars"];
       [self skip: @"scroller-freed-mid-fade" detail: @"high contrast keeps classic scroll bars"];
+      [self skip: @"scroller-hover-expands" detail: @"high contrast keeps classic scroll bars"];
       return;
     }
 
@@ -2119,6 +2808,44 @@ QuirkProbeStripInk(NSScrollView *scrollView, NSUInteger fill, CGFloat inset)
       [self fail: @"scroller-indicator-fades" detail: [NSString stringWithFormat:
         @"%lu px of indicator while scrolling, %lu px 1.6s later",
         (unsigned long)ink, (unsigned long)QuirkProbeStripInk(scrollView, fill, 4.0)]];
+    }
+
+  /* The pointer over the strip reveals the bar, expanded: a 6pt thumb
+     down the strip's middle, where the 2pt indicator never reaches. */
+  if ([defaults boolForKey: @"ProbeMovesPointer"] == NO)
+    {
+      [self skip: @"scroller-hover-expands" detail: @"moves the pointer: needs -ProbeMovesPointer YES"];
+    }
+  else
+    {
+      NSRect frame = [[scrollView verticalScroller] convertRect: [[scrollView verticalScroller] bounds]
+                                                         toView: nil];
+      NSUInteger middle, beside;
+
+      [document scrollPoint: NSMakePoint(0, 0)];
+      [window makeKeyAndOrderFront: nil];
+      QuirkProbeSetPointer([window convertBaseToScreen: NSMakePoint(-40, -40)]);
+      QuirkProbeDispatchEvents(0.2);
+      QuirkProbeSetPointer([window convertBaseToScreen: NSMakePoint(NSMidX(frame), NSMidY(frame) + 30)]);
+      QuirkProbeDispatchEvents(0.4);
+      [window display];
+      [self saveView: scrollView named: @"scroller-hover"];
+      middle = QuirkProbeStripInk(scrollView, fill, NSWidth(strip) / 2.0);
+      beside = QuirkProbeStripInk(scrollView, fill, NSWidth(strip) / 2.0 + 2.0);
+      QuirkProbeSetPointer([window convertBaseToScreen: NSMakePoint(-40, -40)]);
+      QuirkProbeDispatchEvents(1.6);
+      [window display];
+      if (middle > 0 && beside > 0)
+        {
+          [self pass: @"scroller-hover-expands" detail: [NSString stringWithFormat:
+            @"under the pointer, %lu px of thumb down the strip's middle", (unsigned long)middle]];
+        }
+      else
+        {
+          [self fail: @"scroller-hover-expands" detail: [NSString stringWithFormat:
+            @"under the pointer, %lu px down the strip's middle and %lu beside it: not expanded",
+            (unsigned long)middle, (unsigned long)beside]];
+        }
     }
 
   /* Classic: the content stops at the strip, which is always drawn. */
@@ -2524,6 +3251,48 @@ QuirkProbeInkIn(NSBitmapImageRep *rep, NSRect area, NSInteger fill, NSInteger th
           [combo currentEditor] != nil ? @"a" : @"no", (unsigned long)value]];
       }
   }
+
+  /* Editable, while editing: the value in the editor, a chevron the
+     editor doesn't cover, and (but in high contrast) the focus underline
+     in the accent along the bottom. */
+  [window makeFirstResponder: window];
+  [combo setEditable: YES];
+  [combo setStringValue: @"Value"];
+  [window makeFirstResponder: combo];
+  [window display];
+  rep = QuirkProbeRender(combo);
+  [self saveView: combo named: @"combobox-editing"];
+  {
+    NSInteger height = [rep pixelsHigh];
+    NSInteger width = [rep pixelsWide];
+    NSInteger chevron;
+
+    QuirkProbeInkBackground = QuirkProbeBrightnessAt(rep, scale, NSWidth([combo bounds]) - 4.0,
+                                                     NSHeight([combo bounds]) / 2.0);
+    chevron = QuirkProbeChevronDirection(rep, NSMakeRect(width - 30 * scale, height * 0.25,
+                                                         24 * scale, height * 0.5));
+    NSUInteger underline = QuirkProbeRowCount(rep, QuirkProbeIsAccentBlue, height - 1,
+                                              width / 4, 3 * width / 4);
+    NSInteger editorFill = QuirkProbeBrightnessAt(rep, scale, NSWidth([combo bounds]) / 2.0,
+                                                  NSHeight([combo bounds]) / 2.0);
+    NSUInteger value = QuirkProbeInkIn(rep, NSMakeRect(4 * scale, height * 0.2, 60 * scale, height * 0.6),
+                                       editorFill, 150, NULL);
+    BOOL underlined = highContrast || underline >= (NSUInteger)(width / 2 - 4);
+
+    if ([combo currentEditor] != nil && value > 10 && chevron == -1 && underlined)
+      {
+        [self pass: @"combobox-editing" detail: [NSString stringWithFormat:
+          @"editing: %lu px of value, a down chevron, %lu px of underline",
+          (unsigned long)value, (unsigned long)underline]];
+      }
+    else
+      {
+        [self fail: @"combobox-editing" detail: [NSString stringWithFormat:
+          @"editing: %@ editor, %lu px of value, chevron %ld (want -1), %lu px of underline",
+          [combo currentEditor] != nil ? @"an" : @"no", (unsigned long)value, (long)chevron,
+          (unsigned long)underline]];
+      }
+  }
   [window makeFirstResponder: window];
   [window orderOut: nil];
 }
@@ -2748,6 +3517,40 @@ QuirkProbeInkIn(NSBitmapImageRep *rep, NSRect area, NSInteger fill, NSInteger th
         @"before the magnifier: %lu px empty, %lu px with text", (unsigned long)emptyDelete,
         (unsigned long)delete]];
     }
+
+  /* Pressed, the delete button sits on SubtleFillColorTertiary: a faint
+     square around the cross, 9pt from its centre (the cross is 10pt). */
+  {
+    NSButtonCell *cancel = [[search cell] cancelButtonCell];
+    NSRect button = [[search cell] cancelButtonRectForBounds: [search bounds]];
+    CGFloat x = NSMidX(button) - 9.0;
+    CGFloat y = [search isFlipped] ? NSMidY(button) : NSHeight([search bounds]) - NSMidY(button);
+    NSInteger resting, pressed;
+
+    resting = QuirkProbeBrightnessAt(rep, scale, x, y);
+    [cancel setHighlighted: YES];
+    [search display];
+    rep = QuirkProbeRender(search);
+    [self saveView: search named: @"search-delete-pressed"];
+    pressed = QuirkProbeBrightnessAt(rep, scale, x, y);
+    [cancel setHighlighted: NO];
+    [search display];
+    if (QuirkProbeHasArgument(@"--high-contrast", nil))
+      {
+        [self skip: @"search-delete-pressed" detail: @"high contrast draws no subtle fill"];
+      }
+    else if (llabs((long long)(pressed - resting)) >= 6)
+      {
+        [self pass: @"search-delete-pressed" detail: [NSString stringWithFormat:
+          @"beside the cross: %ld at rest, %ld pressed (of 765)", (long)resting, (long)pressed]];
+      }
+    else
+      {
+        [self fail: @"search-delete-pressed" detail: [NSString stringWithFormat:
+          @"beside the cross: %ld at rest, %ld pressed (of 765): no pressed fill",
+          (long)resting, (long)pressed]];
+      }
+  }
   [window orderOut: nil];
 }
 
@@ -3050,6 +3853,13 @@ QuirkProbeLastItemOfMenu(NSString *title)
   [self checkAlertLayout];
   [self checkTemplateImages];
   [self checkButtonChrome];
+  [self checkSizeToFit];
+  [self checkTypography];
+  [self checkSlider];
+  [self checkProgress];
+  [self checkTableDefaults];
+  [self checkLiveSettings];
+  [self checkIndicators];
   [self checkMenuFlyout];
   [self checkOverlayScrollers];
   [self checkFocusVisual];

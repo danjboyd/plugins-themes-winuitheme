@@ -25,6 +25,7 @@ typedef enum
   BOOL _reducedTransparency;
   BOOL _dynamicScrollbars;
   CGFloat _desktopScaleFactor;
+  CGFloat _textScaleFactor;
   BOOL _systemSettingsAvailable;
 }
 
@@ -47,13 +48,18 @@ typedef enum
    effects): YES unless it's off. */
 - (BOOL) dynamicScrollbarsEnabled;
 - (CGFloat) desktopScaleFactor;
+/* Windows' Text size (Accessibility), 1.0 to 2.25: it scales the fonts. */
+- (CGFloat) textScaleFactor;
 - (BOOL) systemSettingsAvailable;
 
 - (NSFont *) interfaceFont;
 - (NSFont *) menuFont;
 - (NSFont *) menuBarFont;
+- (NSFont *) semiboldInterfaceFontOfSize: (CGFloat)size;
 - (NSFont *) fixedPitchFont;
 
 @end
+
+NSFont *WinUIThemeSemiboldFont(NSFont *font, CGFloat size);
 
 #endif
