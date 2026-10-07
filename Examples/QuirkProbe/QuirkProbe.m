@@ -296,6 +296,7 @@ QuirkProbeModuleOfAddress(void *address)
 - (void) checkAccentColor;
 - (void) checkAlertLayout;
 - (void) checkTemplateImages;
+- (void) checkEarlyTemplateImages;
 - (void) checkButtonChrome;
 - (void) checkSizeToFit;
 - (void) checkTypography;
@@ -1558,6 +1559,81 @@ QuirkProbeCentreIs(NSView *view, NSColor *color, NSUInteger slack, NSString **se
   else
     {
       [self fail: @"template-images" detail: [wrong componentsJoinedByString: @"; "]];
+    }
+}
+
+/* A 20x20 opaque black square in a bitmap, named "...-symbolic", as an
+   app's PNG icons load. */
+static NSImage *
+QuirkProbeSymbolicSquare(void)
+{
+  NSImage *image = [NSImage imageNamed: @"probe-square-symbolic"];
+  NSBitmapImageRep *rep = nil;
+  unsigned char *data = NULL;
+  NSInteger index;
+
+  if (image != nil)
+    {
+      return image;
+    }
+  rep = AUTORELEASE([[NSBitmapImageRep alloc]
+                      initWithBitmapDataPlanes: NULL
+                                    pixelsWide: 20
+                                    pixelsHigh: 20
+                                 bitsPerSample: 8
+                               samplesPerPixel: 4
+                                      hasAlpha: YES
+                                      isPlanar: NO
+                                colorSpaceName: NSCalibratedRGBColorSpace
+                                   bytesPerRow: 0
+                                  bitsPerPixel: 0]);
+  data = [rep bitmapData];
+  for (index = 0; index < 20 * 20; index++)
+    {
+      data[index * 4] = 0;
+      data[index * 4 + 1] = 0;
+      data[index * 4 + 2] = 0;
+      data[index * 4 + 3] = 255;
+    }
+  image = AUTORELEASE([[NSImage alloc] initWithSize: NSMakeSize(20, 20)]);
+  [image addRepresentation: rep];
+  [image setName: @"probe-square-symbolic"];
+  return image;
+}
+
+/* A template image first drawn while its window is off screen still draws
+   in the text colour once the window is shown (issue #64): the tinted copy
+   made then was blank on Windows, and kept. */
+- (void) checkEarlyTemplateImages
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(780, 600, 160, 80)
+                                     title: @"QuirkProbe Early Template Images"];
+  NSColor *text = [[[GSTheme theme] colors] colorWithKey: @"labelColor"];
+  NSSegmentedControl *segments = AUTORELEASE([[NSSegmentedControl alloc]
+                                               initWithFrame: NSMakeRect(20, 20, 120, 40)]);
+  NSString *seen = nil;
+
+  [segments setSegmentCount: 1];
+  [segments setImage: QuirkProbeSymbolicSquare() forSegment: 0];
+  [segments setWidth: 118 forSegment: 0];
+  [[window contentView] addSubview: segments];
+  /* Drawn before the window is on screen, as an app's bars are while
+     it builds them. */
+  [window display];
+  QuirkProbeRender(segments);
+  [window orderFront: nil];
+  [window display];
+
+  [self saveView: [window contentView] named: @"early-template-images"];
+  if (QuirkProbeCentreIs(segments, text, 60, &seen))
+    {
+      [self pass: @"early-template-images"
+            detail: @"a template image tinted before its window is shown draws in the text colour"];
+    }
+  else
+    {
+      [self fail: @"early-template-images"
+            detail: [NSString stringWithFormat: @"segment %@ (text is %@)", seen, QuirkProbeHex(text)]];
     }
 }
 
@@ -3852,6 +3928,7 @@ QuirkProbeLastItemOfMenu(NSString *title)
   [self checkDefaultButtons];
   [self checkAlertLayout];
   [self checkTemplateImages];
+  [self checkEarlyTemplateImages];
   [self checkButtonChrome];
   [self checkSizeToFit];
   [self checkTypography];
