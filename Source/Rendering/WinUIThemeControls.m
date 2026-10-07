@@ -602,6 +602,62 @@ WinUIThemePopupDisplayString(NSPopUpButtonCell *cell)
   return (title != nil) ? title : @"";
 }
 
+/* Slider and progress colours (#41, #42). Fluent's are white or black at
+   an opacity, blended over the window here:
+   - track: ControlStrongFillColorDefault (ControlStrongStroke, the
+     progress track line, has the same values), or ...Disabled;
+   - value: the accent, or AccentFillColorDisabled;
+   - the thumb: ControlSolidFillColorDefault, its border
+     ControlStrokeColorDefault, darker (...Secondary) along its bottom.
+   High contrast: text-colour track, highlight value, window-coloured
+   thumb. Any argument may be NULL. */
+static void
+WinUIThemeRangeColors(WinUITheme *theme, BOOL enabled,
+                      NSColor **trackOut, NSColor **valueOut,
+                      NSColor **thumbOut, NSColor **borderOut, NSColor **bottomOut)
+{
+  BOOL dark = [[theme settings] prefersDarkAppearance];
+  NSColor *window = WinUIThemeColorFromTheme(theme, @"windowBackgroundColor",
+                                             [NSColor windowBackgroundColor]);
+  NSColor *ink = dark ? [NSColor whiteColor] : [NSColor blackColor];
+  NSColor *accent = WinUIThemeColorFromTheme(theme, @"accentColor", [NSColor selectedControlColor]);
+  NSColor *track = nil, *value = nil, *thumb = nil, *border = nil, *bottom = nil;
+
+  if ([[theme settings] highContrastEnabled])
+    {
+      NSColor *text = WinUIThemeColorFromTheme(theme, @"labelColor", [NSColor controlTextColor]);
+      NSColor *disabled = WinUIThemeColorFromTheme(theme, @"disabledControlTextColor",
+                                                   [NSColor disabledControlTextColor]);
+
+      track = enabled ? text : disabled;
+      value = enabled ? accent : disabled;
+      thumb = window;
+      border = bottom = enabled ? text : disabled;
+    }
+  else
+    {
+      track = WinUIThemeBlendColor(window, ink, enabled ? (dark ? 0.54 : 0.45) : (dark ? 0.25 : 0.22));
+      value = enabled ? accent : WinUIThemeBlendColor(window, ink, dark ? 0.16 : 0.22);
+      thumb = dark ? [NSColor colorWithCalibratedWhite: 0x45 / 255.0 alpha: 1.0]
+                   : [NSColor whiteColor];
+      border = WinUIThemeBlendColor(thumb, ink, dark ? 0.07 : 0.06);
+      bottom = WinUIThemeBlendColor(thumb, ink, dark ? 0.09 : 0.16);
+    }
+
+  if (trackOut != NULL) *trackOut = track;
+  if (valueOut != NULL) *valueOut = value;
+  if (thumbOut != NULL) *thumbOut = thumb;
+  if (borderOut != NULL) *borderOut = border;
+  if (bottomOut != NULL) *bottomOut = bottom;
+}
+
+/* WinUI's 20px Slider thumb, scaled with the desktop. */
+static CGFloat
+WinUIThemeSliderThumbSize(WinUITheme *theme)
+{
+  return round(20.0 * MAX(1.0, [[theme settings] desktopScaleFactor]));
+}
+
 @implementation WinUITheme (Controls)
 
 - (void) setKeyEquivalent: (NSString *)key
@@ -1093,6 +1149,8 @@ WinUIThemeSwitchColors(WinUITheme *theme,
   [fillPath fill];
 }
 
+/* WinUI's Slider (#41): a 4px track in ControlStrongFill, the value part
+   in the accent, under the thumb. */
 - (void) drawSliderBorderAndBackground: (NSBorderType)aType
                                  frame: (NSRect)cellFrame
                                 inCell: (NSCell *)cell
@@ -1100,13 +1158,7 @@ WinUIThemeSwitchColors(WinUITheme *theme,
 {
   NSSliderCell *sliderCell = (NSSliderCell *)cell;
   NSRect trackRect = NSIntegralRect(WinUIThemeSliderTrackRect(self, cellFrame, horizontal));
-  NSColor *surface = WinUIThemeColorFromTheme(self,
-                                              @"surfaceColor",
-                                              [NSColor controlBackgroundColor]);
-  NSColor *separator = WinUIThemeColorFromTheme(self,
-                                                @"separatorColor",
-                                                [NSColor controlShadowColor]);
-  NSBezierPath *trackPath = nil;
+  NSColor *track = nil;
 
   if ([sliderCell sliderType] != NSLinearSlider)
     {
@@ -1117,29 +1169,19 @@ WinUIThemeSwitchColors(WinUITheme *theme,
       return;
     }
 
-  trackPath = WinUIThemeRoundedPath(trackRect, trackRect.size.height / 2.0);
-  [WinUIThemeBlendColor(surface,
-                        WinUIThemeColorFromTheme(self,
-                                                 @"windowBackgroundColor",
-                                                 [NSColor windowBackgroundColor]),
-                        0.08) set];
-  [trackPath fill];
-
-  [WinUIThemeBlendColor(separator, surface, 0.10) set];
-  [trackPath setLineWidth: 1.0];
-  [trackPath stroke];
+  WinUIThemeRangeColors(self, WinUIThemeControlEnabled(cell), &track, NULL, NULL, NULL, NULL);
+  WinUIThemeFillAndStrokeRoundedRect(trackRect, 2.0, track, nil, 0.0);
 }
 
 - (void) drawBarInside: (NSRect)rect inCell: (NSCell *)cell flipped: (BOOL)flipped
 {
   NSSliderCell *sliderCell = (NSSliderCell *)cell;
-  NSView *controlView = [cell controlView];
-  NSRect knobRect = [sliderCell knobRectFlipped: flipped];
+  CGFloat thumb = WinUIThemeSliderThumbSize(self);
+  NSRect knobRect;
   BOOL horizontal = (rect.size.width >= rect.size.height);
   NSRect trackRect = WinUIThemeSliderTrackRect(self, rect, horizontal);
   NSRect activeRect = trackRect;
-  double range = [sliderCell maxValue] - [sliderCell minValue];
-  double fraction = range == 0.0 ? 0.0 : ([sliderCell doubleValue] - [sliderCell minValue]) / range;
+  NSColor *value = nil;
 
   if ([sliderCell sliderType] != NSLinearSlider)
     {
@@ -1147,7 +1189,13 @@ WinUIThemeSwitchColors(WinUITheme *theme,
       return;
     }
 
-  fraction = WinUIThemeClamp(fraction, 0.0, 1.0);
+  /* The thumb's travel: the theme's knob image is 20pt; at a larger
+     desktop scale the thumb is larger. */
+  if ([sliderCell knobThickness] > 0.0 && fabs([sliderCell knobThickness] - thumb) > 0.5)
+    {
+      [sliderCell setKnobThickness: thumb];
+    }
+  knobRect = [sliderCell knobRectFlipped: flipped];
 
   if (horizontal)
     {
@@ -1163,44 +1211,32 @@ WinUIThemeSwitchColors(WinUITheme *theme,
       activeRect.size.height = MAX(0.0, MIN(trackRect.size.height, NSMidY(knobRect) - trackRect.origin.y));
     }
 
-  if ((horizontal && activeRect.size.width <= 0.0)
-      || (horizontal == NO && activeRect.size.height <= 0.0))
+  if (NSWidth(activeRect) <= 0.0 || NSHeight(activeRect) <= 0.0)
     {
       return;
     }
 
-  [self drawProgressIndicatorBarDeterminate: activeRect];
-
-  if (controlView != nil && fabs(fraction - 0.5) < 0.001)
-    {
-      [controlView setNeedsDisplayInRect: knobRect];
-    }
+  WinUIThemeRangeColors(self, WinUIThemeControlEnabled(cell), NULL, &value, NULL, NULL, NULL);
+  WinUIThemeFillAndStrokeRoundedRect(NSIntegralRect(activeRect), 2.0, value, nil, 0.0);
 }
 
+/* The thumb: a 20px circle in ControlSolidFill with the elevation border,
+   around an accent dot of 12px, 14px under the pointer and 10px pressed. */
 - (void) drawKnobInCell: (NSCell *)cell
 {
   NSSliderCell *sliderCell = (NSSliderCell *)cell;
   NSView *controlView = [cell controlView];
   BOOL enabled = WinUIThemeControlEnabled(cell);
-  BOOL dark = [[self settings] prefersDarkAppearance];
-  NSColor *surface = WinUIThemeColorFromTheme(self,
-                                              @"fieldBackgroundColor",
-                                              [NSColor controlBackgroundColor]);
-  NSColor *separator = WinUIThemeColorFromTheme(self,
-                                                @"separatorColor",
-                                                [NSColor controlShadowColor]);
-  NSColor *accent = WinUIThemeColorFromTheme(self,
-                                             @"accentColor",
-                                             [NSColor selectedControlColor]);
-  NSRect knobRect = [sliderCell knobRectFlipped: [controlView isFlipped]];
-  CGFloat diameter = MIN(knobRect.size.width, knobRect.size.height) - 1.0;
-  NSRect circleRect = NSMakeRect(NSMidX(knobRect) - (diameter / 2.0),
-                                 NSMidY(knobRect) - (diameter / 2.0),
-                                 diameter,
-                                 diameter);
-  NSBezierPath *knobPath = nil;
-  NSColor *fillColor = nil;
-  NSColor *borderColor = nil;
+  CGFloat scale = [[self settings] desktopScaleFactor];
+  CGFloat thumb = WinUIThemeSliderThumbSize(self);
+  NSRect knobRect;
+  NSRect circleRect;
+  NSColor *fill = nil;
+  NSColor *border = nil;
+  NSColor *bottom = nil;
+  NSColor *dot = nil;
+  CGFloat dotSize = 12.0;
+  NSBezierPath *path = nil;
 
   if ([sliderCell sliderType] != NSLinearSlider)
     {
@@ -1208,18 +1244,54 @@ WinUIThemeSwitchColors(WinUITheme *theme,
       return;
     }
 
-  fillColor = enabled ? surface : WinUIThemeBlendColor(surface, separator, 0.24);
-  borderColor = enabled
-    ? WinUIThemeBlendColor(separator, accent, dark ? 0.10 : 0.18)
-    : WinUIThemeBlendColor(separator, surface, 0.35);
-  knobPath = [NSBezierPath bezierPathWithOvalInRect: circleRect];
+  knobRect = [sliderCell knobRectFlipped: [controlView isFlipped]];
+  circleRect = NSMakeRect(floor(NSMidX(knobRect) - thumb / 2.0) + 0.5,
+                          floor(NSMidY(knobRect) - thumb / 2.0) + 0.5,
+                          thumb - 1.0, thumb - 1.0);
+  WinUIThemeRangeColors(self, enabled, NULL, &dot, &fill, &border, &bottom);
 
-  [fillColor set];
-  [knobPath fill];
+  if ([controlView isKindOfClass: [NSView class]])
+    {
+      WinUIThemeTrackHover(controlView);
+    }
+  if (enabled && [cell isHighlighted])
+    {
+      dotSize = 10.0;
+    }
+  else if (enabled && controlView != nil && WinUIThemeViewIsHovered(controlView))
+    {
+      dotSize = 14.0;
+    }
+  dotSize = round(dotSize * MAX(1.0, scale));
 
-  [borderColor set];
-  [knobPath setLineWidth: 1.0];
-  [knobPath stroke];
+  path = [NSBezierPath bezierPathWithOvalInRect: circleRect];
+  [fill set];
+  [path fill];
+  [path setLineWidth: 1.0];
+  [border set];
+  [path stroke];
+  /* The elevation border's darker lower half. */
+  if ([bottom isEqual: border] == NO)
+    {
+      NSRect lower = circleRect;
+
+      lower.size.height = NSHeight(circleRect) / 2.0;
+      if ([controlView isFlipped])
+        {
+          lower.origin.y = NSMidY(circleRect);
+        }
+      lower = NSInsetRect(lower, -1.0, -1.0);
+      [NSGraphicsContext saveGraphicsState];
+      NSRectClip(lower);
+      [bottom set];
+      [path stroke];
+      [NSGraphicsContext restoreGraphicsState];
+    }
+
+  [dot set];
+  [[NSBezierPath bezierPathWithOvalInRect:
+     NSMakeRect(NSMidX(circleRect) - dotSize / 2.0, NSMidY(circleRect) - dotSize / 2.0,
+                dotSize, dotSize)] fill];
 }
 
 @end

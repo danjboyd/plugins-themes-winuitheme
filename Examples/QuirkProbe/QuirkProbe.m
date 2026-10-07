@@ -299,6 +299,7 @@ QuirkProbeModuleOfAddress(void *address)
 - (void) checkButtonChrome;
 - (void) checkSizeToFit;
 - (void) checkTypography;
+- (void) checkSlider;
 - (void) checkMenuFlyout;
 - (void) checkOverlayScrollers;
 - (void) checkFocusVisual;
@@ -1743,6 +1744,118 @@ QuirkProbeBrightnessAt(NSBitmapImageRep *rep, CGFloat scale, CGFloat x, CGFloat 
         {
           [self fail: @"button-hover" detail: @"the fill doesn't change under the pointer"];
         }
+    }
+  [window orderOut: nil];
+}
+
+/* The desktop scale the theme was given (--scale), by which it scales its
+   metrics; the probe's drawing stays 1:1. */
+static CGFloat
+QuirkProbeDesktopScale(void)
+{
+  NSArray *arguments = [[NSProcessInfo processInfo] arguments];
+  NSUInteger index = [arguments indexOfObject: @"--scale"];
+
+  if (index != NSNotFound && index + 1 < [arguments count])
+    {
+      return MAX(1.0, [[arguments objectAtIndex: index + 1] doubleValue]);
+    }
+  return 1.0;
+}
+
+/* The pixels in column `x` (pixels) of `rep` that pass `test`, between
+   rows y0 and y1. */
+static NSUInteger
+QuirkProbeColumnCount(NSBitmapImageRep *rep, QuirkProbePixelTest test,
+                      NSInteger x, NSInteger y0, NSInteger y1)
+{
+  NSUInteger count = 0;
+  NSInteger y;
+
+  for (y = y0; y < y1; y++)
+    {
+      NSUInteger red, green, blue;
+
+      if (QuirkProbePixel(rep, x, y, &red, &green, &blue) && test(red, green, blue))
+        {
+          count++;
+        }
+    }
+  return count;
+}
+
+/* WinUI's Slider (issue #41): a 4px track, the value part in the accent,
+   and a 20px thumb around an accent dot, 12px at rest and 10px pressed.
+   The theme drew a plain circle on a 6px bordered track. */
+- (void) checkSlider
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(420, 300, 280, 80)
+                                     title: @"QuirkProbe Slider"];
+  NSSlider *slider = AUTORELEASE([[NSSlider alloc] initWithFrame: NSMakeRect(20, 28, 240, 24)]);
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale, desktop;
+  NSInteger height, centreX, centreY;
+  NSUInteger value, rest, pressed;
+  NSUInteger red, green, blue;
+
+  if (QuirkProbeHasArgument(@"--high-contrast", nil))
+    {
+      [self skip: @"slider-track" detail: @"high contrast's highlight may not be blue"];
+      [self skip: @"slider-thumb-dot" detail: @"high contrast's highlight may not be blue"];
+      return;
+    }
+  [slider setMinValue: 0.0];
+  [slider setMaxValue: 100.0];
+  [slider setDoubleValue: 50.0];
+  [[window contentView] addSubview: slider];
+  [window orderFront: nil];
+  [window display];
+  rep = QuirkProbeRender(slider);
+  scale = QuirkProbeScale(rep, slider);
+  desktop = QuirkProbeDesktopScale();
+  height = [rep pixelsHigh];
+  [self saveView: slider named: @"slider"];
+
+  /* The value part, a quarter of the way along: an accent band 4pt deep. */
+  value = QuirkProbeColumnCount(rep, QuirkProbeIsAccentBlue, (NSInteger)(60 * scale), 0, height);
+  if (fabs(value - 4.0 * desktop * scale) <= 0.5)
+    {
+      [self pass: @"slider-track" detail: [NSString stringWithFormat:
+        @"the value part is %lu px deep", (unsigned long)value]];
+    }
+  else
+    {
+      [self fail: @"slider-track" detail: [NSString stringWithFormat:
+        @"the value part is %lu px deep, expected %.0f", (unsigned long)value, 4.0 * desktop * scale]];
+    }
+
+  /* The thumb's centre: the accent dot, across a row of the thumb. */
+  centreX = (NSInteger)(120 * scale);
+  centreY = height / 2;
+  QuirkProbePixel(rep, centreX, centreY, &red, &green, &blue);
+  rest = QuirkProbeRowCount(rep, QuirkProbeIsAccentBlue, centreY,
+                            centreX - (NSInteger)(9 * desktop * scale),
+                            centreX + (NSInteger)(9 * desktop * scale));
+  [[slider cell] setHighlighted: YES];
+  [slider display];
+  rep = QuirkProbeRender(slider);
+  pressed = QuirkProbeRowCount(rep, QuirkProbeIsAccentBlue, centreY,
+                               centreX - (NSInteger)(9 * desktop * scale),
+                               centreX + (NSInteger)(9 * desktop * scale));
+  [[slider cell] setHighlighted: NO];
+  [slider display];
+  if (QuirkProbeIsAccentBlue(red, green, blue)
+      && fabs(rest - 12.0 * desktop * scale) <= 2.0 && fabs(pressed - 10.0 * desktop * scale) <= 2.0)
+    {
+      [self pass: @"slider-thumb-dot" detail: [NSString stringWithFormat:
+        @"an accent dot %lu px wide, %lu pressed", (unsigned long)rest, (unsigned long)pressed]];
+    }
+  else
+    {
+      [self fail: @"slider-thumb-dot" detail: [NSString stringWithFormat:
+        @"the thumb's centre is %lu,%lu,%lu; accent %lu px across, %lu pressed (expected 12 and 10)",
+        (unsigned long)red, (unsigned long)green, (unsigned long)blue,
+        (unsigned long)rest, (unsigned long)pressed]];
     }
   [window orderOut: nil];
 }
@@ -3210,6 +3323,7 @@ QuirkProbeLastItemOfMenu(NSString *title)
   [self checkButtonChrome];
   [self checkSizeToFit];
   [self checkTypography];
+  [self checkSlider];
   [self checkMenuFlyout];
   [self checkOverlayScrollers];
   [self checkFocusVisual];

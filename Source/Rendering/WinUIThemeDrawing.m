@@ -1558,7 +1558,8 @@ WinUIThemeSwitchTrackRect(NSRect rect)
 NSRect
 WinUIThemeSliderTrackRect(WinUITheme *theme, NSRect rect, BOOL horizontal)
 {
-  CGFloat thickness = MAX(4.0, MIN(6.0, round([[theme metrics] controlHeight] / 7.0)));
+  /* WinUI's 4px Slider track (#41). */
+  CGFloat thickness = round(4.0 * MAX(1.0, [[theme settings] desktopScaleFactor]));
 
   if (horizontal)
     {

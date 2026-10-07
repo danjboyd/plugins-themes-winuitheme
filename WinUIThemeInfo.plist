@@ -19,6 +19,8 @@
     NSHighlightedRadioButton = "GSRadioSelected.png";
     common_RadioOff = "GSRadio.png";
     common_RadioOn = "GSRadioSelected.png";
+    common_SliderHoriz = "SliderThumb.png";
+    common_SliderVert = "SliderThumb.png";
   };
   GSThemeVersion = "0.1.0-phase3";
   GSThemeDomain = {
