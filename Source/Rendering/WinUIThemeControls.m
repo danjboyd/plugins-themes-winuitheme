@@ -371,31 +371,6 @@ WinUIThemeDrawSegmentedLabel(NSSegmentedCell *cell,
 }
 
 static void
-WinUIThemeDrawLegacySegmentedLabel(NSSegmentedCell *cell,
-                                   NSString *label,
-                                   NSRect frame)
-{
-  NSDictionary *attributes = nil;
-  NSSize textSize = NSZeroSize;
-  NSRect textFrame = frame;
-  CGFloat xOffset = 0.0;
-
-  if (cell == nil || [label length] == 0)
-    {
-      return;
-    }
-
-  attributes = [cell _nonAutoreleasedTypingAttributes];
-  textSize = [label sizeWithAttributes: attributes];
-  RELEASE(attributes);
-
-  xOffset = (frame.size.width - textSize.width) / 2.0;
-  textFrame.origin.x += xOffset;
-  textFrame.size.width -= xOffset;
-  [cell _drawText: label inFrame: textFrame];
-}
-
-static void
 WinUIThemeDrawSegmentedImage(NSImage *image,
                              NSRect frame,
                              NSView *view,
@@ -438,81 +413,6 @@ WinUIThemeDrawSegmentedImage(NSImage *image,
           operation: NSCompositeSourceOver
            fraction: fraction];
 }
-
-@interface NSSegmentedCell (WinUIThemeTextCentering)
-@end
-
-@implementation NSSegmentedCell (WinUIThemeTextCentering)
-
-- (void) drawSegment: (NSInteger)seg
-             inFrame: (NSRect)frame
-            withView: (NSView *)view
-{
-  NSInteger count = [self segmentCount];
-  NSString *label = [self labelForSegment: seg];
-  NSImage *segmentImage = [self imageForSegment: seg];
-  GSThemeControlState state = GSThemeNormalState;
-  BOOL selected = NO;
-  BOOL roundedLeft = (seg == 0);
-  BOOL roundedRight = (seg == (count - 1));
-  WinUITheme *theme = WinUIThemeActiveTheme();
-
-  WinUIThemeUpdateSegmentFrame(self, seg, frame);
-
-  if ([self isEnabledForSegment: seg] == NO)
-    {
-      state = GSThemeDisabledState;
-    }
-  else
-    {
-      if ([self trackingMode] == NSSegmentSwitchTrackingSelectOne)
-        {
-          selected = ([self selectedSegment] == seg);
-        }
-      else
-        {
-          selected = [self isSelectedForSegment: seg];
-        }
-
-      if (selected)
-        {
-          state = GSThemeSelectedState;
-        }
-    }
-
-  [[GSTheme theme] drawSegmentedControlSegment: self
-                                     withFrame: frame
-                                        inView: [self controlView]
-                                         style: [self segmentStyle]
-                                         state: state
-                                   roundedLeft: roundedLeft
-                                  roundedRight: roundedRight];
-
-  if ([label length] > 0)
-    {
-      if (theme != nil)
-        {
-          WinUIThemeDrawSegmentedLabel(self,
-                                       theme,
-                                       label,
-                                       frame,
-                                       selected,
-                                       roundedLeft,
-                                       roundedRight);
-        }
-      else
-        {
-          WinUIThemeDrawLegacySegmentedLabel(self, label, frame);
-        }
-    }
-
-  WinUIThemeDrawSegmentedImage(segmentImage,
-                               frame,
-                               view,
-                               [self isEnabledForSegment: seg]);
-}
-
-@end
 
 static NSString *
 WinUIThemePopupDisplayString(NSPopUpButtonCell *cell)
@@ -965,105 +865,116 @@ WinUIThemePopupDisplayString(NSPopUpButtonCell *cell)
   (void)controlView;
 }
 
+/* WinUI ToggleSwitch colours. Off: a strong-stroke outline round an empty
+   track and a knob in the secondary text colour. On: an accent track and a
+   knob in the text-on-accent colour. Disabled keeps the on/off difference
+   in the disabled colours. Fluent's colours are the text colour at an
+   opacity; these blend it over the window background. */
+static void
+WinUIThemeSwitchColors(WinUITheme *theme,
+                       BOOL on,
+                       BOOL enabled,
+                       NSColor **fillOut,
+                       NSColor **strokeOut,
+                       NSColor **knobOut)
+{
+  BOOL dark = [[theme settings] prefersDarkAppearance];
+  NSColor *text = WinUIThemeColorFromTheme(theme, @"labelColor", [NSColor controlTextColor]);
+  NSColor *window = WinUIThemeColorFromTheme(theme,
+                                             @"windowBackgroundColor",
+                                             [NSColor windowBackgroundColor]);
+  NSColor *accent = WinUIThemeColorFromTheme(theme,
+                                             @"accentColor",
+                                             [NSColor selectedControlColor]);
+  NSColor *onAccent = dark ? [NSColor blackColor] : [NSColor whiteColor];
+
+  if (on && enabled)
+    {
+      *fillOut = accent;
+      *strokeOut = nil;
+      *knobOut = onAccent;
+    }
+  else if (on)
+    {
+      *fillOut = WinUIThemeBlendColor(window, text, dark ? 0.16 : 0.22);
+      *strokeOut = nil;
+      *knobOut = dark ? WinUIThemeBlendColor(window, [NSColor whiteColor], 0.53)
+                      : [NSColor whiteColor];
+    }
+  else if (enabled)
+    {
+      *fillOut = nil;
+      *strokeOut = WinUIThemeBlendColor(window, text, dark ? 0.54 : 0.45);
+      *knobOut = WinUIThemeBlendColor(window, text, dark ? 0.79 : 0.62);
+    }
+  else
+    {
+      *fillOut = nil;
+      *strokeOut = WinUIThemeBlendColor(window, text, dark ? 0.16 : 0.22);
+      *knobOut = WinUIThemeBlendColor(window, text, 0.36);
+    }
+}
+
 - (void) drawSwitchBezel: (NSRect)frame
                 forState: (NSControlStateValue)value
                  enabled: (BOOL)enabled
 {
-  BOOL dark = [[self settings] prefersDarkAppearance];
-  NSColor *accent = WinUIThemeColorFromTheme(self,
-                                             @"accentColor",
-                                             [NSColor selectedControlColor]);
-  NSColor *surface = WinUIThemeColorFromTheme(self,
-                                              @"fieldBackgroundColor",
-                                              [NSColor controlBackgroundColor]);
-  NSColor *separator = WinUIThemeColorFromTheme(self,
-                                                @"separatorColor",
-                                                [NSColor controlShadowColor]);
-  NSColor *fillColor = nil;
-  NSColor *borderColor = nil;
   NSRect trackRect = WinUIThemeSwitchTrackRect(frame);
-  NSBezierPath *trackPath = WinUIThemeRoundedPath(trackRect, trackRect.size.height / 2.0);
+  NSColor *fillColor = nil;
+  NSColor *strokeColor = nil;
+  NSColor *knobColor = nil;
+  NSBezierPath *trackPath = nil;
 
-  if (enabled == NO)
+  if (NSHeight(trackRect) < 2.0)
     {
-      fillColor = WinUIThemeBlendColor(surface, separator, dark ? 0.24 : 0.16);
-      borderColor = WinUIThemeBlendColor(separator, surface, 0.35);
-    }
-  else if (value == NSControlStateValueOn)
-    {
-      fillColor = accent;
-      borderColor = WinUIThemeAccentStrokeColor(self);
-    }
-  else if (value == NSControlStateValueMixed)
-    {
-      fillColor = WinUIThemeBlendColor(surface, accent, dark ? 0.34 : 0.20);
-      borderColor = WinUIThemeBlendColor(separator, accent, 0.55);
-    }
-  else
-    {
-      fillColor = surface;
-      borderColor = WinUIThemeBlendColor(separator,
-                                         dark ? [NSColor whiteColor] : [NSColor blackColor],
-                                         dark ? 0.16 : 0.08);
+      return;
     }
 
-  [fillColor set];
-  [trackPath fill];
+  WinUIThemeSwitchColors(self, value == NSControlStateValueOn, enabled,
+                         &fillColor, &strokeColor, &knobColor);
+  if (fillColor != nil)
+    {
+      trackPath = WinUIThemeRoundedPath(trackRect, NSHeight(trackRect) / 2.0);
+      [fillColor set];
+      [trackPath fill];
+    }
+  if (strokeColor != nil)
+    {
+      NSRect strokeRect = NSInsetRect(trackRect, 0.5, 0.5);
 
-  [borderColor set];
-  [trackPath setLineWidth: 1.0];
-  [trackPath stroke];
+      trackPath = WinUIThemeRoundedPath(strokeRect, NSHeight(strokeRect) / 2.0);
+      [strokeColor set];
+      [trackPath setLineWidth: 1.0];
+      [trackPath stroke];
+    }
 }
 
 - (void) drawSwitchKnob: (NSRect)frame
                forState: (NSControlStateValue)value
                 enabled: (BOOL)enabled
 {
-  BOOL dark = [[self settings] prefersDarkAppearance];
-  NSColor *surface = WinUIThemeColorFromTheme(self,
-                                              @"fieldBackgroundColor",
-                                              [NSColor controlBackgroundColor]);
-  NSColor *separator = WinUIThemeColorFromTheme(self,
-                                                @"separatorColor",
-                                                [NSColor controlShadowColor]);
-  NSColor *accent = WinUIThemeColorFromTheme(self,
-                                             @"accentColor",
-                                             [NSColor selectedControlColor]);
   NSRect trackRect = WinUIThemeSwitchTrackRect(frame);
-  CGFloat knobInset = 2.0;
-  CGFloat knobSize = trackRect.size.height - (2.0 * knobInset);
-  CGFloat knobX = trackRect.origin.x + knobInset;
-  NSRect knobRect = NSMakeRect(knobX,
-                               trackRect.origin.y + knobInset,
-                               knobSize,
-                               knobSize);
-  NSBezierPath *knobPath = nil;
-  NSColor *knobFill = enabled ? surface : WinUIThemeBlendColor(surface, separator, 0.28);
-  NSColor *knobBorder = enabled
-    ? WinUIThemeBlendColor(separator,
-                           dark ? [NSColor blackColor] : [NSColor blackColor],
-                           dark ? 0.18 : 0.06)
-    : WinUIThemeBlendColor(separator, surface, 0.45);
+  BOOL on = (value == NSControlStateValueOn);
+  CGFloat radius = NSHeight(trackRect) / 2.0;
+  /* A 12px knob in the 20px track. */
+  CGFloat diameter = round(NSHeight(trackRect) * 0.6);
+  CGFloat centerX = on ? NSMaxX(trackRect) - radius : NSMinX(trackRect) + radius;
+  NSColor *fillColor = nil;
+  NSColor *strokeColor = nil;
+  NSColor *knobColor = nil;
 
-  if (value == NSControlStateValueOn)
+  if (NSHeight(trackRect) < 2.0)
     {
-      knobX = NSMaxX(trackRect) - knobInset - knobSize;
-    }
-  else if (value == NSControlStateValueMixed)
-    {
-      knobX = NSMidX(trackRect) - (knobSize / 2.0);
-      knobFill = enabled ? WinUIThemeBlendColor(surface, accent, dark ? 0.08 : 0.04) : knobFill;
+      return;
     }
 
-  knobRect.origin.x = knobX;
-  knobPath = [NSBezierPath bezierPathWithOvalInRect: knobRect];
-
-  [knobFill set];
-  [knobPath fill];
-
-  [knobBorder set];
-  [knobPath setLineWidth: 1.0];
-  [knobPath stroke];
+  WinUIThemeSwitchColors(self, on, enabled, &fillColor, &strokeColor, &knobColor);
+  [knobColor set];
+  [[NSBezierPath bezierPathWithOvalInRect:
+     NSMakeRect(centerX - (diameter / 2.0),
+                NSMidY(trackRect) - (diameter / 2.0),
+                diameter,
+                diameter)] fill];
 }
 
 - (void) drawSwitchInRect: (NSRect)rect
@@ -1352,6 +1263,27 @@ WinUIThemePopupDisplayString(NSPopUpButtonCell *cell)
                                                          forKey: NSFontAttributeName];
   NSSize titleSize = [@"Ag" sizeWithAttributes: attributes];
 
+  /* Labels (text fields without a bezel or border) whose text needs more
+     than one line (line breaks, or a wrapping cell too narrow for it) keep
+     the full rect; centring them on one line showed only their first line,
+     e.g. an NSAlert's informative text. Only when the frame has room for a
+     second line: a one-line label that's too long stays centred. Cells drawn
+     by table and header views stay single-line. */
+  if ([cell isBezeled] == NO && [cell isBordered] == NO
+      && [[cell controlView] isKindOfClass: [NSTextField class]])
+    {
+      NSString *string = [cell stringValue];
+      BOOL hasBreaks = ([string rangeOfCharacterFromSet:
+                          [NSCharacterSet newlineCharacterSet]].location != NSNotFound);
+      BOOL overflows = ([cell wraps]
+                        && [[cell attributedStringValue] size].width > NSWidth(titleRect));
+
+      if ((hasBreaks || overflows) && NSHeight(aRect) >= 2.0 * titleSize.height)
+        {
+          return titleRect;
+        }
+    }
+
   /* Header cells call themselves bezeled, but -tableHeaderCellDrawingRectForBounds:
      already insets their titles; the read-only field's inset would double it. */
   if (([cell isBezeled] || [cell isBordered])
@@ -1434,7 +1366,14 @@ WinUIThemePopupDisplayString(NSPopUpButtonCell *cell)
     }
 
   WinUIThemeUpdateSegmentFrame(cell, segmentIndex, frame);
-  state = selected ? GSThemeSelectedState : GSThemeNormalState;
+  if ([cell isEnabledForSegment: segmentIndex] == NO)
+    {
+      state = GSThemeDisabledState;
+    }
+  else
+    {
+      state = selected ? GSThemeSelectedState : GSThemeNormalState;
+    }
 
   if (theme == nil)
     {
@@ -1898,6 +1837,22 @@ WinUIThemePopupDisplayString(NSPopUpButtonCell *cell)
     }
 
   return YES;
+}
+
+/* libs-gui 0.32's NSSwitch has no -initWithFrame:, so its _enabled ivar
+   starts as NO and every switch made in code is disabled until the app
+   calls -setEnabled: YES (later libs-gui sets it in -initWithFrame:). A
+   control made with -initWithFrame: is enabled, as in Cocoa; switches
+   decoded from a nib keep their archived NSEnabled. */
+- (id) _overrideNSSwitchMethod_initWithFrame: (NSRect)frameRect
+{
+  typedef id (*InitWithFrameIMP)(id, SEL, NSRect);
+  InitWithFrameIMP originalIMP
+    = (InitWithFrameIMP)WinUIThemeOriginalMethod(_cmd, self, [NSSwitch class]);
+  id control = (originalIMP != NULL) ? originalIMP(self, _cmd, frameRect) : self;
+
+  [control setEnabled: YES];
+  return control;
 }
 
 - (void) _overrideNSButtonCellMethod_drawWithFrame: (NSRect)cellFrame

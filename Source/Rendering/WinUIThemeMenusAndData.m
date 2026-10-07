@@ -1802,6 +1802,61 @@ WinUIThemePreparePopupMenuTypography(WinUITheme *theme, NSMenuView *menuView)
 
 @implementation WinUITheme (MenusAndDataOverrides)
 
+/* Items of a pop-up button's menu are laid out by the theme (title and
+   check mark only), so they report no image, key equivalent or state image
+   and draw none; other menu items keep libs-gui's layout. */
+- (NSCellImagePosition) _overrideNSMenuItemCellMethod_imagePosition
+{
+  typedef NSCellImagePosition (*ImagePositionIMP)(id, SEL);
+  ImagePositionIMP originalIMP = (ImagePositionIMP)WinUIThemeOriginalMethod(_cmd, self, [NSMenuItemCell class]);
+
+  if (WinUIThemeUsesPopupButtonCellLayout((NSMenuItemCell *)self))
+    {
+      return NSNoImage;
+    }
+
+  return (originalIMP != NULL) ? originalIMP(self, _cmd) : NSNoImage;
+}
+
+- (CGFloat) _overrideNSMenuItemCellMethod_imageWidth
+{
+  typedef CGFloat (*ImageWidthIMP)(id, SEL);
+  ImageWidthIMP originalIMP = (ImageWidthIMP)WinUIThemeOriginalMethod(_cmd, self, [NSMenuItemCell class]);
+
+  if (WinUIThemeUsesPopupButtonCellLayout((NSMenuItemCell *)self))
+    {
+      return 0.0;
+    }
+
+  return (originalIMP != NULL) ? originalIMP(self, _cmd) : 0.0;
+}
+
+- (NSRect) _overrideNSMenuItemCellMethod_imageRectForBounds: (NSRect)cellFrame
+{
+  typedef NSRect (*ImageRectIMP)(id, SEL, NSRect);
+  ImageRectIMP originalIMP = (ImageRectIMP)WinUIThemeOriginalMethod(_cmd, self, [NSMenuItemCell class]);
+
+  if (WinUIThemeUsesPopupButtonCellLayout((NSMenuItemCell *)self))
+    {
+      return NSZeroRect;
+    }
+
+  return (originalIMP != NULL) ? originalIMP(self, _cmd, cellFrame) : NSZeroRect;
+}
+
+- (NSRect) _overrideNSMenuItemCellMethod_keyEquivalentRectForBounds: (NSRect)cellFrame
+{
+  typedef NSRect (*KeyEquivalentRectIMP)(id, SEL, NSRect);
+  KeyEquivalentRectIMP originalIMP = (KeyEquivalentRectIMP)WinUIThemeOriginalMethod(_cmd, self, [NSMenuItemCell class]);
+
+  if (WinUIThemeUsesPopupButtonCellLayout((NSMenuItemCell *)self))
+    {
+      return NSZeroRect;
+    }
+
+  return (originalIMP != NULL) ? originalIMP(self, _cmd, cellFrame) : NSZeroRect;
+}
+
 - (CGFloat) _overrideNSMenuItemCellMethod_stateImageWidth
 {
   typedef CGFloat (*StateImageWidthIMP)(id, SEL);
@@ -1896,273 +1951,6 @@ WinUIThemePreparePopupMenuTypography(WinUITheme *theme, NSMenuView *menuView)
     {
       originalIMP(self, _cmd, cellFrame, controlView);
     }
-}
-
-@end
-
-@implementation NSMenuItemCell (WinUIThemePopupLayoutFixes)
-
-- (NSCellImagePosition) imagePosition
-{
-  if (WinUIThemeUsesPopupButtonCellLayout(self))
-    {
-      return NSNoImage;
-    }
-
-  return [super imagePosition];
-}
-
-- (CGFloat) imageWidth
-{
-  if (_needs_sizing)
-    {
-      [self calcSize];
-    }
-
-  if (WinUIThemeUsesPopupButtonCellLayout(self))
-    {
-      return 0.0;
-    }
-
-  return _imageWidth;
-}
-
-- (CGFloat) keyEquivalentWidth
-{
-  if (_needs_sizing)
-    {
-      [self calcSize];
-    }
-
-  if (WinUIThemeUsesPopupButtonCellLayout(self))
-    {
-      return 0.0;
-    }
-
-  return _keyEquivalentWidth;
-}
-
-- (CGFloat) stateImageWidth
-{
-  if (_needs_sizing)
-    {
-      [self calcSize];
-    }
-
-  if (WinUIThemeUsesPopupButtonCellLayout(self))
-    {
-      return 0.0;
-    }
-
-  return _stateImageWidth;
-}
-
-- (NSRect) imageRectForBounds: (NSRect)cellFrame
-{
-  if (_needs_sizing)
-    {
-      [self calcSize];
-    }
-
-  if (WinUIThemeUsesPopupButtonCellLayout(self))
-    {
-      return NSZeroRect;
-    }
-
-  if ([_menuView isHorizontal] == YES)
-    {
-      switch (_cell.image_position)
-        {
-          case NSNoImage:
-            cellFrame = NSZeroRect;
-            break;
-
-          case NSImageOnly:
-          case NSImageOverlaps:
-            break;
-
-          case NSImageLeft:
-            cellFrame.origin.x += 4.0;
-            cellFrame.size.width = _imageWidth;
-            break;
-
-          case NSImageRight:
-            cellFrame.origin.x += _titleWidth;
-            cellFrame.size.width = _imageWidth;
-            break;
-
-          case NSImageBelow:
-            cellFrame.size.height /= 2.0;
-            break;
-
-          case NSImageAbove:
-            cellFrame.size.height /= 2.0;
-            cellFrame.origin.y += cellFrame.size.height;
-            break;
-        }
-    }
-  else
-    {
-      cellFrame.origin.x += [_menuView imageAndTitleOffset];
-      cellFrame.size.width = [_menuView imageAndTitleWidth];
-
-      switch (_cell.image_position)
-        {
-          case NSNoImage:
-            cellFrame = NSZeroRect;
-            break;
-
-          case NSImageOnly:
-          case NSImageOverlaps:
-            break;
-
-          case NSImageLeft:
-            cellFrame.size.width = _imageWidth;
-            break;
-
-          case NSImageRight:
-            cellFrame.origin.x += _titleWidth + GSCellTextImageXDist;
-            cellFrame.size.width = _imageWidth;
-            break;
-
-          case NSImageBelow:
-            cellFrame.size.height /= 2.0;
-            break;
-
-          case NSImageAbove:
-            cellFrame.size.height /= 2.0;
-            cellFrame.origin.y += cellFrame.size.height;
-            break;
-        }
-    }
-
-  return cellFrame;
-}
-
-- (NSRect) keyEquivalentRectForBounds: (NSRect)cellFrame
-{
-  if (WinUIThemeUsesPopupButtonCellLayout(self))
-    {
-      return NSZeroRect;
-    }
-
-  cellFrame.origin.x += [_menuView keyEquivalentOffset];
-  cellFrame.size.width = [_menuView keyEquivalentWidth];
-  return cellFrame;
-}
-
-- (NSRect) stateImageRectForBounds: (NSRect)cellFrame
-{
-  if (WinUIThemeUsesPopupButtonCellLayout(self))
-    {
-      return NSZeroRect;
-    }
-
-  cellFrame.origin.x += [_menuView stateImageOffset];
-  cellFrame.size.width = [_menuView stateImageWidth];
-  return cellFrame;
-}
-
-- (void) drawImageWithFrame: (NSRect)cellFrame
-                     inView: (NSView *)controlView
-{
-  if (WinUIThemeUsesPopupButtonCellLayout(self))
-    {
-      return;
-    }
-
-  cellFrame = [self imageRectForBounds: cellFrame];
-  [self drawImage: _imageToDisplay withFrame: cellFrame inView: controlView];
-}
-
-- (void) drawKeyEquivalentWithFrame: (NSRect)cellFrame
-                             inView: (NSView *)controlView
-{
-  NSImage *arrow = nil;
-
-  if (WinUIThemeUsesPopupButtonCellLayout(self))
-    {
-      return;
-    }
-
-  if (_cell.is_highlighted)
-    {
-      arrow = [NSImage imageNamed: @"NSHighlightedMenuArrow"];
-    }
-  if (arrow == nil)
-    {
-      arrow = [NSImage imageNamed: @"NSMenuArrow"];
-    }
-
-  cellFrame = [self keyEquivalentRectForBounds: cellFrame];
-
-  if ([_menuItem hasSubmenu] && arrow != nil)
-    {
-      NSSize size = [arrow size];
-      NSPoint position = NSMakePoint(cellFrame.origin.x + cellFrame.size.width - size.width,
-                                     MAX(NSMidY(cellFrame) - (size.height / 2.0), 0.0));
-
-      if ([controlView isFlipped])
-        {
-          position.y += size.height;
-        }
-
-      [arrow compositeToPoint: position operation: NSCompositeSourceOver];
-    }
-  else if (![[_menuView menu] _ownedByPopUp] || (_imageToDisplay == nil))
-    {
-      if (_keyEquivalentFont != nil)
-        {
-          NSDictionary *attrs = [NSDictionary dictionaryWithObjectsAndKeys:
-                                                  _keyEquivalentFont, NSFontAttributeName,
-                                                  [self textColor], NSForegroundColorAttributeName,
-                                                  nil];
-          NSAttributedString *aString = [[NSAttributedString alloc] initWithString: [self _keyEquivalentString]
-                                                                         attributes: attrs];
-
-          [self _drawAttributedText: aString inFrame: cellFrame];
-          RELEASE(aString);
-        }
-      else
-        {
-          [self _drawText: [self _keyEquivalentString] inFrame: cellFrame];
-        }
-    }
-}
-
-- (void) drawStateImageWithFrame: (NSRect)cellFrame
-                          inView: (NSView *)controlView
-{
-  NSImage *imageToDisplay = nil;
-
-  if (WinUIThemeUsesPopupButtonCellLayout(self))
-    {
-      return;
-    }
-
-  switch ([_menuItem state])
-    {
-      case NSOnState:
-        imageToDisplay = [_menuItem onStateImage];
-        break;
-
-      case NSMixedState:
-        imageToDisplay = [_menuItem mixedStateImage];
-        break;
-
-      case NSOffState:
-      default:
-        imageToDisplay = [_menuItem offStateImage];
-        break;
-    }
-
-  if (imageToDisplay == nil)
-    {
-      return;
-    }
-
-  cellFrame = [self stateImageRectForBounds: cellFrame];
-  [self drawImage: imageToDisplay withFrame: cellFrame inView: controlView];
 }
 
 @end

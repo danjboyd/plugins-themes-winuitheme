@@ -4,6 +4,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN 1
+#include <windows.h>
+#endif
+
 static NSString *QuirkProbeImageItem = @"ImageItem";
 static const NSTimeInterval QuirkProbeSettleDelay = 0.8;
 
@@ -38,6 +43,16 @@ QuirkProbeIsInk(NSUInteger red, NSUInteger green, NSUInteger blue)
   NSInteger difference = (NSInteger)(red + green + blue) - (NSInteger)QuirkProbeInkBackground;
 
   return difference > 150 || difference < -150;
+}
+
+/* Anything visibly different from that background, however faint:
+   disabled outlines and fills. */
+static BOOL
+QuirkProbeIsFaintInk(NSUInteger red, NSUInteger green, NSUInteger blue)
+{
+  NSInteger difference = (NSInteger)(red + green + blue) - (NSInteger)QuirkProbeInkBackground;
+
+  return difference > 30 || difference < -30;
 }
 
 static NSBitmapImageRep *
@@ -154,6 +169,87 @@ QuirkProbeFindViewOfClass(NSView *view, Class viewClass)
   return nil;
 }
 
+/* The accent blue (any of Windows' blue accents): clearly bluer than red. */
+static BOOL
+QuirkProbeIsAccentBlue(NSUInteger red, NSUInteger green, NSUInteger blue)
+{
+  return blue > 150 && blue > red + 60;
+}
+
+/* Pixel rect, top-left origin, of `frame` (in `view`'s coordinates) in a
+   render of `view`. */
+static NSRect
+QuirkProbePixelRect(NSView *view, NSRect frame, CGFloat scale)
+{
+  if ([view isFlipped] == NO)
+    {
+      frame.origin.y = NSHeight([view bounds]) - NSMaxY(frame);
+    }
+  return NSMakeRect(floor(NSMinX(frame) * scale), floor(NSMinY(frame) * scale),
+                    ceil(NSWidth(frame) * scale), ceil(NSHeight(frame) * scale));
+}
+
+/* How many pixels of row `y` (top-left origin) between x0 and x1 pass `test`. */
+static NSUInteger
+QuirkProbeRowCount(NSBitmapImageRep *rep, QuirkProbePixelTest test,
+                   NSInteger y, NSInteger x0, NSInteger x1)
+{
+  NSUInteger count = 0;
+  NSInteger x;
+
+  for (x = x0; x < x1; x++)
+    {
+      NSUInteger red, green, blue;
+
+      if (QuirkProbePixel(rep, x, y, &red, &green, &blue) && test(red, green, blue))
+        {
+          count++;
+        }
+    }
+  return count;
+}
+
+/* Which way the chevron in `area` of `rep` points: 1 up (narrow at its
+   top), -1 down (narrow at its bottom), 0 if there's no chevron. */
+static NSInteger
+QuirkProbeChevronDirection(NSBitmapImageRep *rep, NSRect area)
+{
+  QuirkProbeInk ink = QuirkProbeMeasureIn(rep, QuirkProbeIsInk, area);
+  NSInteger x0 = (NSInteger)NSMinX(area);
+  NSInteger x1 = (NSInteger)NSMaxX(area);
+  NSUInteger top, bottom;
+
+  if (ink.count == 0 || ink.height < 2)
+    {
+      return 0;
+    }
+  top = QuirkProbeRowCount(rep, QuirkProbeIsInk, ink.minY, x0, x1);
+  bottom = QuirkProbeRowCount(rep, QuirkProbeIsInk, ink.minY + ink.height - 1, x0, x1);
+  if (top < bottom)
+    {
+      return 1;
+    }
+  return (top > bottom) ? -1 : 0;
+}
+
+/* The module (DLL) whose code `address` is in. */
+static void *
+QuirkProbeModuleOfAddress(void *address)
+{
+#ifdef _WIN32
+  HMODULE module = NULL;
+
+  if (address != NULL
+      && GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS
+                            | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                            (LPCWSTR)address, &module))
+    {
+      return (void *)module;
+    }
+#endif
+  return NULL;
+}
+
 #pragma mark Test classes
 
 /* A button cell subclass, as GSToolbarButtonCell is: theme overrides
@@ -170,9 +266,13 @@ QuirkProbeFindViewOfClass(NSView *view, Class viewClass)
 - (void) checkToolbarImageItem;
 - (void) checkScrollerEdge;
 - (void) checkTableHeader;
+- (void) checkMultilineLabels;
+- (void) checkSwitches;
+- (void) checkStepper;
 - (void) createLateWindow: (NSTimer *)timer;
 - (void) checkLateWindow: (NSTimer *)timer;
 - (void) checkMenuBarTitles: (NSWindow *)window;
+- (void) checkThemeSwitchRestoresMethods;
 - (void) finish;
 @end
 
@@ -330,6 +430,21 @@ objectValueForTableColumn: (NSTableColumn *)column
              row: (NSInteger)row
 {
   return [NSString stringWithFormat: @"Row %ld", (long)row];
+}
+
+- (NSTextField *) labelWithText: (NSString *)text frame: (NSRect)frame
+{
+  NSTextField *label = [[NSTextField alloc] initWithFrame: frame];
+
+  [label setStringValue: text];
+  [label setBezeled: NO];
+  [label setBordered: NO];
+  [label setEditable: NO];
+  [label setSelectable: NO];
+  [label setDrawsBackground: YES];
+  [label setBackgroundColor: [NSColor whiteColor]];
+  [label setTextColor: [NSColor blackColor]];
+  return AUTORELEASE(label);
 }
 
 #pragma mark Checks
@@ -599,6 +714,209 @@ objectValueForTableColumn: (NSTableColumn *)column
     }
 }
 
+/* Labels whose text needs more than one line show every line that fits
+   (issue #15): wrapping text, and text with line breaks. The theme centred
+   every label on a single line. */
+- (void) checkMultilineLabels
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(780, 220, 300, 220)
+                                     title: @"QuirkProbe Labels"];
+  NSTextField *wrapping = [self labelWithText:
+    @"The files stay on this computer. The app stops syncing this folder "
+    @"and forgets its settings; you can add it again later."
+                                        frame: NSMakeRect(10, 110, 220, 100)];
+  NSTextField *breaks = [self labelWithText: @"First line\nSecond line\nThird line"
+                                      frame: NSMakeRect(10, 10, 220, 90)];
+  NSArray *labels = [NSArray arrayWithObjects: wrapping, breaks, nil];
+  NSArray *names = [NSArray arrayWithObjects: @"label-wraps", @"label-line-breaks", nil];
+  NSUInteger index;
+
+  [[wrapping cell] setWraps: YES];
+  [[wrapping cell] setLineBreakMode: NSLineBreakByWordWrapping];
+  [[window contentView] addSubview: wrapping];
+  [[window contentView] addSubview: breaks];
+  [window orderFront: nil];
+  [window display];
+
+  QuirkProbeInkBackground = 765;
+  for (index = 0; index < [labels count]; index++)
+    {
+      NSTextField *label = [labels objectAtIndex: index];
+      NSString *name = [names objectAtIndex: index];
+      NSBitmapImageRep *rep = QuirkProbeRender(label);
+      CGFloat scale = QuirkProbeScale(rep, label);
+      NSDictionary *attributes = [NSDictionary dictionaryWithObject: [label font]
+                                                             forKey: NSFontAttributeName];
+      CGFloat lineHeight = [@"Ag" sizeWithAttributes: attributes].height * scale;
+      QuirkProbeInk ink = QuirkProbeMeasureIn(rep, QuirkProbeIsInk, NSZeroRect);
+
+      [self saveView: label named: name];
+      if (ink.count > 0 && ink.height > 1.5 * lineHeight)
+        {
+          [self pass: name detail:
+            [NSString stringWithFormat: @"text spans %ld px, a line is %.0f",
+                                        (long)ink.height, lineHeight]];
+        }
+      else
+        {
+          [self fail: name detail:
+            [NSString stringWithFormat: @"text spans %ld px: one line of %.0f",
+                                        (long)ink.height, lineHeight]];
+        }
+    }
+}
+
+/* NSSwitch (issue #6): enabled when made in code (libs-gui 0.32 left it
+   disabled), WinUI's 40x20 track rather than one stretched to the frame,
+   and On distinguishable from Off, enabled or not. */
+- (void) checkSwitches
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(780, 480, 320, 80)
+                                     title: @"QuirkProbe Switches"];
+  NSView *content = [window contentView];
+  NSRect frames[4] = {
+    { { 10, 30 }, { 60, 28 } }, { { 80, 30 }, { 60, 28 } },
+    { { 150, 30 }, { 60, 28 } }, { { 220, 30 }, { 60, 28 } }
+  };
+  NSSwitch *switches[4];
+  QuirkProbeInk accent[4];
+  QuirkProbeInk ink[4];
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale;
+  NSUInteger red, green, blue;
+  NSUInteger index;
+
+  for (index = 0; index < 4; index++)
+    {
+      switches[index] = AUTORELEASE([[NSSwitch alloc] initWithFrame: frames[index]]);
+      [content addSubview: switches[index]];
+    }
+
+  if ([switches[0] isEnabled])
+    {
+      [self pass: @"switch-enabled-by-default" detail: @"a switch made in code is enabled"];
+    }
+  else
+    {
+      [self fail: @"switch-enabled-by-default" detail: @"a switch made in code is disabled"];
+    }
+
+  /* On, off, disabled on, disabled off. */
+  [switches[0] setState: NSControlStateValueOn];
+  [switches[1] setState: NSControlStateValueOff];
+  [switches[2] setState: NSControlStateValueOn];
+  [switches[2] setEnabled: NO];
+  [switches[3] setState: NSControlStateValueOff];
+  [switches[3] setEnabled: NO];
+  [window orderFront: nil];
+  [window display];
+
+  rep = QuirkProbeRender(content);
+  scale = QuirkProbeScale(rep, content);
+  [self saveView: content named: @"switches"];
+  QuirkProbePixel(rep, 2, 2, &red, &green, &blue);
+  QuirkProbeInkBackground = red + green + blue;
+  for (index = 0; index < 4; index++)
+    {
+      NSRect area = QuirkProbePixelRect(content, frames[index], scale);
+
+      accent[index] = QuirkProbeMeasureIn(rep, QuirkProbeIsAccentBlue, area);
+      ink[index] = QuirkProbeMeasureIn(rep, QuirkProbeIsFaintInk, area);
+    }
+
+  /* The off switch's outline spans the track. */
+  if (ink[1].width >= 36 * scale && ink[1].width <= 42 * scale)
+    {
+      [self pass: @"switch-track-size" detail:
+        [NSString stringWithFormat: @"track %ld px wide in a 60pt frame", (long)ink[1].width]];
+    }
+  else
+    {
+      [self fail: @"switch-track-size" detail:
+        [NSString stringWithFormat: @"track %ld px wide in a 60pt frame, expected about 40",
+                                    (long)ink[1].width]];
+    }
+
+  /* On fills its track (in the accent, where the palette has one); off is
+     an outline and a knob. */
+  if (ink[0].count > 2 * MAX((NSUInteger)1, ink[1].count))
+    {
+      [self pass: @"switch-on-off-differ" detail:
+        [NSString stringWithFormat: @"on has %lu px of ink (%lu accent), off %lu",
+                                    (unsigned long)ink[0].count, (unsigned long)accent[0].count,
+                                    (unsigned long)ink[1].count]];
+    }
+  else
+    {
+      [self fail: @"switch-on-off-differ" detail:
+        [NSString stringWithFormat: @"on has %lu px of ink (%lu accent), off %lu",
+                                    (unsigned long)ink[0].count, (unsigned long)accent[0].count,
+                                    (unsigned long)ink[1].count]];
+    }
+
+  /* Disabled: the on track is filled, the off one only outlined. */
+  if (ink[2].count > 2 * MAX((NSUInteger)1, ink[3].count))
+    {
+      [self pass: @"switch-disabled-on-off-differ" detail:
+        [NSString stringWithFormat: @"disabled on has %lu px of ink, disabled off %lu",
+                                    (unsigned long)ink[2].count, (unsigned long)ink[3].count]];
+    }
+  else
+    {
+      [self fail: @"switch-disabled-on-off-differ" detail:
+        [NSString stringWithFormat: @"disabled on has %lu px of ink, disabled off %lu",
+                                    (unsigned long)ink[2].count, (unsigned long)ink[3].count]];
+    }
+}
+
+/* NSStepper's chevrons point out of the control: up in its upper half,
+   down in its lower half (issue #7). NSStepper isn't flipped, and the
+   theme's chevrons pointed the other way in unflipped views. */
+- (void) checkStepper
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(80, 120, 120, 80)
+                                     title: @"QuirkProbe Stepper"];
+  NSStepper *stepper = AUTORELEASE([[NSStepper alloc] initWithFrame: NSMakeRect(20, 10, 22, 42)]);
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale;
+  NSInteger width, height;
+  NSUInteger red, green, blue;
+  NSInteger upper, lower;
+  NSRect upperArea, lowerArea;
+
+  [[window contentView] addSubview: stepper];
+  [window orderFront: nil];
+  [window display];
+
+  rep = QuirkProbeRender(stepper);
+  scale = QuirkProbeScale(rep, stepper);
+  width = [rep pixelsWide];
+  height = [rep pixelsHigh];
+  [self saveView: stepper named: @"stepper"];
+
+  /* The control's fill, just inside its left edge. */
+  QuirkProbePixel(rep, (NSInteger)(3 * scale), height / 4, &red, &green, &blue);
+  QuirkProbeInkBackground = red + green + blue;
+
+  /* Each half, less the border and the line between the halves. */
+  upperArea = NSMakeRect(3 * scale, 3 * scale, width - 6 * scale, height / 2 - 5 * scale);
+  lowerArea = NSMakeRect(3 * scale, height / 2 + 2 * scale, width - 6 * scale, height / 2 - 5 * scale);
+  upper = QuirkProbeChevronDirection(rep, upperArea);
+  lower = QuirkProbeChevronDirection(rep, lowerArea);
+
+  if (upper == 1 && lower == -1)
+    {
+      [self pass: @"stepper-chevrons-point-out" detail: @"up in the upper half, down in the lower"];
+    }
+  else
+    {
+      [self fail: @"stepper-chevrons-point-out" detail:
+        [NSString stringWithFormat: @"upper half points %@, lower half %@",
+                                    upper == 1 ? @"up" : (upper == -1 ? @"down" : @"nowhere"),
+                                    lower == 1 ? @"up" : (lower == -1 ? @"down" : @"nowhere")]];
+    }
+}
+
 /* A window created after launch gets the main menu (issue #1). libs-gui
    only attaches the Windows 95 style menu to windows that exist when it
    first updates the menu. */
@@ -631,6 +949,7 @@ objectValueForTableColumn: (NSTableColumn *)column
     }
   [self saveView: [[_lateWindow contentView] superview] named: @"late-window"];
   [self checkMenuBarTitles: _lateWindow];
+  [self checkThemeSwitchRestoresMethods];
   [self finish];
 }
 
@@ -707,6 +1026,63 @@ objectValueForTableColumn: (NSTableColumn *)column
     }
 }
 
+/* Switching to another theme at run time leaves no WinUITheme code in
+   AppKit's menu item and segment methods (issue #12). The theme used to
+   replace them with Objective-C categories, which stay for the life of the
+   process. Run last: it deactivates the theme. */
+- (void) checkThemeSwitchRestoresMethods
+{
+  struct { Class cls; const char *selector; } methods[] = {
+    { [NSMenuItemCell class], "imagePosition" },
+    { [NSMenuItemCell class], "imageWidth" },
+    { [NSMenuItemCell class], "keyEquivalentWidth" },
+    { [NSMenuItemCell class], "stateImageWidth" },
+    { [NSMenuItemCell class], "imageRectForBounds:" },
+    { [NSMenuItemCell class], "keyEquivalentRectForBounds:" },
+    { [NSMenuItemCell class], "stateImageRectForBounds:" },
+    { [NSMenuItemCell class], "drawImageWithFrame:inView:" },
+    { [NSMenuItemCell class], "drawKeyEquivalentWithFrame:inView:" },
+    { [NSMenuItemCell class], "drawStateImageWithFrame:inView:" },
+    { [NSSegmentedCell class], "drawSegment:inFrame:withView:" },
+  };
+  void *themeModule = QuirkProbeModuleOfAddress(
+    (void *)[[[GSTheme theme] class] instanceMethodForSelector: @selector(colors)]);
+  NSMutableArray *left = [NSMutableArray array];
+  NSUInteger index;
+
+  if (themeModule == NULL)
+    {
+      [self skip: @"theme-switch-restores-methods" detail: @"can't find the theme's module"];
+      return;
+    }
+
+  [GSTheme setTheme: nil];
+  for (index = 0; index < sizeof(methods) / sizeof(methods[0]); index++)
+    {
+      IMP imp = [methods[index].cls instanceMethodForSelector:
+                   sel_getUid(methods[index].selector)];
+
+      if (QuirkProbeModuleOfAddress((void *)imp) == themeModule)
+        {
+          [left addObject: [NSString stringWithFormat: @"-[%@ %s]",
+                                                       NSStringFromClass(methods[index].cls),
+                                                       methods[index].selector]];
+        }
+    }
+
+  if ([left count] == 0)
+    {
+      [self pass: @"theme-switch-restores-methods" detail:
+        @"after switching themes, AppKit's menu item and segment methods are its own"];
+    }
+  else
+    {
+      [self fail: @"theme-switch-restores-methods" detail:
+        [@"still the theme's after switching themes: " stringByAppendingString:
+          [left componentsJoinedByString: @", "]]];
+    }
+}
+
 - (void) finish
 {
   printf("SUMMARY %lu passed, %lu failed, %lu known, %lu skipped\n",
@@ -736,6 +1112,9 @@ objectValueForTableColumn: (NSTableColumn *)column
   [self checkToolbarImageItem];
   [self checkScrollerEdge];
   [self checkTableHeader];
+  [self checkMultilineLabels];
+  [self checkSwitches];
+  [self checkStepper];
   [self after: QuirkProbeSettleDelay perform: @selector(createLateWindow:)];
 }
 
