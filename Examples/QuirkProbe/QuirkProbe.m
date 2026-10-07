@@ -328,6 +328,7 @@ QuirkProbeModuleOfAddress(void *address)
 - (void) checkBrowser;
 - (void) checkColorWell;
 - (void) checkSegmentedControl;
+- (void) checkTabView;
 - (void) checkTableDefaults;
 - (void) checkLiveSettings;
 - (void) checkIndicators;
@@ -3140,6 +3141,130 @@ QuirkProbeAccentRuns(NSBitmapImageRep *rep, NSInteger y, CGFloat scale, CGFloat 
   [window orderOut: nil];
 }
 
+/* NSTabView's top tabs as WinUI's SelectorBar (issue #49): text items, the
+   selected one over a 3x16pt accent pill. A click on a tab has to find it:
+   the theme drew tabs without recording their rects, so
+   -tabViewItemAtPoint: found none. */
+- (void) checkTabView
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(240, 180, 420, 220)
+                                     title: @"QuirkProbe Tabs"];
+  NSTabView *tabView = AUTORELEASE([[NSTabView alloc] initWithFrame: NSMakeRect(20, 20, 380, 180)]);
+  NSArray *labels = [NSArray arrayWithObjects: @"Write", @"Preview", @"History", nil];
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale;
+  NSUInteger index, found = 0;
+  NSMutableString *misses = [NSMutableString string];
+
+  for (index = 0; index < [labels count]; index++)
+    {
+      NSTabViewItem *item = AUTORELEASE([[NSTabViewItem alloc] initWithIdentifier: [labels objectAtIndex: index]]);
+
+      [item setLabel: [labels objectAtIndex: index]];
+      [item setView: AUTORELEASE([[NSView alloc] initWithFrame: NSMakeRect(0, 0, 100, 100)])];
+      [tabView addTabViewItem: item];
+    }
+  [[window contentView] addSubview: tabView];
+  [tabView selectTabViewItemAtIndex: 0];
+  [window orderFront: nil];
+  [window display];
+
+  /* Each tab's label, found by its ink in the strip, finds its item. */
+  rep = QuirkProbeRender(tabView);
+  scale = QuirkProbeScale(rep, tabView);
+  [self saveView: tabView named: @"tab-view"];
+  {
+    NSInteger x, y = (NSInteger)(14 * scale);
+    NSUInteger r, g, b, background;
+    NSInteger starts[8], ends[8];
+    NSUInteger labelsSeen = 0;
+    BOOL inInk = NO;
+    NSInteger gap = 0;
+
+    QuirkProbePixel(rep, [rep pixelsWide] - 4, y, &r, &g, &b);
+    background = r + g + b;
+    for (x = 0; x < [rep pixelsWide] && labelsSeen < 8; x++)
+      {
+        NSInteger yy;
+        BOOL ink = NO;
+
+        for (yy = (NSInteger)(4 * scale); yy < (NSInteger)(24 * scale); yy++)
+          {
+            QuirkProbePixel(rep, x, yy, &r, &g, &b);
+            if (llabs((long long)(r + g + b) - (long long)background) > 120)
+              {
+                ink = YES;
+              }
+          }
+        if (ink)
+          {
+            if (inInk == NO && (labelsSeen == 0 || gap > 8 * scale))
+              {
+                starts[labelsSeen] = x;
+                labelsSeen++;
+              }
+            ends[labelsSeen - 1] = x;
+            inInk = YES;
+            gap = 0;
+          }
+        else
+          {
+            inInk = NO;
+            gap++;
+          }
+      }
+    for (index = 0; index < [labels count] && index < labelsSeen; index++)
+      {
+        CGFloat px = (starts[index] + ends[index]) / 2.0 / scale;
+        CGFloat py = 14.0;
+        NSPoint point = NSMakePoint(px, [tabView isFlipped] ? py : NSHeight([tabView bounds]) - py);
+        NSTabViewItem *hit = [tabView tabViewItemAtPoint: point];
+
+        if (hit == [tabView tabViewItemAtIndex: index])
+          {
+            found++;
+          }
+        else
+          {
+            [misses appendFormat: @" %@ at %.0f,%.0f found %@;", [labels objectAtIndex: index], point.x, point.y,
+                                  hit ? [hit label] : @"nothing"];
+          }
+      }
+    if (labelsSeen >= [labels count] && found == [labels count])
+      {
+        [self pass: @"tab-click-target" detail: @"a click on each tab's label finds that tab"];
+      }
+    else
+      {
+        [self fail: @"tab-click-target" detail: [NSString stringWithFormat:
+          @"%lu labels seen, %lu found by a click:%@", (unsigned long)labelsSeen, (unsigned long)found, misses]];
+      }
+  }
+
+  if (QuirkProbeHasArgument(@"--high-contrast", nil))
+    {
+      [self skip: @"tab-selected-pill" detail: @"high contrast's highlight may not be blue"];
+    }
+  else
+    {
+      QuirkProbeInk pill = QuirkProbeMeasureIn(rep, QuirkProbeIsAccentBlue, NSMakeRect(0, 0, [rep pixelsWide], 60 * scale));
+
+      if (pill.count > 0 && fabs(pill.width / scale - 16.0) <= 1.5 && fabs(pill.height / scale - 3.0) <= 1.0
+          && pill.minX / scale < 60.0)
+        {
+          [self pass: @"tab-selected-pill" detail: [NSString stringWithFormat:
+            @"a %.0fx%.0fpt accent pill under the selected tab", pill.width / scale, pill.height / scale]];
+        }
+      else
+        {
+          [self fail: @"tab-selected-pill" detail: [NSString stringWithFormat:
+            @"the selected tab's accent is %.0fx%.0fpt at %.0fpt (expected 16x3 under the first tab)",
+            pill.width / scale, pill.height / scale, pill.count ? pill.minX / scale : -1.0]];
+        }
+    }
+  [window orderOut: nil];
+}
+
 /* A table built in code looks like a WinUI list (issue #28): libs-gui's
    16pt rows, grid and 5x2pt spacing become 32pt rows, no grid and none;
    the header shows column dividers only under the pointer; and a row under
@@ -5076,6 +5201,7 @@ QuirkProbeLastItemOfMenu(NSString *title)
   [self checkBrowser];
   [self checkColorWell];
   [self checkSegmentedControl];
+  [self checkTabView];
   [self checkTableDefaults];
   [self checkLiveSettings];
   [self checkIndicators];

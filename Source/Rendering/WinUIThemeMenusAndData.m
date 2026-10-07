@@ -1347,39 +1347,22 @@ WinUIThemeDrawTableHover(WinUITheme *theme, NSTableView *tableView, NSRect clipR
   return NSInsetRect(theRect, 9.0, 1.0);
 }
 
+/* A tab view's content (#49): a card, as the content under a WinUI
+   SelectorBar sits on: CardBackgroundFillColorDefault inside
+   CardStrokeColorDefault, 8pt corners. */
 - (void) drawTabViewBezelRect: (NSRect)aRect
                   tabViewType: (NSTabViewType)type
                        inView: (NSView *)view
 {
-  BOOL dark = [[self settings] prefersDarkAppearance];
-  NSColor *surface = WinUIThemeColorFromTheme(self,
-                                              @"surfaceColor",
-                                              [NSColor controlBackgroundColor]);
-  NSColor *window = WinUIThemeColorFromTheme(self,
-                                             @"windowBackgroundColor",
-                                             [NSColor windowBackgroundColor]);
-  NSColor *separator = WinUIThemeColorFromTheme(self,
-                                                @"separatorColor",
-                                                [NSColor controlShadowColor]);
-  NSRect drawRect = NSInsetRect(NSIntegralRect(aRect), 0.5, 0.5);
-  CGFloat radius = WinUIThemeOverlayCornerRadius(self);
-  NSBezierPath *path = nil;
-
   if (type != NSTopTabsBezelBorder && type != NSNoTabsBezelBorder)
     {
       [super drawTabViewBezelRect: aRect tabViewType: type inView: view];
       return;
     }
-
-  path = WinUIThemeRoundedPath(drawRect, radius);
-  [WinUIThemeBlendColor(surface, window, dark ? 0.04 : 0.18) set];
-  [path fill];
-
-  [WinUIThemeBlendColor(separator,
-                        dark ? [NSColor whiteColor] : [NSColor blackColor],
-                        dark ? 0.10 : 0.04) set];
-  [path setLineWidth: 1.0];
-  [path stroke];
+  WinUIThemeFillAndStrokeRoundedRect(NSInsetRect(NSIntegralRect(aRect), 0.5, 0.5),
+                                     WinUIThemeOverlayCornerRadius(self),
+                                     WinUIThemeBrowserCardColor(self),
+                                     WinUIThemeCardStrokeColor(self), 1.0);
 }
 
 - (void) drawTabViewRect: (NSRect)rect
@@ -1395,18 +1378,12 @@ WinUIThemeDrawTableHover(WinUITheme *theme, NSTableView *tableView, NSRect clipR
                                 [view isFlipped] ? bounds.origin.y : NSMaxY(contentRect),
                                 bounds.size.width,
                                 [self tabHeightForType: type]);
-  CGFloat x = bounds.origin.x + 10.0;
+  BOOL flipped = [view isFlipped];
+  CGFloat x = bounds.origin.x + 4.0;
   NSUInteger index = 0;
-  BOOL dark = [[self settings] prefersDarkAppearance];
-  NSColor *window = WinUIThemeColorFromTheme(self,
-                                             @"windowBackgroundColor",
-                                             [NSColor windowBackgroundColor]);
-  NSColor *surface = WinUIThemeColorFromTheme(self,
-                                              @"surfaceColor",
-                                              [NSColor controlBackgroundColor]);
-  NSColor *border = WinUIThemeColorFromTheme(self,
-                                             @"menuBarBorderColor",
-                                             [NSColor controlShadowColor]);
+  NSColor *accent = WinUIThemeColorFromTheme(self, @"accentColor", [NSColor selectedControlColor]);
+  NSFont *font = WinUIThemePreferredControlFont(self, [NSFont systemFontOfSize: 0.0], NO);
+  Ivar rectIvar = class_getInstanceVariable([NSTabViewItem class], "_rect");
 
   (void)rect;
 
@@ -1419,10 +1396,13 @@ WinUIThemeDrawTableHover(WinUITheme *theme, NSTableView *tableView, NSRect clipR
       return;
     }
 
-  [window set];
-  NSRectFill(stripRect);
   [self drawTabViewBezelRect: contentRect tabViewType: type inView: view];
 
+  /* Top tabs are WinUI's SelectorBar (#49): text items 12pt in from
+     their sides, the selected one in the primary text colour over a
+     3x16pt accent pill, the rest in the secondary colour. Each item's
+     rect is recorded as -drawLabel:inRect: would, for NSTabView's
+     -tabViewItemAtPoint:, or a click on a tab selected nothing. */
   for (index = 0; index < [items count]; index++)
     {
       NSTabViewItem *item = [items objectAtIndex: index];
@@ -1431,41 +1411,31 @@ WinUIThemeDrawTableHover(WinUITheme *theme, NSTableView *tableView, NSRect clipR
       NSColor *textColor = selected
         ? WinUIThemeColorFromTheme(self, @"labelColor", [NSColor controlTextColor])
         : WinUIThemeColorFromTheme(self, @"secondaryLabelColor", [NSColor disabledControlTextColor]);
-      NSDictionary *attributes = WinUIThemeMenuTextAttributes([NSFont systemFontOfSize: [NSFont systemFontSize]],
-                                                              textColor,
-                                                              WinUIThemeCenterTextAlignment());
+      NSDictionary *attributes = WinUIThemeMenuTextAttributes(font, textColor, WinUIThemeCenterTextAlignment());
       NSSize labelSize = [title sizeWithAttributes: attributes];
-      CGFloat tabWidth = MAX(78.0, ceil(labelSize.width + 28.0));
-      NSRect tabRect = NSMakeRect(x,
-                                  [view isFlipped] ? stripRect.origin.y + (selected ? 4.0 : 7.0) : stripRect.origin.y,
-                                  tabWidth,
-                                  stripRect.size.height - (selected ? 4.0 : 10.0));
+      CGFloat tabWidth = MAX(40.0, ceil(labelSize.width + 24.0));
+      NSRect tabRect = NSMakeRect(x, NSMinY(stripRect), tabWidth, NSHeight(stripRect));
       NSRect labelRect = NSInsetRect(tabRect, 12.0, 0.0);
 
+      if (rectIvar != NULL)
+        {
+          *(NSRect *)((char *)item + ivar_getOffset(rectIvar)) = tabRect;
+        }
       if (selected)
         {
-          NSBezierPath *path = WinUIThemeRoundedPath(NSInsetRect(tabRect, 0.5, 0.5),
-                                                     WinUIThemeOverlayCornerRadius(self));
+          NSRect pill = NSMakeRect(floor(NSMidX(tabRect) - 8.0),
+                                   flipped ? NSMaxY(tabRect) - 5.0 : NSMinY(tabRect) + 2.0,
+                                   16.0, 3.0);
 
-          [surface set];
-          [path fill];
-
-          [WinUIThemeBlendColor(border,
-                                dark ? [NSColor whiteColor] : [NSColor blackColor],
-                                dark ? 0.10 : 0.02) set];
-          [path setLineWidth: 1.0];
-          [path stroke];
-
-          [WinUIThemeColorFromTheme(self, @"accentColor", [NSColor selectedControlColor]) set];
-          NSRectFill(NSMakeRect(labelRect.origin.x,
-                                [view isFlipped] ? NSMaxY(tabRect) - 3.0 : tabRect.origin.y + 1.0,
-                                labelRect.size.width,
-                                2.0));
+          [accent set];
+          [WinUIThemeRoundedPath(pill, 1.5) fill];
         }
 
-      labelRect.origin.y = floor(NSMidY(labelRect) - (labelSize.height / 2.0));
+      /* Centred, 2pt up, clear of the pill. */
+      labelRect.origin.y = floor(NSMidY(tabRect) - (labelSize.height / 2.0)) + (flipped ? -2.0 : 2.0);
+      labelRect.size.height = labelSize.height;
       [title drawInRect: labelRect withAttributes: attributes];
-      x += tabWidth + 8.0;
+      x += tabWidth;
     }
 }
 

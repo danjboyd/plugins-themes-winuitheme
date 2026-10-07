@@ -205,6 +205,8 @@ NSRect WinUIThemeSliderTrackRect(WinUITheme *theme, NSRect rect, BOOL horizontal
 BOOL WinUIThemeIsBrowserColumn(NSView *view);
 void WinUIThemeDrawBrowserColumnCard(WinUITheme *theme, NSRect frame);
 NSColor *WinUIThemeBrowserCardColor(WinUITheme *theme);
+/* CardStrokeColorDefault, for cards (browser columns, tab view content). */
+NSColor *WinUIThemeCardStrokeColor(WinUITheme *theme);
 void WinUIThemeSyncBrowserColumn(NSScrollView *scrollView);
 
 #endif
