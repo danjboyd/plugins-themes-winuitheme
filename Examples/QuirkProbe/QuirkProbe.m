@@ -1,3 +1,23 @@
+/*
+   Copyright (C) 2026 Daniel Boyd
+
+   This file is part of the GNUstep WinUI theme.
+
+   This library is free software; you can redistribute it and/or
+   modify it under the terms of the GNU Lesser General Public
+   License as published by the Free Software Foundation; either
+   version 2.1 of the License, or (at your option) any later version.
+
+   This library is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+   Lesser General Public License for more details.
+
+   You should have received a copy of the GNU Lesser General Public
+   License along with this library; see the file COPYING.LIB.
+   If not, see <https://www.gnu.org/licenses/>.
+*/
+
 #import "QuirkProbe.h"
 
 #import <GNUstepGUI/GSTheme.h>
@@ -286,6 +306,7 @@ QuirkProbeModuleOfAddress(void *address)
 - (void) checkSubclassImageCell;
 - (void) checkToolbarImageItem;
 - (void) checkScrollerEdge;
+- (void) checkTextAlignment;
 - (void) checkTableHeader;
 - (void) checkMultilineLabels;
 - (void) checkSwitches;
@@ -302,6 +323,9 @@ QuirkProbeModuleOfAddress(void *address)
 - (void) checkTypography;
 - (void) checkSlider;
 - (void) checkProgress;
+- (void) checkLevelIndicator;
+- (void) checkDatePicker;
+- (void) checkBrowser;
 - (void) checkTableDefaults;
 - (void) checkLiveSettings;
 - (void) checkIndicators;
@@ -501,6 +525,20 @@ QuirkProbeModuleOfAddress(void *address)
 
   [item setLabel: @"Image"];
   [item setImage: [self magentaImage]];
+  /* The alignment check needs a view item (the theme draws its label)
+     with a label much narrower than the view. */
+  if ([[toolbar identifier] isEqualToString: @"QuirkProbeAlignmentToolbar"])
+    {
+      NSImageView *view = [[NSImageView alloc] initWithFrame: NSMakeRect(0, 0, 96, 24)];
+
+      [view setImage: [self magentaImage]];
+      [view setImageScaling: NSImageScaleNone];
+      [item setView: view];
+      [item setMinSize: NSMakeSize(96, 24)];
+      [item setMaxSize: NSMakeSize(96, 24)];
+      [item setLabel: @"Go"];
+      RELEASE(view);
+    }
   /* An item without an action is disabled, and draws its image faded. */
   [item setTarget: self];
   [item setAction: @selector(toolbarItemClicked:)];
@@ -519,6 +557,24 @@ QuirkProbeModuleOfAddress(void *address)
 
 - (void) toolbarItemClicked: (id)sender
 {
+}
+
+#pragma mark Browser delegate
+
+/* Four rows a column; the browser's tag is the column whose rows are
+   leaves. */
+- (NSInteger) browser: (NSBrowser *)browser numberOfRowsInColumn: (NSInteger)column
+{
+  return 4;
+}
+
+- (void) browser: (NSBrowser *)browser
+ willDisplayCell: (id)cell
+           atRow: (NSInteger)row
+          column: (NSInteger)column
+{
+  [cell setStringValue: [NSString stringWithFormat: @"Item %ld.%ld", (long)column, (long)row]];
+  [cell setLeaf: column >= [browser tag]];
 }
 
 #pragma mark Table data source
@@ -860,6 +916,79 @@ objectValueForTableColumn: (NSTableColumn *)column
     {
       [self fail: @"table-header-title-inset" detail:
         [NSString stringWithFormat: @"title starts %.0fpt in, expected about 12", inset]];
+    }
+}
+
+/* Centred text stays centred whichever way the running libs-gui numbers
+   NSTextAlignment (issue #13): libs-gui after 0.32 swapped centre and
+   right, so the label of a toolbar view item, set with 0.32's
+   NSCenterTextAlignment, drew right-aligned under its view. Measured from the drawing; the table
+   header check covers left alignment and the menu check the shortcuts. */
+- (void) checkTextAlignment
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(320, 300, 320, 160)
+                                     title: @"QuirkProbe Alignment"];
+  NSToolbar *toolbar = [[NSToolbar alloc] initWithIdentifier: @"QuirkProbeAlignmentToolbar"];
+  NSView *toolbarView = nil;
+  NSBitmapImageRep *rep = nil;
+  NSUInteger red, green, blue;
+  QuirkProbeInk icon, label;
+  CGFloat scale, iconCentre, labelCentre;
+
+  [toolbar setDelegate: self];
+  [toolbar setDisplayMode: NSToolbarDisplayModeIconAndLabel];
+  [window setToolbar: toolbar];
+  RELEASE(toolbar);
+  [window orderFront: nil];
+  [window display];
+
+  toolbarView = QuirkProbeFindViewOfClass([[window contentView] superview],
+                                          NSClassFromString(@"GSToolbarView"));
+  if (toolbarView == nil)
+    {
+      [self skip: @"toolbar-label-centred" detail: @"no GSToolbarView in the window"];
+      return;
+    }
+  /* The magenta square is centred in its view. */
+  rep = QuirkProbeRender(toolbarView);
+  scale = QuirkProbeScale(rep, toolbarView);
+  [self saveView: toolbarView named: @"toolbar-label"];
+
+  icon = QuirkProbeMeasureIn(rep, QuirkProbeIsMagenta, NSZeroRect);
+  if (icon.count == 0
+      || QuirkProbePixel(rep, [rep pixelsWide] - (NSInteger)(10 * scale),
+                         icon.minY + icon.height + (NSInteger)(4 * scale),
+                         &red, &green, &blue) == NO)
+    {
+      [self fail: @"toolbar-label-centred" detail: @"couldn't find the item's view"];
+      return;
+    }
+  QuirkProbeInkBackground = red + green + blue;
+  /* Under the icon, across the item's width either side of it, above the
+     line under the toolbar. */
+  label = QuirkProbeMeasureIn(rep, QuirkProbeIsInk,
+                              NSMakeRect(MAX(0, icon.minX - 60 * scale),
+                                         icon.minY + icon.height + 1,
+                                         icon.width + 120 * scale,
+                                         [rep pixelsHigh] - (icon.minY + icon.height + 1) - 2));
+  if (label.count == 0)
+    {
+      [self fail: @"toolbar-label-centred" detail: @"the item shows no label"];
+      return;
+    }
+  iconCentre = (icon.minX + icon.width / 2.0) / scale;
+  labelCentre = (label.minX + label.width / 2.0) / scale;
+  if (fabs(labelCentre - iconCentre) <= 2.0)
+    {
+      [self pass: @"toolbar-label-centred" detail:
+        [NSString stringWithFormat: @"the label is centred under the view (%.1fpt off)",
+                                    labelCentre - iconCentre]];
+    }
+  else
+    {
+      [self fail: @"toolbar-label-centred" detail:
+        [NSString stringWithFormat: @"the label's centre is %.1fpt from the view's",
+                                    labelCentre - iconCentre]];
     }
 }
 
@@ -2022,6 +2151,765 @@ QuirkProbeColumnCount(NSBitmapImageRep *rep, QuirkProbePixelTest test,
   [window orderOut: nil];
 }
 
+/* SystemFillColorCritical in either palette, or libs-gui's pure red:
+   clearly redder than green and blue. */
+static BOOL
+QuirkProbeIsCriticalRed(NSUInteger red, NSUInteger green, NSUInteger blue)
+{
+  return red > 150 && red > green + 60 && red > blue + 50;
+}
+
+static NSLevelIndicator *
+QuirkProbeLevelIndicator(NSView *content, NSRect frame, NSLevelIndicatorStyle style,
+                         double maximum, double value, double warning, double critical)
+{
+  NSLevelIndicator *level = AUTORELEASE([[NSLevelIndicator alloc] initWithFrame: frame]);
+
+  [[level cell] setLevelIndicatorStyle: style];
+  [level setMinValue: 0.0];
+  [level setMaxValue: maximum];
+  [level setWarningValue: warning];
+  [level setCriticalValue: critical];
+  [level setDoubleValue: value];
+  [content addSubview: level];
+  return level;
+}
+
+/* NSLevelIndicator as WinUI's ProgressBar and RatingControl (issue #57).
+   libs-gui filled a square white well, and with the warning and critical
+   values left at 0 every level was critical: solid red. */
+- (void) checkLevelIndicator
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(420, 160, 260, 200)
+                                     title: @"QuirkProbe Level"];
+  NSView *content = [window contentView];
+  NSLevelIndicator *unset = QuirkProbeLevelIndicator(content, NSMakeRect(20, 160, 200, 20),
+    NSContinuousCapacityLevelIndicatorStyle, 10.0, 6.0, 0.0, 0.0);
+  NSLevelIndicator *critical = QuirkProbeLevelIndicator(content, NSMakeRect(20, 120, 200, 20),
+    NSContinuousCapacityLevelIndicatorStyle, 10.0, 6.0, 3.0, 5.0);
+  NSLevelIndicator *discrete = QuirkProbeLevelIndicator(content, NSMakeRect(20, 80, 200, 20),
+    NSDiscreteCapacityLevelIndicatorStyle, 10.0, 6.0, 0.0, 0.0);
+  NSLevelIndicator *rating = QuirkProbeLevelIndicator(content, NSMakeRect(20, 40, 200, 20),
+    NSRatingLevelIndicatorStyle, 5.0, 3.0, 0.0, 0.0);
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale;
+  QuirkProbeInk accent, red;
+
+  if (QuirkProbeHasArgument(@"--high-contrast", nil))
+    {
+      [self skip: @"level-unset-thresholds" detail: @"high contrast's highlight may not be blue"];
+      [self skip: @"level-critical" detail: @"high contrast keeps the highlight colour"];
+      [self skip: @"level-discrete-segments" detail: @"high contrast's highlight may not be blue"];
+      [self skip: @"level-rating" detail: @"high contrast's highlight may not be blue"];
+      return;
+    }
+  [window orderFront: nil];
+  [window display];
+
+  /* 6 of 10, thresholds unset: a 3px accent bar 60% along, no red. */
+  rep = QuirkProbeRender(unset);
+  scale = QuirkProbeScale(rep, unset);
+  [self saveView: unset named: @"level-unset"];
+  accent = QuirkProbeMeasureIn(rep, QuirkProbeIsAccentBlue, NSZeroRect);
+  red = QuirkProbeMeasureIn(rep, QuirkProbeIsCriticalRed, NSZeroRect);
+  if (red.count == 0 && accent.count > 0
+      && fabs((accent.minX + accent.width) / scale - 120.0) <= 3.0
+      && fabs(accent.height - 3.0 * scale) <= 1.0)
+    {
+      [self pass: @"level-unset-thresholds" detail: [NSString stringWithFormat:
+        @"a %ld px accent bar to %.0fpt of 200, no red",
+        (long)accent.height, (accent.minX + accent.width) / scale]];
+    }
+  else
+    {
+      [self fail: @"level-unset-thresholds" detail: [NSString stringWithFormat:
+        @"%lu red px; accent %ld px deep to %.0fpt (expected 3 px to 120pt)",
+        (unsigned long)red.count, (long)accent.height,
+        accent.count > 0 ? (accent.minX + accent.width) / scale : 0.0]];
+    }
+
+  /* 6 of 10 with the critical value at 5: the critical colour, as long. */
+  rep = QuirkProbeRender(critical);
+  [self saveView: critical named: @"level-critical"];
+  accent = QuirkProbeMeasureIn(rep, QuirkProbeIsAccentBlue, NSZeroRect);
+  red = QuirkProbeMeasureIn(rep, QuirkProbeIsCriticalRed, NSZeroRect);
+  if (accent.count == 0 && red.count > 0
+      && fabs((red.minX + red.width) / scale - 120.0) <= 3.0
+      && fabs(red.height - 3.0 * scale) <= 1.0)
+    {
+      [self pass: @"level-critical" detail: [NSString stringWithFormat:
+        @"past the critical value, a %ld px critical bar to %.0fpt",
+        (long)red.height, (red.minX + red.width) / scale]];
+    }
+  else
+    {
+      [self fail: @"level-critical" detail: [NSString stringWithFormat:
+        @"%lu accent px; critical %ld px deep to %.0fpt (expected 3 px to 120pt)",
+        (unsigned long)accent.count, (long)red.height,
+        red.count > 0 ? (red.minX + red.width) / scale : 0.0]];
+    }
+
+  /* Discrete, 6 of 10: six accent segments. */
+  rep = QuirkProbeRender(discrete);
+  [self saveView: discrete named: @"level-discrete"];
+  accent = QuirkProbeMeasureIn(rep, QuirkProbeIsAccentBlue, NSZeroRect);
+  {
+    NSInteger x, y = accent.minY + accent.height / 2;
+    NSUInteger runs = 0;
+    BOOL inRun = NO;
+
+    for (x = 0; accent.count > 0 && x < [rep pixelsWide]; x++)
+      {
+        NSUInteger r, g, b;
+        BOOL hit = QuirkProbePixel(rep, x, y, &r, &g, &b) && QuirkProbeIsAccentBlue(r, g, b);
+
+        if (hit && inRun == NO)
+          {
+            runs++;
+          }
+        inRun = hit;
+      }
+    if (runs == 6 && fabs(accent.height - 3.0 * scale) <= 1.0)
+      {
+        [self pass: @"level-discrete-segments" detail: @"6 of 10: six 3px accent segments"];
+      }
+    else
+      {
+        [self fail: @"level-discrete-segments" detail: [NSString stringWithFormat:
+          @"6 of 10 drew %lu accent segments, %ld px deep", (unsigned long)runs, (long)accent.height]];
+      }
+  }
+
+  /* Rating 3 of 5: accent stars up to the third, outlines after. */
+  rep = QuirkProbeRender(rating);
+  [self saveView: rating named: @"level-rating"];
+  accent = QuirkProbeMeasureIn(rep, QuirkProbeIsAccentBlue, NSZeroRect);
+  {
+    NSUInteger background = QuirkProbeInkBackground, r, g, b;
+    QuirkProbeInk outline;
+
+    QuirkProbePixel(rep, [rep pixelsWide] - 1, 0, &r, &g, &b);
+    QuirkProbeInkBackground = r + g + b;
+    outline = QuirkProbeMeasureIn(rep, QuirkProbeIsFaintInk,
+                                  NSMakeRect(accent.minX + accent.width + 2, 0,
+                                             [rep pixelsWide], [rep pixelsHigh]));
+    QuirkProbeInkBackground = background;
+    /* Three 16pt stars 8pt apart end at 64pt; two outlines follow. */
+    if (accent.count > 0 && fabs((accent.minX + accent.width) / scale - 64.0) <= 2.0
+        && accent.height >= 12.0 * scale && outline.count > 0
+        && fabs((outline.minX + outline.width) / scale - 112.0) <= 2.0)
+      {
+        [self pass: @"level-rating" detail: [NSString stringWithFormat:
+          @"accent stars to %.0fpt, outlines to %.0fpt",
+          (accent.minX + accent.width) / scale, (outline.minX + outline.width) / scale]];
+      }
+    else
+      {
+        [self fail: @"level-rating" detail: [NSString stringWithFormat:
+          @"accent %lu px to %.0fpt, %ld px high; outlines to %.0fpt (expected 64, 16 high, 112)",
+          (unsigned long)accent.count,
+          accent.count > 0 ? (accent.minX + accent.width) / scale : 0.0, (long)accent.height,
+          outline.count > 0 ? (outline.minX + outline.width) / scale : 0.0]];
+      }
+  }
+  [window orderOut: nil];
+}
+
+/* How many columns of `area` (pixels) have accepted pixels in at least
+   `minimum` of its rows, and the first of them in `first`. */
+static NSUInteger
+QuirkProbeSolidColumns(NSBitmapImageRep *rep, QuirkProbePixelTest test, NSRect area,
+                       NSUInteger minimum, NSInteger *first)
+{
+  NSUInteger solid = 0;
+  NSInteger x;
+
+  if (first != NULL)
+    {
+      *first = -1;
+    }
+  for (x = (NSInteger)NSMinX(area); x < (NSInteger)NSMaxX(area); x++)
+    {
+      if (QuirkProbeColumnCount(rep, test, x, (NSInteger)NSMinY(area), (NSInteger)NSMaxY(area)) >= minimum)
+        {
+          if (first != NULL && *first < 0)
+            {
+              *first = x;
+            }
+          solid++;
+        }
+    }
+  return solid;
+}
+
+/* YES when Windows' time format is a 12-hour clock. */
+static BOOL
+QuirkProbeTwelveHourClock(void)
+{
+#ifdef _WIN32
+  wchar_t format[80];
+
+  if (GetLocaleInfoEx(LOCALE_NAME_USER_DEFAULT, LOCALE_STIMEFORMAT, format, 80) > 0)
+    {
+      return wcschr(format, L'H') == NULL;
+    }
+#endif
+  return YES;
+}
+
+- (void) datePickerChanged: (id)sender
+{
+  _datePickerActions++;
+}
+
+/* Renders the date picker flyout while it's open, then accepts it with
+   Enter (see checkDatePicker). */
+- (void) inspectDatePickerFlyout: (NSTimer *)timer
+{
+  NSEnumerator *enumerator = [[NSApp windows] objectEnumerator];
+  NSWindow *window = nil;
+  NSView *flyout = nil;
+  NSWindow *owner = [timer userInfo];
+
+  while ((window = [enumerator nextObject]) != nil)
+    {
+      if ([window isVisible]
+          && [NSStringFromClass([[window contentView] class]) isEqualToString: @"WinUIThemeDatePickerFlyoutView"])
+        {
+          flyout = [window contentView];
+        }
+    }
+  if (flyout == nil)
+    {
+      [self fail: @"date-picker-flyout-band" detail: @"no flyout opened"];
+    }
+  else
+    {
+      NSBitmapImageRep *rep = QuirkProbeRender(flyout);
+      CGFloat scale = QuirkProbeScale(rep, flyout);
+      QuirkProbeInk band = QuirkProbeMeasureIn(rep, QuirkProbeIsAccentBlue, NSZeroRect);
+      CGFloat centre = (band.minY + band.height / 2.0) / scale;
+
+      [self saveView: flyout named: @"date-picker-flyout"];
+      if (band.count > 0 && band.width >= [rep pixelsWide] - 10 * scale
+          && fabs(band.height / scale - 36.0) <= 2.0 && fabs(centre - 180.0) <= 2.0)
+        {
+          [self pass: @"date-picker-flyout-band" detail: [NSString stringWithFormat:
+            @"an accent band %.0fx%.0fpt across the flyout's middle row",
+            band.width / scale, band.height / scale]];
+        }
+      else
+        {
+          [self fail: @"date-picker-flyout-band" detail: [NSString stringWithFormat:
+            @"accent %ldx%ld px centred %.0fpt down (expected the flyout's width, 36pt, at 180pt)",
+            (long)band.width, (long)band.height, centre]];
+        }
+    }
+  [NSApp postEvent: [NSEvent keyEventWithType: NSKeyDown
+                                     location: NSZeroPoint
+                                modifierFlags: 0
+                                    timestamp: 0
+                                 windowNumber: [owner windowNumber]
+                                      context: nil
+                                   characters: @"\r"
+                  charactersIgnoringModifiers: @"\r"
+                                    isARepeat: NO
+                                      keyCode: 0]
+           atStart: NO];
+  /* Ends the click's tracking where no flyout took it. */
+  [NSApp postEvent: [NSEvent mouseEventWithType: NSLeftMouseUp
+                                       location: NSMakePoint(80, 386)
+                                  modifierFlags: 0
+                                      timestamp: 0
+                                   windowNumber: [owner windowNumber]
+                                        context: nil
+                                    eventNumber: 0
+                                     clickCount: 1
+                                       pressure: 0.0]
+           atStart: NO];
+}
+
+/* NSDatePicker as WinUI's DatePicker, TimePicker and CalendarView (issue
+   #56). gui 0.32 drew "2026-10-05 19:00:00 -0500" as plain text, with no
+   chrome and no way to edit it. */
+- (void) checkDatePicker
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(120, 120, 640, 420)
+                                     title: @"QuirkProbe Date Picker"];
+  NSView *content = [window contentView];
+  NSDatePicker *date = AUTORELEASE([[NSDatePicker alloc] initWithFrame: NSMakeRect(20, 370, 296, 32)]);
+  NSDatePicker *time = AUTORELEASE([[NSDatePicker alloc] initWithFrame: NSMakeRect(340, 370, 242, 32)]);
+  NSDatePicker *calendar = AUTORELEASE([[NSDatePicker alloc] initWithFrame: NSMakeRect(20, 0, 300, 360)]);
+  NSCalendarDate *day = [NSCalendarDate dateWithYear: 2026 month: 10 day: 5 hour: 19 minute: 0 second: 0
+                                            timeZone: [NSTimeZone timeZoneWithName: @"America/Chicago"]];
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale;
+  NSUInteger red, green, blue;
+  BOOL highContrast = QuirkProbeHasArgument(@"--high-contrast", nil);
+
+  [date setDatePickerElements: NSYearMonthDayDatePickerElementFlag];
+  [date setTimeZone: [NSTimeZone timeZoneWithName: @"America/Chicago"]];
+  [date setDateValue: day];
+  [date setTarget: self];
+  [date setAction: @selector(datePickerChanged:)];
+  [time setDatePickerElements: NSHourMinuteDatePickerElementFlag];
+  [time setTimeZone: [NSTimeZone timeZoneWithName: @"America/Chicago"]];
+  [time setDateValue: day];
+  [calendar setDatePickerStyle: NSClockAndCalendarDatePickerStyle];
+  [calendar setDatePickerElements: NSYearMonthDayDatePickerElementFlag];
+  [calendar setDateValue: [NSDate date]];
+  [content addSubview: date];
+  [content addSubview: time];
+  [content addSubview: calendar];
+  [window orderFront: nil];
+  [window display];
+
+  /* The DatePicker field: a rounded border, dividers 136pt and 216pt in,
+     and a short label in each part: no time zone, no time. */
+  rep = QuirkProbeRender(date);
+  scale = QuirkProbeScale(rep, date);
+  [self saveView: date named: @"date-picker-field"];
+  QuirkProbePixel(rep, [rep pixelsWide] / 2, 2 * scale, &red, &green, &blue);
+  QuirkProbeInkBackground = red + green + blue;
+  {
+    NSInteger height = [rep pixelsHigh];
+    NSRect inside = NSMakeRect(0, 4 * scale, [rep pixelsWide], height - 8 * scale);
+    NSInteger divider1 = -1, divider2 = -1;
+    NSUInteger lines1 = QuirkProbeSolidColumns(rep, QuirkProbeIsFaintInk,
+                                               NSMakeRect(130 * scale, 4 * scale, 12 * scale, height - 8 * scale),
+                                               height - 9 * scale, &divider1);
+    NSUInteger lines2 = QuirkProbeSolidColumns(rep, QuirkProbeIsFaintInk,
+                                               NSMakeRect(210 * scale, 4 * scale, 12 * scale, height - 8 * scale),
+                                               height - 9 * scale, &divider2);
+    QuirkProbeInk month = QuirkProbeMeasureIn(rep, QuirkProbeIsInk,
+                                              NSMakeRect(2 * scale, NSMinY(inside), 128 * scale, NSHeight(inside)));
+    QuirkProbeInk dayInk = QuirkProbeMeasureIn(rep, QuirkProbeIsInk,
+                                               NSMakeRect(142 * scale, NSMinY(inside), 68 * scale, NSHeight(inside)));
+    QuirkProbeInk year = QuirkProbeMeasureIn(rep, QuirkProbeIsInk,
+                                             NSMakeRect(222 * scale, NSMinY(inside), 70 * scale, NSHeight(inside)));
+    NSUInteger edgeRed, edgeGreen, edgeBlue;
+
+    QuirkProbePixel(rep, 0, height / 2, &edgeRed, &edgeGreen, &edgeBlue);
+    if (lines1 >= 1 && lines1 <= 2 * ceil(scale) && lines2 >= 1 && lines2 <= 2 * ceil(scale)
+        && fabs(divider1 / scale - 136.0) <= 2.0 && fabs(divider2 / scale - 216.0) <= 2.0
+        && llabs((long long)(edgeRed + edgeGreen + edgeBlue) - (long long)QuirkProbeInkBackground) >= 12
+        && fabs(height / scale - 32.0) <= 1.0)
+      {
+        [self pass: @"date-picker-field" detail: [NSString stringWithFormat:
+          @"a bordered 32pt field, dividers at %.0f and %.0fpt", divider1 / scale, divider2 / scale]];
+      }
+    else
+      {
+        [self fail: @"date-picker-field" detail: [NSString stringWithFormat:
+          @"dividers %lu px at %.0fpt and %lu px at %.0fpt (expected 136, 216); edge %lu of %lu; %.0fpt high",
+          (unsigned long)lines1, divider1 / scale, (unsigned long)lines2, divider2 / scale,
+          (unsigned long)(edgeRed + edgeGreen + edgeBlue), (unsigned long)QuirkProbeInkBackground,
+          height / scale]];
+      }
+    /* The month from 12pt in; "5" centred in its 80pt; "2026" in its,
+       with room to spare even in large text. */
+    if (month.count > 0 && fabs(month.minX / scale - 12.0) <= 2.5
+        && dayInk.count > 0 && dayInk.width / scale <= 24.0
+        && fabs((dayInk.minX + dayInk.width / 2.0) / scale - 176.0) <= 3.0
+        && year.count > 0 && year.width / scale <= 56.0
+        && fabs((year.minX + year.width / 2.0) / scale - 256.0) <= 3.0)
+      {
+        [self pass: @"date-picker-no-offset" detail: [NSString stringWithFormat:
+          @"month %.0fpt in, day %.0fpt and year %.0fpt wide, centred: no time or zone",
+          month.minX / scale, dayInk.width / scale, year.width / scale]];
+      }
+    else
+      {
+        [self fail: @"date-picker-no-offset" detail: [NSString stringWithFormat:
+          @"month ink from %.0fpt, day %.0fpt wide at %.0f, year %.0fpt wide at %.0f",
+          month.count ? month.minX / scale : -1.0,
+          dayInk.width / scale, dayInk.count ? (dayInk.minX + dayInk.width / 2.0) / scale : -1.0,
+          year.width / scale, year.count ? (year.minX + year.width / 2.0) / scale : -1.0]];
+      }
+  }
+
+  /* The TimePicker field: hour, minute and (on a 12-hour clock) AM/PM in
+     equal columns, each with its label. */
+  rep = QuirkProbeRender(time);
+  [self saveView: time named: @"time-picker-field"];
+  {
+    NSUInteger columns = QuirkProbeTwelveHourClock() ? 3 : 2;
+    CGFloat width = 242.0 / columns;
+    NSUInteger index, labelled = 0, dividers = 0;
+
+    for (index = 0; index < columns; index++)
+      {
+        QuirkProbeInk ink = QuirkProbeMeasureIn(rep, QuirkProbeIsInk,
+                                                NSMakeRect((index * width + 4) * scale, 4 * scale,
+                                                           (width - 8) * scale, [rep pixelsHigh] - 8 * scale));
+
+        if (ink.count > 0 && fabs((ink.minX + ink.width / 2.0) / scale - (index + 0.5) * width) <= 3.0)
+          {
+            labelled++;
+          }
+        if (index > 0 && QuirkProbeSolidColumns(rep, QuirkProbeIsFaintInk,
+                                                NSMakeRect((index * width - 3) * scale, 4 * scale, 6 * scale,
+                                                           [rep pixelsHigh] - 8 * scale),
+                                                [rep pixelsHigh] - 9 * scale, NULL) > 0)
+          {
+            dividers++;
+          }
+      }
+    if (labelled == columns && dividers == columns - 1)
+      {
+        [self pass: @"time-picker-field" detail: [NSString stringWithFormat:
+          @"%lu centred parts between %lu dividers", (unsigned long)columns, (unsigned long)dividers]];
+      }
+    else
+      {
+        [self fail: @"time-picker-field" detail: [NSString stringWithFormat:
+          @"%lu of %lu parts centred, %lu dividers", (unsigned long)labelled,
+          (unsigned long)columns, (unsigned long)dividers]];
+      }
+  }
+
+  /* CalendarView: today, picked, filled with the accent and ringed. */
+  rep = QuirkProbeRender(calendar);
+  scale = QuirkProbeScale(rep, calendar);
+  [self saveView: calendar named: @"date-picker-calendar"];
+  if (highContrast)
+    {
+      [self skip: @"date-picker-calendar" detail: @"high contrast's highlight may not be blue"];
+    }
+  else
+    {
+      QuirkProbeInk today = QuirkProbeMeasureIn(rep, QuirkProbeIsAccentBlue, NSZeroRect);
+
+      if (today.count > 0 && today.width / scale >= 32.0 && today.width / scale <= 44.0
+          && today.height / scale >= 32.0 && today.height / scale <= 44.0)
+        {
+          [self pass: @"date-picker-calendar" detail: [NSString stringWithFormat:
+            @"today is an accent circle %.0fpt across", today.width / scale]];
+        }
+      else
+        {
+          [self fail: @"date-picker-calendar" detail: [NSString stringWithFormat:
+            @"the accent covers %.0fx%.0fpt (%lu px); expected one day's circle",
+            today.width / scale, today.height / scale, (unsigned long)today.count]];
+        }
+    }
+
+  /* The flyout: a click opens it over the field; Down moves the month on
+     and Enter accepts. inspectDatePickerFlyout: renders it while open. */
+  if (highContrast)
+    {
+      [self skip: @"date-picker-flyout-band" detail: @"high contrast's highlight may not be blue"];
+      [self skip: @"date-picker-flyout-pick" detail: @"needs the flyout band check"];
+      [window orderOut: nil];
+      return;
+    }
+  {
+    NSTimer *timer = [NSTimer timerWithTimeInterval: 0.3
+                                             target: self
+                                           selector: @selector(inspectDatePickerFlyout:)
+                                           userInfo: window
+                                            repeats: NO];
+    NSEvent *click = [NSEvent mouseEventWithType: NSLeftMouseDown
+                                        location: [date convertPoint: NSMakePoint(60, 16) toView: nil]
+                                   modifierFlags: 0
+                                       timestamp: 0
+                                    windowNumber: [window windowNumber]
+                                         context: nil
+                                     eventNumber: 0
+                                      clickCount: 1
+                                        pressure: 1.0];
+    NSCalendarDate *picked = nil;
+
+    [[NSRunLoop currentRunLoop] addTimer: timer forMode: NSEventTrackingRunLoopMode];
+    [NSApp postEvent: [NSEvent keyEventWithType: NSKeyDown
+                                       location: NSZeroPoint
+                                  modifierFlags: 0
+                                      timestamp: 0
+                                   windowNumber: [window windowNumber]
+                                        context: nil
+                                     characters: [NSString stringWithFormat: @"%C", (unichar)NSDownArrowFunctionKey]
+                    charactersIgnoringModifiers: [NSString stringWithFormat: @"%C", (unichar)NSDownArrowFunctionKey]
+                                      isARepeat: NO
+                                        keyCode: 0]
+             atStart: NO];
+    _datePickerActions = 0;
+    [date mouseDown: click];
+    [timer invalidate];
+
+    picked = [[date dateValue] dateWithCalendarFormat: nil
+                                              timeZone: [NSTimeZone timeZoneWithName: @"America/Chicago"]];
+    if ([picked yearOfCommonEra] == 2026 && [picked monthOfYear] == 11 && [picked dayOfMonth] == 5
+        && _datePickerActions == 1)
+      {
+        [self pass: @"date-picker-flyout-pick" detail: @"Down and Enter in the flyout picked November 5, and sent the action"];
+      }
+    else
+      {
+        [self fail: @"date-picker-flyout-pick" detail: [NSString stringWithFormat:
+          @"after Down and Enter the date is %@ (%lu actions); expected 2026-11-05",
+          [picked descriptionWithCalendarFormat: @"%Y-%m-%d %H:%M %z"],
+          (unsigned long)_datePickerActions]];
+      }
+  }
+  [window orderOut: nil];
+}
+
+static NSBrowser *
+QuirkProbeBrowser(QuirkProbe *probe, NSView *content, NSRect frame, NSInteger leafColumn, NSInteger depth)
+{
+  NSBrowser *browser = AUTORELEASE([[NSBrowser alloc] initWithFrame: frame]);
+  NSInteger column;
+
+  [browser setTag: leafColumn];
+  [browser setDelegate: (id)probe];
+  [browser setMaxVisibleColumns: 3];
+  [browser setTitled: NO];
+  [content addSubview: browser];
+  [browser loadColumnZero];
+  for (column = 0; column < depth; column++)
+    {
+      [browser selectRow: (column == 0) ? 2 : 1 inColumn: column];
+    }
+  return browser;
+}
+
+/* NSBrowser as WinUI lists side by side (issue #58): ListView's selection
+   (a subtle fill and a 3pt accent pill) rather than a saturated bar with
+   white text, a secondary chevron on branch rows, and no horizontal
+   scroller while every column fits; when there are columns to scroll to,
+   WinUI's thin bar. libs-gui drew the scroller as a heavy grey strip under
+   the columns, always. */
+- (void) checkBrowser
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(160, 140, 600, 420)
+                                     title: @"QuirkProbe Browser"];
+  NSView *content = [window contentView];
+  NSBrowser *fits = QuirkProbeBrowser(self, content, NSMakeRect(20, 220, 540, 170), 2, 2);
+  NSBrowser *scrolls = QuirkProbeBrowser(self, content, NSMakeRect(20, 20, 540, 170), 5, 4);
+  NSScrollView *column = nil;
+  NSMatrix *matrix = nil;
+  NSBitmapImageRep *rep = nil;
+  NSScroller *scroller = nil;
+  CGFloat scale;
+  NSUInteger red, green, blue;
+  BOOL highContrast = QuirkProbeHasArgument(@"--high-contrast", nil);
+
+  /* Key, so the pill is the accent. */
+  [window makeKeyAndOrderFront: nil];
+  [window display];
+
+  /* The selection in the first column: row 2. */
+  matrix = [fits matrixInColumn: 0];
+  column = [matrix enclosingScrollView];
+  if (matrix == nil || column == nil)
+    {
+      [self fail: @"browser-selection" detail: @"the browser has no first column"];
+      [window orderOut: nil];
+      return;
+    }
+  rep = QuirkProbeRender(column);
+  scale = QuirkProbeScale(rep, column);
+  [self saveView: column named: @"browser-column"];
+  if (highContrast)
+    {
+      [self skip: @"browser-selection" detail: @"high contrast keeps the system highlight"];
+    }
+  else
+    {
+      NSRect row = [column convertRect: [matrix cellFrameAtRow: 2 column: 0] fromView: matrix];
+      NSRect pixels = QuirkProbePixelRect(column, row, scale);
+      QuirkProbeInk accent = QuirkProbeMeasureIn(rep, QuirkProbeIsAccentBlue, pixels);
+      NSUInteger fill, card;
+
+      QuirkProbePixel(rep, (NSInteger)(NSMinX(pixels) + 90 * scale), (NSInteger)NSMidY(pixels) - 6 * scale,
+                      &red, &green, &blue);
+      fill = red + green + blue;
+      QuirkProbePixel(rep, (NSInteger)(NSMinX(pixels) + 90 * scale), (NSInteger)NSMaxY(pixels) + 6 * scale,
+                      &red, &green, &blue);
+      card = red + green + blue;
+      if (accent.count > 0 && accent.width <= ceil(3.0 * scale) + 1
+          && (accent.minX - NSMinX(pixels)) / scale <= 8.0
+          && llabs((long long)fill - (long long)card) >= 3 && llabs((long long)fill - (long long)card) <= 60)
+        {
+          [self pass: @"browser-selection" detail: [NSString stringWithFormat:
+            @"a %ld px accent pill %.0fpt in; a subtle fill (%lu over the card's %lu)",
+            (long)accent.width, (accent.minX - NSMinX(pixels)) / scale,
+            (unsigned long)fill, (unsigned long)card]];
+        }
+      else
+        {
+          [self fail: @"browser-selection" detail: [NSString stringWithFormat:
+            @"accent %ld px wide from %.0fpt; the row's fill %lu over the card's %lu",
+            (long)accent.width, accent.count ? (accent.minX - NSMinX(pixels)) / scale : -1.0,
+            (unsigned long)fill, (unsigned long)card]];
+        }
+    }
+
+  /* A branch row's chevron, fainter than its title; none on a leaf. */
+  {
+    NSRect branch = QuirkProbePixelRect(column, [column convertRect: [matrix cellFrameAtRow: 0 column: 0]
+                                                           fromView: matrix], scale);
+    NSScrollView *leaves = [[fits matrixInColumn: 2] enclosingScrollView];
+    NSUInteger titleContrast = 0, chevronContrast = 0, background;
+    NSInteger x, y;
+    QuirkProbeInk chevron, leafInk = { 0, 0, 0, 0, 0 };
+
+    /* The row's top edge, clear of its title at any text size. */
+    QuirkProbePixel(rep, (NSInteger)NSMidX(branch), (NSInteger)NSMinY(branch) + 1, &red, &green, &blue);
+    background = red + green + blue;
+    QuirkProbeInkBackground = background;
+    chevron = QuirkProbeMeasureIn(rep, QuirkProbeIsFaintInk,
+                                  NSMakeRect(NSMaxX(branch) - 28 * scale, NSMinY(branch),
+                                             20 * scale, NSHeight(branch)));
+    for (y = (NSInteger)NSMinY(branch); y < (NSInteger)NSMaxY(branch); y++)
+      {
+        for (x = (NSInteger)NSMinX(branch); x < (NSInteger)NSMaxX(branch); x++)
+          {
+            NSUInteger contrast;
+
+            QuirkProbePixel(rep, x, y, &red, &green, &blue);
+            contrast = (NSUInteger)llabs((long long)(red + green + blue) - (long long)background);
+            if (x >= NSMaxX(branch) - 28 * scale)
+              {
+                chevronContrast = MAX(chevronContrast, contrast);
+              }
+            else
+              {
+                titleContrast = MAX(titleContrast, contrast);
+              }
+          }
+      }
+    if (leaves != nil)
+      {
+        NSBitmapImageRep *leafRep = QuirkProbeRender(leaves);
+        NSMatrix *leafMatrix = [fits matrixInColumn: 2];
+        NSRect leaf = QuirkProbePixelRect(leaves, [leaves convertRect: [leafMatrix cellFrameAtRow: 0 column: 0]
+                                                             fromView: leafMatrix], scale);
+
+        QuirkProbePixel(leafRep, (NSInteger)NSMidX(leaf), (NSInteger)NSMinY(leaf) + 1, &red, &green, &blue);
+        QuirkProbeInkBackground = red + green + blue;
+        leafInk = QuirkProbeMeasureIn(leafRep, QuirkProbeIsFaintInk,
+                                      NSMakeRect(NSMaxX(leaf) - 28 * scale, NSMinY(leaf) + 2 * scale,
+                                                 20 * scale, NSHeight(leaf) - 4 * scale));
+      }
+    if (chevron.count > 0 && chevron.width / scale <= 7.0 && chevron.height / scale <= 11.0
+        && (highContrast || chevronContrast < titleContrast) && leaves != nil && leafInk.count == 0)
+      {
+        [self pass: @"browser-chevron" detail: [NSString stringWithFormat:
+          @"a %.0fx%.0fpt chevron at %lu contrast (the title's %lu); none on a leaf",
+          chevron.width / scale, chevron.height / scale,
+          (unsigned long)chevronContrast, (unsigned long)titleContrast]];
+      }
+    else
+      {
+        [self fail: @"browser-chevron" detail: [NSString stringWithFormat:
+          @"the branch mark is %.0fx%.0fpt at %lu contrast (the title's %lu); %lu px on a leaf",
+          chevron.width / scale, chevron.height / scale, (unsigned long)chevronContrast,
+          (unsigned long)titleContrast, (unsigned long)leafInk.count]];
+      }
+  }
+
+  /* Every column fits: no horizontal scroller, and the columns reach the
+     browser's foot. */
+  {
+    NSRect last = [[[fits matrixInColumn: 2] enclosingScrollView] frame];
+    CGFloat foot = [fits isFlipped] ? NSHeight([fits bounds]) - NSMaxY(last) : NSMinY(last);
+    NSScroller *horizontal = nil;
+    NSEnumerator *enumerator = [[fits subviews] objectEnumerator];
+    NSView *subview = nil;
+
+    while ((subview = [enumerator nextObject]) != nil)
+      {
+        if ([subview isKindOfClass: [NSScroller class]])
+          {
+            horizontal = (NSScroller *)subview;
+          }
+      }
+    if ((horizontal == nil || [horizontal isHidden]) && foot <= 1.0)
+      {
+        [self pass: @"browser-scroller-hidden" detail: @"all three columns fit: no scroller, the columns reach the foot"];
+      }
+    else
+      {
+        [self fail: @"browser-scroller-hidden" detail: [NSString stringWithFormat:
+          @"the scroller is %@, the columns stop %.0fpt above the foot",
+          (horizontal == nil || [horizontal isHidden]) ? @"hidden" : @"shown", foot]];
+      }
+  }
+
+  /* Five columns in three: the thin bar, its 6pt thumb. */
+  {
+    NSEnumerator *enumerator = [[scrolls subviews] objectEnumerator];
+    NSView *subview = nil;
+
+    while ((subview = [enumerator nextObject]) != nil)
+      {
+        if ([subview isKindOfClass: [NSScroller class]])
+          {
+            scroller = (NSScroller *)subview;
+          }
+      }
+    if (scroller == nil || [scroller isHidden])
+      {
+        [self fail: @"browser-scroller-shown" detail: @"five columns in three, and no scroller"];
+      }
+    else
+      {
+        NSBitmapImageRep *bar = nil;
+        QuirkProbeInk thumb;
+
+        [scrolls display];
+        bar = QuirkProbeRender(scrolls);
+        scale = QuirkProbeScale(bar, scrolls);
+        [self saveView: scrolls named: @"browser-scrolls"];
+        /* The strip's edge, beside the thumb. */
+        {
+          NSRect strip = QuirkProbePixelRect(scrolls, [scroller frame], scale);
+
+          QuirkProbePixel(bar, (NSInteger)NSMidX(strip), (NSInteger)NSMinY(strip), &red, &green, &blue);
+          QuirkProbeInkBackground = red + green + blue;
+        }
+        thumb = QuirkProbeMeasureIn(bar, QuirkProbeIsInk,
+                                    QuirkProbePixelRect(scrolls, NSInsetRect([scroller frame], 16.0, 0.0), scale));
+        if (thumb.count > 0 && thumb.height / scale <= 7.0 && thumb.width / scale >= 40.0)
+          {
+            [self pass: @"browser-scroller-shown" detail: [NSString stringWithFormat:
+              @"five columns in three: a %.0fpt thumb %.0fpt long", thumb.height / scale, thumb.width / scale]];
+          }
+        else
+          {
+            [self fail: @"browser-scroller-shown" detail: [NSString stringWithFormat:
+              @"the scroller's ink is %.0fx%.0fpt; expected a thin thumb",
+              thumb.width / scale, thumb.height / scale]];
+          }
+      }
+  }
+
+  /* A column whose rows fit shows no scroll bar (the strip clear of the
+     card's corners). */
+  {
+    NSRect strip = NSMakeRect(NSWidth([column bounds]) - 7.0, 8.0, 5.0, NSHeight([column bounds]) - 16.0);
+    QuirkProbeInk bar;
+
+    rep = QuirkProbeRender(column);
+    scale = QuirkProbeScale(rep, column);
+    QuirkProbePixel(rep, (NSInteger)(NSWidth([column bounds]) * scale / 2),
+                    [rep pixelsHigh] - (NSInteger)(10 * scale), &red, &green, &blue);
+    QuirkProbeInkBackground = red + green + blue;
+    bar = QuirkProbeMeasureIn(rep, QuirkProbeIsInk, QuirkProbePixelRect(column, strip, scale));
+    if (bar.count == 0)
+      {
+        [self pass: @"browser-column-scroller" detail: @"a column whose rows fit shows no scroll bar"];
+      }
+    else
+      {
+        [self fail: @"browser-column-scroller" detail: [NSString stringWithFormat:
+          @"%lu px of scroll bar beside rows that fit", (unsigned long)bar.count]];
+      }
+  }
+  [window orderOut: nil];
+}
+
 /* A table built in code looks like a WinUI list (issue #28): libs-gui's
    16pt rows, grid and 5x2pt spacing become 32pt rows, no grid and none;
    the header shows column dividers only under the pointer; and a row under
@@ -2686,6 +3574,24 @@ QuirkProbeMenuRows(NSMenuView *view, NSBitmapImageRep *rep, NSInteger index,
           [self fail: @"menu-shortcut-gap" detail: [NSString stringWithFormat:
             @"%ld px between the longest title and its shortcut, WinUI has 24pt", (long)gap]];
         }
+
+      /* Shortcuts are right-aligned (issue #13: with libs-gui after 0.32,
+         0.32's NSRightTextAlignment centred them). */
+      {
+        CGFloat trailing = (width - 1 - lastInk) / scale;
+
+        /* WinUI's 12pt padding, and the side bearing. */
+        if (trailing <= 18.0)
+          {
+            [self pass: @"menu-shortcut-trailing" detail: [NSString stringWithFormat:
+              @"the shortcut ends %.0fpt from the flyout's edge", trailing]];
+          }
+        else
+          {
+            [self fail: @"menu-shortcut-trailing" detail: [NSString stringWithFormat:
+              @"the shortcut ends %.0fpt from the flyout's edge: not right-aligned", trailing]];
+          }
+      }
 
       /* The strongest ink of each: secondary text is fainter. */
       for (x = firstInk; x <= lastInk; x++)
@@ -3922,6 +4828,7 @@ QuirkProbeLastItemOfMenu(NSString *title)
   [self checkToolbarImageItem];
   [self checkScrollerEdge];
   [self checkTableHeader];
+  [self checkTextAlignment];
   [self checkMultilineLabels];
   [self checkSwitches];
   [self checkStepper];
@@ -3934,6 +4841,9 @@ QuirkProbeLastItemOfMenu(NSString *title)
   [self checkTypography];
   [self checkSlider];
   [self checkProgress];
+  [self checkLevelIndicator];
+  [self checkDatePicker];
+  [self checkBrowser];
   [self checkTableDefaults];
   [self checkLiveSettings];
   [self checkIndicators];

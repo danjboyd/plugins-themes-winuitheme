@@ -1,3 +1,23 @@
+/*
+   Copyright (C) 2026 Daniel Boyd
+
+   This file is part of the GNUstep WinUI theme.
+
+   This library is free software; you can redistribute it and/or
+   modify it under the terms of the GNU Lesser General Public
+   License as published by the Free Software Foundation; either
+   version 2.1 of the License, or (at your option) any later version.
+
+   This library is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+   Lesser General Public License for more details.
+
+   You should have received a copy of the GNU Lesser General Public
+   License along with this library; see the file COPYING.LIB.
+   If not, see <https://www.gnu.org/licenses/>.
+*/
+
 #ifndef GNUstep_WINUITHEME_H
 #define GNUstep_WINUITHEME_H
 
@@ -13,6 +33,14 @@
    NULL and the override has nothing to fall back on. This looks the method up
    for `baseClass`, the class the override was installed on, instead. */
 IMP WinUIThemeOriginalMethod(SEL selector, id receiver, Class baseClass);
+
+/* Centred and right-aligned text as the running libs-gui numbers them.
+   libs-gui after 0.32 numbers NSTextAlignment as AppKit does (centre 1,
+   right 2; 0.32 has right 1, centre 2), so the constants a theme built
+   against one release's headers mean the other alignment with the other
+   release (#13). */
+NSTextAlignment WinUIThemeCenterTextAlignment(void);
+NSTextAlignment WinUIThemeRightTextAlignment(void);
 
 @interface WinUITheme : GSTheme
 {

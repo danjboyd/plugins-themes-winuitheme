@@ -1,3 +1,23 @@
+/*
+   Copyright (C) 2026 Daniel Boyd
+
+   This file is part of the GNUstep WinUI theme.
+
+   This library is free software; you can redistribute it and/or
+   modify it under the terms of the GNU Lesser General Public
+   License as published by the Free Software Foundation; either
+   version 2.1 of the License, or (at your option) any later version.
+
+   This library is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+   Lesser General Public License for more details.
+
+   You should have received a copy of the GNU Lesser General Public
+   License along with this library; see the file COPYING.LIB.
+   If not, see <https://www.gnu.org/licenses/>.
+*/
+
 #import "WinUIThemeDrawing.h"
 
 #import "../Settings/WinUIThemeMetrics.h"
@@ -427,7 +447,7 @@ WinUIThemeSegmentedLabelAttributes(NSSegmentedCell *cell,
     }
 
   paragraphStyle = [[[NSMutableParagraphStyle alloc] init] autorelease];
-  [paragraphStyle setAlignment: NSCenterTextAlignment];
+  [paragraphStyle setAlignment: WinUIThemeCenterTextAlignment()];
   [paragraphStyle setLineBreakMode: NSLineBreakByTruncatingTail];
   [attributes setObject: paragraphStyle forKey: NSParagraphStyleAttributeName];
 
@@ -623,7 +643,7 @@ WinUIThemePopupDisplayString(NSPopUpButtonCell *cell)
      ControlStrokeColorDefault, darker (...Secondary) along its bottom.
    High contrast: text-colour track, highlight value, window-coloured
    thumb. Any argument may be NULL. */
-static void
+void
 WinUIThemeRangeColors(WinUITheme *theme, BOOL enabled,
                       NSColor **trackOut, NSColor **valueOut,
                       NSColor **thumbOut, NSColor **borderOut, NSColor **bottomOut)
@@ -844,6 +864,11 @@ WinUIThemeDrawProgressRing(WinUITheme *theme, NSRect bounds, NSColor *color,
   if (WinUIThemeUsesInputBorder(aType, view))
     {
       WinUIThemeDrawTextBoxChrome(self, frame, view, WinUIThemeControlEnabled(view));
+      return;
+    }
+  if (aType != NSNoBorder && WinUIThemeIsBrowserColumn(view))
+    {
+      WinUIThemeDrawBrowserColumnCard(self, frame);
       return;
     }
 

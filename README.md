@@ -87,3 +87,12 @@ powershell -ExecutionPolicy Bypass -File Reference/WinUI3ReferenceApp/build.ps1
 
 Before release, the theme must validate against `ObjcMarkdown` in the sibling
 directory at `C:\Users\Support\git\ObjcMarkdown`.
+
+## License
+
+WinUITheme is licensed under the GNU Lesser General Public License, version
+2.1 or (at your option) any later version (LGPL-2.1-or-later). That covers
+the whole repository: the theme sources, the examples, the scripts, the WinUI 3
+reference app and the resources.
+
+See [COPYING.LIB](./COPYING.LIB).

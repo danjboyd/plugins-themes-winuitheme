@@ -1,3 +1,23 @@
+/*
+   Copyright (C) 2026 Daniel Boyd
+
+   This file is part of the GNUstep WinUI theme.
+
+   This library is free software; you can redistribute it and/or
+   modify it under the terms of the GNU Lesser General Public
+   License as published by the Free Software Foundation; either
+   version 2.1 of the License, or (at your option) any later version.
+
+   This library is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+   Lesser General Public License for more details.
+
+   You should have received a copy of the GNU Lesser General Public
+   License along with this library; see the file COPYING.LIB.
+   If not, see <https://www.gnu.org/licenses/>.
+*/
+
 #import "WinUIThemeDrawing.h"
 #import "../Native/WinUIThemeWindowIntegration.h"
 
@@ -1123,7 +1143,7 @@ WinUIThemeDrawTableHover(WinUITheme *theme, NSTableView *tableView, NSRect clipR
 
   attributes = WinUIThemeMenuTextAttributes(font,
                                             textColor,
-                                            isHorizontal ? NSCenterTextAlignment : NSLeftTextAlignment);
+                                            isHorizontal ? WinUIThemeCenterTextAlignment() : NSLeftTextAlignment);
   attributedTitle = [[[NSAttributedString alloc] initWithString: title
                                                      attributes: attributes] autorelease];
   titleSize = [attributedTitle size];
@@ -1291,7 +1311,7 @@ WinUIThemeDrawTableHover(WinUITheme *theme, NSTableView *tableView, NSRect clipR
 
   /* GNUstep centres header titles by default; WinUI (and Cocoa) start them
      at the leading edge. Titles an app aligned left or right keep that. */
-  if ([cell alignment] == NSCenterTextAlignment)
+  if ([cell alignment] == WinUIThemeCenterTextAlignment())
     {
       [cell setAlignment: NSLeftTextAlignment];
     }
@@ -1413,7 +1433,7 @@ WinUIThemeDrawTableHover(WinUITheme *theme, NSTableView *tableView, NSRect clipR
         : WinUIThemeColorFromTheme(self, @"secondaryLabelColor", [NSColor disabledControlTextColor]);
       NSDictionary *attributes = WinUIThemeMenuTextAttributes([NSFont systemFontOfSize: [NSFont systemFontSize]],
                                                               textColor,
-                                                              NSCenterTextAlignment);
+                                                              WinUIThemeCenterTextAlignment());
       NSSize labelSize = [title sizeWithAttributes: attributes];
       CGFloat tabWidth = MAX(78.0, ceil(labelSize.width + 28.0));
       NSRect tabRect = NSMakeRect(x,
@@ -1971,7 +1991,7 @@ WinUIThemeDrawTableHover(WinUITheme *theme, NSTableView *tableView, NSRect clipR
       if ([key length] > 0)
         {
           NSFont *font = [cell font] != nil ? [cell font] : [NSFont menuFontOfSize: 0.0];
-          NSDictionary *attributes = WinUIThemeMenuTextAttributes(font, color, NSRightTextAlignment);
+          NSDictionary *attributes = WinUIThemeMenuTextAttributes(font, color, WinUIThemeRightTextAlignment());
           NSSize size = [key sizeWithAttributes: attributes];
           NSRect textRect = NSMakeRect(NSMinX(keyRect),
                                        floor(NSMidY(keyRect) - size.height / 2.0),

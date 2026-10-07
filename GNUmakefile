@@ -30,7 +30,9 @@ WinUITheme_OBJC_FILES = \
 	Source/Settings/WinUIThemeMetrics.m \
 	Source/Rendering/WinUIThemePalette.m \
 	Source/Rendering/WinUIThemeDrawing.m \
-	Source/Rendering/WinUIThemeControls.m \
+	Source/Rendering/WinUIThemeControls.m 	Source/Rendering/WinUIThemeLevelIndicator.m \
+	Source/Rendering/WinUIThemeDatePicker.m \
+	Source/Rendering/WinUIThemeBrowser.m \
 	Source/Rendering/WinUIThemeMenusAndData.m \
 	Source/Rendering/WinUIThemeMenuTracking.m \
 	Source/Rendering/WinUIThemeApplicationMenu.m \

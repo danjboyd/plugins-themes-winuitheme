@@ -1,3 +1,23 @@
+/*
+   Copyright (C) 2026 Daniel Boyd
+
+   This file is part of the GNUstep WinUI theme.
+
+   This library is free software; you can redistribute it and/or
+   modify it under the terms of the GNU Lesser General Public
+   License as published by the Free Software Foundation; either
+   version 2.1 of the License, or (at your option) any later version.
+
+   This library is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+   Lesser General Public License for more details.
+
+   You should have received a copy of the GNU Lesser General Public
+   License along with this library; see the file COPYING.LIB.
+   If not, see <https://www.gnu.org/licenses/>.
+*/
+
 #ifndef GNUstep_WINUITHEMEDRAWING_H
 #define GNUstep_WINUITHEMEDRAWING_H
 
@@ -172,6 +192,19 @@ NSInteger WinUIThemeSegmentIndexAtPoint(NSSegmentedCell *cell,
                                         NSRect cellFrame,
                                         NSPoint point);
 NSRect WinUIThemeSwitchTrackRect(NSRect rect);
+/* Slider, progress and level colours (WinUIThemeControls.m): the track
+   (ControlStrongFill/Stroke), the accent value, the slider thumb and its
+   borders. Any argument may be NULL. */
+void WinUIThemeRangeColors(WinUITheme *theme, BOOL enabled,
+                           NSColor **trackOut, NSColor **valueOut,
+                           NSColor **thumbOut, NSColor **borderOut, NSColor **bottomOut);
 NSRect WinUIThemeSliderTrackRect(WinUITheme *theme, NSRect rect, BOOL horizontal);
+
+/* NSBrowser's columns (WinUIThemeBrowser.m): YES for a column's scroll
+   view; its card, drawn as its border. */
+BOOL WinUIThemeIsBrowserColumn(NSView *view);
+void WinUIThemeDrawBrowserColumnCard(WinUITheme *theme, NSRect frame);
+NSColor *WinUIThemeBrowserCardColor(WinUITheme *theme);
+void WinUIThemeSyncBrowserColumn(NSScrollView *scrollView);
 
 #endif

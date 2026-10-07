@@ -1,3 +1,23 @@
+/*
+   Copyright (C) 2026 Daniel Boyd
+
+   This file is part of the GNUstep WinUI theme.
+
+   This library is free software; you can redistribute it and/or
+   modify it under the terms of the GNU Lesser General Public
+   License as published by the Free Software Foundation; either
+   version 2.1 of the License, or (at your option) any later version.
+
+   This library is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+   Lesser General Public License for more details.
+
+   You should have received a copy of the GNU Lesser General Public
+   License along with this library; see the file COPYING.LIB.
+   If not, see <https://www.gnu.org/licenses/>.
+*/
+
 #import "WinUITheme.h"
 
 #import "Settings/WinUIThemeSettings.h"
@@ -52,6 +72,32 @@ WinUIThemeOriginalMethod(SEL selector, id receiver, Class baseClass)
       NSMapInsert(prototypes, (void *)baseClass, (void *)prototype);
     }
   return [theme overriddenMethod: selector for: prototype];
+}
+
+/* NSParagraphStyle's class version went to 4 when libs-gui renumbered
+   NSTextAlignment. */
+static BOOL
+WinUIThemeUsesAppKitAlignments(void)
+{
+  static int appKit = -1;
+
+  if (appKit < 0)
+    {
+      appKit = [NSParagraphStyle version] >= 4 ? 1 : 0;
+    }
+  return appKit == 1;
+}
+
+NSTextAlignment
+WinUIThemeCenterTextAlignment(void)
+{
+  return WinUIThemeUsesAppKitAlignments() ? 1 : 2;
+}
+
+NSTextAlignment
+WinUIThemeRightTextAlignment(void)
+{
+  return WinUIThemeUsesAppKitAlignments() ? 2 : 1;
 }
 
 @implementation WinUITheme
