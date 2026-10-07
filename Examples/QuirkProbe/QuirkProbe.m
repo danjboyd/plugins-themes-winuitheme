@@ -2699,6 +2699,7 @@ QuirkProbeStripInk(NSScrollView *scrollView, NSUInteger fill, CGFloat inset)
       [self skip: @"scroller-indicator-fades" detail: @"high contrast keeps classic scroll bars"];
       [self skip: @"scroller-classic-setting" detail: @"high contrast keeps classic scroll bars"];
       [self skip: @"scroller-freed-mid-fade" detail: @"high contrast keeps classic scroll bars"];
+      [self skip: @"scroller-hover-expands" detail: @"high contrast keeps classic scroll bars"];
       return;
     }
 
@@ -2758,6 +2759,44 @@ QuirkProbeStripInk(NSScrollView *scrollView, NSUInteger fill, CGFloat inset)
       [self fail: @"scroller-indicator-fades" detail: [NSString stringWithFormat:
         @"%lu px of indicator while scrolling, %lu px 1.6s later",
         (unsigned long)ink, (unsigned long)QuirkProbeStripInk(scrollView, fill, 4.0)]];
+    }
+
+  /* The pointer over the strip reveals the bar, expanded: a 6pt thumb
+     down the strip's middle, where the 2pt indicator never reaches. */
+  if ([defaults boolForKey: @"ProbeMovesPointer"] == NO)
+    {
+      [self skip: @"scroller-hover-expands" detail: @"moves the pointer: needs -ProbeMovesPointer YES"];
+    }
+  else
+    {
+      NSRect frame = [[scrollView verticalScroller] convertRect: [[scrollView verticalScroller] bounds]
+                                                         toView: nil];
+      NSUInteger middle, beside;
+
+      [document scrollPoint: NSMakePoint(0, 0)];
+      [window makeKeyAndOrderFront: nil];
+      QuirkProbeSetPointer([window convertBaseToScreen: NSMakePoint(-40, -40)]);
+      QuirkProbeDispatchEvents(0.2);
+      QuirkProbeSetPointer([window convertBaseToScreen: NSMakePoint(NSMidX(frame), NSMidY(frame) + 30)]);
+      QuirkProbeDispatchEvents(0.4);
+      [window display];
+      [self saveView: scrollView named: @"scroller-hover"];
+      middle = QuirkProbeStripInk(scrollView, fill, NSWidth(strip) / 2.0);
+      beside = QuirkProbeStripInk(scrollView, fill, NSWidth(strip) / 2.0 + 2.0);
+      QuirkProbeSetPointer([window convertBaseToScreen: NSMakePoint(-40, -40)]);
+      QuirkProbeDispatchEvents(1.6);
+      [window display];
+      if (middle > 0 && beside > 0)
+        {
+          [self pass: @"scroller-hover-expands" detail: [NSString stringWithFormat:
+            @"under the pointer, %lu px of thumb down the strip's middle", (unsigned long)middle]];
+        }
+      else
+        {
+          [self fail: @"scroller-hover-expands" detail: [NSString stringWithFormat:
+            @"under the pointer, %lu px down the strip's middle and %lu beside it: not expanded",
+            (unsigned long)middle, (unsigned long)beside]];
+        }
     }
 
   /* Classic: the content stops at the strip, which is always drawn. */
@@ -3163,6 +3202,48 @@ QuirkProbeInkIn(NSBitmapImageRep *rep, NSRect area, NSInteger fill, NSInteger th
           [combo currentEditor] != nil ? @"a" : @"no", (unsigned long)value]];
       }
   }
+
+  /* Editable, while editing: the value in the editor, a chevron the
+     editor doesn't cover, and (but in high contrast) the focus underline
+     in the accent along the bottom. */
+  [window makeFirstResponder: window];
+  [combo setEditable: YES];
+  [combo setStringValue: @"Value"];
+  [window makeFirstResponder: combo];
+  [window display];
+  rep = QuirkProbeRender(combo);
+  [self saveView: combo named: @"combobox-editing"];
+  {
+    NSInteger height = [rep pixelsHigh];
+    NSInteger width = [rep pixelsWide];
+    NSInteger chevron;
+
+    QuirkProbeInkBackground = QuirkProbeBrightnessAt(rep, scale, NSWidth([combo bounds]) - 4.0,
+                                                     NSHeight([combo bounds]) / 2.0);
+    chevron = QuirkProbeChevronDirection(rep, NSMakeRect(width - 30 * scale, height * 0.25,
+                                                         24 * scale, height * 0.5));
+    NSUInteger underline = QuirkProbeRowCount(rep, QuirkProbeIsAccentBlue, height - 1,
+                                              width / 4, 3 * width / 4);
+    NSInteger editorFill = QuirkProbeBrightnessAt(rep, scale, NSWidth([combo bounds]) / 2.0,
+                                                  NSHeight([combo bounds]) / 2.0);
+    NSUInteger value = QuirkProbeInkIn(rep, NSMakeRect(4 * scale, height * 0.2, 60 * scale, height * 0.6),
+                                       editorFill, 150, NULL);
+    BOOL underlined = highContrast || underline >= (NSUInteger)(width / 2 - 4);
+
+    if ([combo currentEditor] != nil && value > 10 && chevron == -1 && underlined)
+      {
+        [self pass: @"combobox-editing" detail: [NSString stringWithFormat:
+          @"editing: %lu px of value, a down chevron, %lu px of underline",
+          (unsigned long)value, (unsigned long)underline]];
+      }
+    else
+      {
+        [self fail: @"combobox-editing" detail: [NSString stringWithFormat:
+          @"editing: %@ editor, %lu px of value, chevron %ld (want -1), %lu px of underline",
+          [combo currentEditor] != nil ? @"an" : @"no", (unsigned long)value, (long)chevron,
+          (unsigned long)underline]];
+      }
+  }
   [window makeFirstResponder: window];
   [window orderOut: nil];
 }
@@ -3387,6 +3468,40 @@ QuirkProbeInkIn(NSBitmapImageRep *rep, NSRect area, NSInteger fill, NSInteger th
         @"before the magnifier: %lu px empty, %lu px with text", (unsigned long)emptyDelete,
         (unsigned long)delete]];
     }
+
+  /* Pressed, the delete button sits on SubtleFillColorTertiary: a faint
+     square around the cross, 9pt from its centre (the cross is 10pt). */
+  {
+    NSButtonCell *cancel = [[search cell] cancelButtonCell];
+    NSRect button = [[search cell] cancelButtonRectForBounds: [search bounds]];
+    CGFloat x = NSMidX(button) - 9.0;
+    CGFloat y = [search isFlipped] ? NSMidY(button) : NSHeight([search bounds]) - NSMidY(button);
+    NSInteger resting, pressed;
+
+    resting = QuirkProbeBrightnessAt(rep, scale, x, y);
+    [cancel setHighlighted: YES];
+    [search display];
+    rep = QuirkProbeRender(search);
+    [self saveView: search named: @"search-delete-pressed"];
+    pressed = QuirkProbeBrightnessAt(rep, scale, x, y);
+    [cancel setHighlighted: NO];
+    [search display];
+    if (QuirkProbeHasArgument(@"--high-contrast", nil))
+      {
+        [self skip: @"search-delete-pressed" detail: @"high contrast draws no subtle fill"];
+      }
+    else if (llabs((long long)(pressed - resting)) >= 6)
+      {
+        [self pass: @"search-delete-pressed" detail: [NSString stringWithFormat:
+          @"beside the cross: %ld at rest, %ld pressed (of 765)", (long)resting, (long)pressed]];
+      }
+    else
+      {
+        [self fail: @"search-delete-pressed" detail: [NSString stringWithFormat:
+          @"beside the cross: %ld at rest, %ld pressed (of 765): no pressed fill",
+          (long)resting, (long)pressed]];
+      }
+  }
   [window orderOut: nil];
 }
 
