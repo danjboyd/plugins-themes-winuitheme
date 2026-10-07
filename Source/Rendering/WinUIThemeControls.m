@@ -658,6 +658,63 @@ WinUIThemeSliderThumbSize(WinUITheme *theme)
   return round(20.0 * MAX(1.0, [[theme settings] desktopScaleFactor]));
 }
 
+/* WinUI's ProgressRing: an accent arc, its stroke an eighth of the ring's
+   size (4px at the default 32px), on no track. Indeterminate, it spins
+   once every 2s while its length swings between 10 and 270 degrees;
+   determinate, it runs clockwise from the top for the fraction. */
+static void
+WinUIThemeDrawProgressRing(WinUITheme *theme, NSRect bounds, NSColor *color,
+                           BOOL indeterminate, double fraction)
+{
+  CGFloat size = floor(MIN(NSWidth(bounds), NSHeight(bounds)));
+  CGFloat stroke = MAX(2.0, round(size / 8.0));
+  CGFloat radius = (size - stroke) / 2.0;
+  NSPoint centre = NSMakePoint(NSMidX(bounds), NSMidY(bounds));
+  BOOL flipped = [[NSView focusView] isFlipped];
+  NSBezierPath *arc = [NSBezierPath bezierPath];
+  CGFloat start, sweep;
+
+  (void)theme;
+  if (radius <= 0.0)
+    {
+      return;
+    }
+  if (indeterminate)
+    {
+      double t = [NSDate timeIntervalSinceReferenceDate];
+      double phase = fmod(t, 2.0) / 2.0;
+
+      sweep = 10.0 + 260.0 * (0.5 - 0.5 * cos(phase * 2.0 * M_PI));
+      start = 90.0 - fmod(t * 180.0, 360.0);
+    }
+  else
+    {
+      if (fraction <= 0.0)
+        {
+          return;
+        }
+      sweep = 360.0 * MIN(1.0, fraction);
+      start = 90.0;
+    }
+
+  /* Clockwise as the user sees it: in a flipped view, angles run the
+     other way, and the top is -90 degrees. */
+  if (flipped)
+    {
+      [arc appendBezierPathWithArcWithCenter: centre radius: radius
+                                  startAngle: -start endAngle: -start + sweep clockwise: NO];
+    }
+  else
+    {
+      [arc appendBezierPathWithArcWithCenter: centre radius: radius
+                                  startAngle: start endAngle: start - sweep clockwise: YES];
+    }
+  [arc setLineWidth: stroke];
+  [arc setLineCapStyle: NSRoundLineCapStyle];
+  [color set];
+  [arc stroke];
+}
+
 @implementation WinUITheme (Controls)
 
 - (void) setKeyEquivalent: (NSString *)key
@@ -1022,131 +1079,103 @@ WinUIThemeSwitchColors(WinUITheme *theme,
   [self drawSwitchKnob: rect forState: state enabled: enabled];
 }
 
+/* WinUI's ProgressBar (#42): a 1px track line in ControlStrongStroke under
+   a 3px rounded accent bar, without the bezel. Indeterminate, two accent
+   segments slide across, timed by the clock rather than the redraw count
+   so they move evenly. The spinning style is a ProgressRing. */
 - (void) drawProgressIndicator: (NSProgressIndicator *)progress
                     withBounds: (NSRect)bounds
                       withClip: (NSRect)rect
                        atCount: (int)count
                       forValue: (double)val
 {
-  NSRect contentRect = bounds;
   BOOL enabled = WinUIThemeControlEnabled(progress);
   BOOL vertical = [progress isVertical];
   double fraction = WinUIThemeClamp(val, 0.0, 1.0);
+  NSColor *track = nil;
+  NSColor *bar = nil;
+  NSRect barArea = NSIntegralRect(bounds);
+  CGFloat thickness = MIN(3.0, vertical ? NSWidth(barArea) : NSHeight(barArea));
+  NSRect trackLine;
+
+  (void)rect;
+  (void)count;
+  WinUIThemeRangeColors(self, enabled, &track, &bar, NULL, NULL, NULL);
 
   if ([progress style] == NSProgressIndicatorSpinningStyle)
     {
-      [super drawProgressIndicator: progress
-                        withBounds: bounds
-                          withClip: rect
-                           atCount: count
-                          forValue: val];
+      WinUIThemeDrawProgressRing(self, bounds, bar, [progress isIndeterminate], fraction);
       return;
     }
 
-  if ([progress isBezeled])
+  /* The bar, centred across the control; the track line through its middle. */
+  if (vertical)
     {
-      contentRect = [self drawProgressIndicatorBezel: bounds withClip: rect];
+      barArea = NSMakeRect(floor(NSMidX(barArea) - thickness / 2.0), NSMinY(barArea),
+                           thickness, NSHeight(barArea));
+      trackLine = NSMakeRect(floor(NSMidX(barArea) - 0.5), NSMinY(barArea), 1.0, NSHeight(barArea));
     }
+  else
+    {
+      barArea = NSMakeRect(NSMinX(barArea), floor(NSMidY(barArea) - thickness / 2.0),
+                           NSWidth(barArea), thickness);
+      trackLine = NSMakeRect(NSMinX(barArea), floor(NSMidY(barArea) - 0.5), NSWidth(barArea), 1.0);
+    }
+  [track set];
+  NSRectFill(trackLine);
 
   if ([progress isIndeterminate])
     {
-      NSRect chunkRect = contentRect;
-      CGFloat phase = ((count % 24) / 23.0);
+      double t = fmod([NSDate timeIntervalSinceReferenceDate], 2.0) / 2.0;
+      CGFloat length = vertical ? NSHeight(barArea) : NSWidth(barArea);
+      /* The first segment, 40% long, crosses in the first three quarters
+         of a 2s cycle; the second, 25%, in the last half. */
+      CGFloat starts[2] = { -0.4 + 1.4 * MIN(1.0, t / 0.75), -0.25 + 1.25 * MAX(0.0, (t - 0.5) / 0.5) };
+      CGFloat sizes[2] = { 0.4, 0.25 };
+      BOOL shown[2] = { t < 0.75, t >= 0.5 };
+      NSUInteger index;
 
-      if (vertical)
+      [NSGraphicsContext saveGraphicsState];
+      NSRectClip(barArea);
+      for (index = 0; index < 2; index++)
         {
-          CGFloat chunkHeight = MAX(8.0, floor(contentRect.size.height * 0.34));
+          NSRect segment = barArea;
 
-          chunkRect.size.height = MIN(chunkHeight, contentRect.size.height);
-          chunkRect.origin.y = contentRect.origin.y + floor((contentRect.size.height - chunkRect.size.height) * phase);
+          if (shown[index] == NO)
+            {
+              continue;
+            }
+          if (vertical)
+            {
+              segment.origin.y += floor(starts[index] * length);
+              segment.size.height = floor(sizes[index] * length);
+            }
+          else
+            {
+              segment.origin.x += floor(starts[index] * length);
+              segment.size.width = floor(sizes[index] * length);
+            }
+          WinUIThemeFillAndStrokeRoundedRect(segment, thickness / 2.0, bar, nil, 0.0);
         }
-      else
-        {
-          CGFloat chunkWidth = MAX(16.0, floor(contentRect.size.width * 0.32));
-
-          chunkRect.size.width = MIN(chunkWidth, contentRect.size.width);
-          chunkRect.origin.x = contentRect.origin.x + floor((contentRect.size.width - chunkRect.size.width) * phase);
-        }
-
-      [self drawProgressIndicatorBarDeterminate: chunkRect];
+      [NSGraphicsContext restoreGraphicsState];
       return;
     }
 
   if (vertical)
     {
-      CGFloat fillHeight = floor(contentRect.size.height * fraction);
-      NSRect fillRect = NSMakeRect(contentRect.origin.x,
-                                   [progress isFlipped]
-                                     ? NSMaxY(contentRect) - fillHeight
-                                     : contentRect.origin.y,
-                                   contentRect.size.width,
-                                   fillHeight);
+      CGFloat fillHeight = floor(NSHeight(barArea) * fraction);
 
-      if (fillRect.size.height > 0.0)
-        {
-          [self drawProgressIndicatorBarDeterminate: fillRect];
-        }
+      barArea.origin.y = [progress isFlipped] ? NSMaxY(barArea) - fillHeight : NSMinY(barArea);
+      barArea.size.height = fillHeight;
     }
   else
     {
-      NSRect fillRect = NSMakeRect(contentRect.origin.x,
-                                   contentRect.origin.y,
-                                   floor(contentRect.size.width * fraction),
-                                   contentRect.size.height);
-
-      if (fillRect.size.width > 0.0)
-        {
-          [self drawProgressIndicatorBarDeterminate: fillRect];
-        }
+      barArea.size.width = floor(NSWidth(barArea) * fraction);
     }
-
-  if (enabled == NO)
+  if (NSWidth(barArea) > 0.0 && NSHeight(barArea) > 0.0)
     {
-      [WinUIThemeColorWithAlpha([NSColor windowBackgroundColor], 0.20) set];
-      NSRectFillUsingOperation(contentRect, NSCompositeSourceOver);
+      WinUIThemeFillAndStrokeRoundedRect(barArea, thickness / 2.0, bar, nil, 0.0);
     }
-}
-
-- (NSRect) drawProgressIndicatorBezel: (NSRect)bounds withClip: (NSRect)rect
-{
-  BOOL dark = [[self settings] prefersDarkAppearance];
-  NSColor *surface = WinUIThemeColorFromTheme(self,
-                                              @"surfaceColor",
-                                              [NSColor controlBackgroundColor]);
-  NSColor *separator = WinUIThemeColorFromTheme(self,
-                                                @"separatorColor",
-                                                [NSColor controlShadowColor]);
-  NSRect drawRect = NSInsetRect(NSIntegralRect(bounds), 0.5, 0.5);
-  CGFloat radius = MIN(MAX(4.0, [[self metrics] controlCornerRadius]),
-                       floor(drawRect.size.height / 2.0));
-  NSBezierPath *trackPath = WinUIThemeRoundedPath(drawRect, radius);
-
-  [WinUIThemeBlendColor(surface,
-                        WinUIThemeColorFromTheme(self,
-                                                 @"windowBackgroundColor",
-                                                 [NSColor windowBackgroundColor]),
-                        dark ? 0.12 : 0.04) set];
-  [trackPath fill];
-
-  [WinUIThemeBlendColor(separator, surface, 0.12) set];
-  [trackPath setLineWidth: 1.0];
-  [trackPath stroke];
-
-  (void)rect;
-  return NSInsetRect(drawRect, 2.0, 2.0);
-}
-
-- (void) drawProgressIndicatorBarDeterminate: (NSRect)bounds
-{
-  NSColor *accent = WinUIThemeColorFromTheme(self,
-                                             @"accentColor",
-                                             [NSColor selectedControlColor]);
-  NSBezierPath *fillPath = WinUIThemeRoundedPath(bounds,
-                                                 MIN(floor(bounds.size.height / 2.0),
-                                                     MAX(3.0, [[self metrics] controlCornerRadius] - 1.0)));
-
-  [accent set];
-  [fillPath fill];
 }
 
 /* WinUI's Slider (#41): a 4px track in ControlStrongFill, the value part

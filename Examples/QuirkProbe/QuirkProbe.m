@@ -300,6 +300,7 @@ QuirkProbeModuleOfAddress(void *address)
 - (void) checkSizeToFit;
 - (void) checkTypography;
 - (void) checkSlider;
+- (void) checkProgress;
 - (void) checkMenuFlyout;
 - (void) checkOverlayScrollers;
 - (void) checkFocusVisual;
@@ -1860,6 +1861,87 @@ QuirkProbeColumnCount(NSBitmapImageRep *rep, QuirkProbePixelTest test,
   [window orderOut: nil];
 }
 
+/* WinUI's ProgressBar and ProgressRing (issue #42): a 3px accent bar on a
+   1px track line, not a bordered bezel; and an accent ring, hollow, not
+   GNUstep's NeXT spinner. */
+- (void) checkProgress
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(420, 200, 300, 100)
+                                     title: @"QuirkProbe Progress"];
+  NSProgressIndicator *bar = AUTORELEASE([[NSProgressIndicator alloc]
+    initWithFrame: NSMakeRect(20, 60, 200, 20)]);
+  NSProgressIndicator *ring = AUTORELEASE([[NSProgressIndicator alloc]
+    initWithFrame: NSMakeRect(240, 50, 32, 32)]);
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale;
+  NSInteger height;
+  NSUInteger filled, track;
+  QuirkProbeInk ringInk;
+  NSUInteger red, green, blue;
+
+  if (QuirkProbeHasArgument(@"--high-contrast", nil))
+    {
+      [self skip: @"progress-bar" detail: @"high contrast's highlight may not be blue"];
+      [self skip: @"progress-ring" detail: @"high contrast's highlight may not be blue"];
+      return;
+    }
+  [bar setIndeterminate: NO];
+  [bar setMinValue: 0.0];
+  [bar setMaxValue: 100.0];
+  [bar setDoubleValue: 50.0];
+  [ring setStyle: NSProgressIndicatorSpinningStyle];
+  /* Stopped, a spinner hides unless it's displayed when stopped. */
+  [ring setDisplayedWhenStopped: YES];
+  [ring setFrame: NSMakeRect(240, 50, 32, 32)];
+  [ring setIndeterminate: NO];
+  [ring setMinValue: 0.0];
+  [ring setMaxValue: 100.0];
+  [ring setDoubleValue: 75.0];
+  [[window contentView] addSubview: bar];
+  [[window contentView] addSubview: ring];
+  [window orderFront: nil];
+  [window display];
+
+  rep = QuirkProbeRender(bar);
+  scale = QuirkProbeScale(rep, bar);
+  height = [rep pixelsHigh];
+  [self saveView: bar named: @"progress-bar"];
+  QuirkProbePixel(rep, 2, 1, &red, &green, &blue);
+  QuirkProbeInkBackground = red + green + blue;
+  filled = QuirkProbeColumnCount(rep, QuirkProbeIsAccentBlue, (NSInteger)(50 * scale), 0, height);
+  track = QuirkProbeColumnCount(rep, QuirkProbeIsFaintInk, (NSInteger)(150 * scale), 0, height);
+  if (fabs(filled - 3.0 * scale) <= 1.0 && track >= 1 && track <= ceil(scale) + 1)
+    {
+      [self pass: @"progress-bar" detail: [NSString stringWithFormat:
+        @"a %lu px accent bar, a %lu px track", (unsigned long)filled, (unsigned long)track]];
+    }
+  else
+    {
+      [self fail: @"progress-bar" detail: [NSString stringWithFormat:
+        @"the bar is %lu px deep (expected %.0f), the track %lu (expected 1)",
+        (unsigned long)filled, 3.0 * scale, (unsigned long)track]];
+    }
+
+  rep = QuirkProbeRender(ring);
+  [self saveView: ring named: @"progress-ring"];
+  ringInk = QuirkProbeMeasureIn(rep, QuirkProbeIsAccentBlue, NSZeroRect);
+  QuirkProbePixel(rep, [rep pixelsWide] / 2, [rep pixelsHigh] / 2, &red, &green, &blue);
+  if (ringInk.count > 20 && QuirkProbeIsAccentBlue(red, green, blue) == NO
+      && ringInk.width >= [rep pixelsWide] - 4)
+    {
+      [self pass: @"progress-ring" detail: [NSString stringWithFormat:
+        @"an accent ring %ld px across, hollow", (long)ringInk.width]];
+    }
+  else
+    {
+      [self fail: @"progress-ring" detail: [NSString stringWithFormat:
+        @"%lu accent px, %ld px across; the centre is %lu,%lu,%lu",
+        (unsigned long)ringInk.count, (long)ringInk.width,
+        (unsigned long)red, (unsigned long)green, (unsigned long)blue]];
+    }
+  [window orderOut: nil];
+}
+
 /* WinUI's type ramp (issue #44): the interface font is Segoe UI Variable
    (Segoe UI without it, as on Windows 10) at Body's 14px, scaled by
    Windows' text size (-WinUIThemeTextScaleFactor stands in for it); bold
@@ -3324,6 +3406,7 @@ QuirkProbeLastItemOfMenu(NSString *title)
   [self checkSizeToFit];
   [self checkTypography];
   [self checkSlider];
+  [self checkProgress];
   [self checkMenuFlyout];
   [self checkOverlayScrollers];
   [self checkFocusVisual];
