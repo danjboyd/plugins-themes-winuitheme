@@ -2,7 +2,10 @@ param(
   [string]$Theme,
   [string]$OutputDirectory,
   [string[]]$Configuration = @("light", "dark", "high-contrast", "light-150"),
-  [int]$TimeoutSeconds = 60
+  [int]$TimeoutSeconds = 60,
+  # Checks that click with the real pointer (popup-click-stays-open) move
+  # it; pass -NoPointer to skip them while using the desktop.
+  [switch]$NoPointer
 )
 
 # Runs Examples/QuirkProbe against the theme built in this checkout (or
@@ -46,6 +49,9 @@ foreach ($name in $Configuration) {
   }
 
   $arguments = @("-GSTheme", "`"$Theme`"") + $configurationArguments[$name]
+  if (-not $NoPointer) {
+    $arguments += @("-ProbeMovesPointer", "YES")
+  }
   if (-not [string]::IsNullOrWhiteSpace($OutputDirectory)) {
     $arguments += @("-ProbeOutput", "`"$(Join-Path $OutputDirectory $name)`"")
   }

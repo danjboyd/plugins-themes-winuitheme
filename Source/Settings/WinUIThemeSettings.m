@@ -18,8 +18,9 @@ static CGFloat WinUIThemeDefaultMonospaceFontSize = 9.0;
 static CGFloat WinUIThemeMinimumResolvedInterfaceFontSize = 13.0;
 static CGFloat WinUIThemeMinimumResolvedMenuFontSize = 13.0;
 static NSString *WinUIThemePersonalizeRegistryPath = @"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize";
-static NSString *WinUIThemeDwmRegistryPath = @"Software\\Microsoft\\Windows\\DWM";
-static NSString *WinUIThemeDefaultAccentHex = @"0F6CBD";
+static NSString *WinUIThemeAccentRegistryPath = @"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Accent";
+/* Windows' default blue. */
+static NSString *WinUIThemeDefaultAccentHex = @"0078D4";
 
 static NSNumber *
 WinUIThemeBooleanNumberFromArgumentValue(NSString *value)
@@ -67,6 +68,31 @@ WinUIThemeColorFromHexString(NSString *string)
                                    green: ((rgb >> 8) & 0xFF) / 255.0
                                     blue: (rgb & 0xFF) / 255.0
                                    alpha: 1.0];
+}
+
+/* Shades for an accent Windows didn't give a palette for (an override,
+   or no AccentPalette): lighter shades blend towards white and darker ones
+   towards black, about as Windows' palette steps. */
+static NSArray *
+WinUIThemeAccentPaletteFromColor(NSColor *accent)
+{
+  static const CGFloat steps[7] = { 0.62, 0.40, 0.18, 0.0, 0.16, 0.42, 0.66 };
+  NSColor *rgb = [accent colorUsingColorSpaceName: NSCalibratedRGBColorSpace];
+  NSMutableArray *palette = [NSMutableArray arrayWithCapacity: 7];
+  NSUInteger index = 0;
+
+  if (rgb == nil)
+    {
+      return nil;
+    }
+  for (index = 0; index < 7; index++)
+    {
+      NSColor *towards = (index < 3) ? [NSColor whiteColor] : [NSColor blackColor];
+      NSColor *shade = (index == 3) ? rgb : [rgb blendedColorWithFraction: steps[index] ofColor: towards];
+
+      [palette addObject: (shade != nil) ? shade : rgb];
+    }
+  return palette;
 }
 
 static NSString *
@@ -286,22 +312,64 @@ WinUIThemeHighContrastEnabledFromSystem(void)
   return ((settings.dwFlags & HCF_HIGHCONTRASTON) != 0);
 }
 
+/* The app accent, as Windows' Settings sets it: AccentColorMenu is
+   0xAABBGGRR. (DWM's ColorizationColor, read before, is the window
+   frame's colour, which the user can turn off or tint differently.) */
 static NSColor *
 WinUIThemeAccentColorFromSystem(void)
 {
-  DWORD colorization = 0;
+  DWORD accent = 0;
 
-  if (WinUIThemeReadRegistryDWORD(WinUIThemeDwmRegistryPath,
-                                  @"ColorizationColor",
-                                  &colorization) == NO)
+  if (WinUIThemeReadRegistryDWORD(WinUIThemeAccentRegistryPath,
+                                  @"AccentColorMenu",
+                                  &accent) == NO)
     {
       return nil;
     }
 
-  return [NSColor colorWithCalibratedRed: ((colorization >> 16) & 0xFF) / 255.0
-                                   green: ((colorization >> 8) & 0xFF) / 255.0
-                                    blue: (colorization & 0xFF) / 255.0
+  return [NSColor colorWithCalibratedRed: (accent & 0xFF) / 255.0
+                                   green: ((accent >> 8) & 0xFF) / 255.0
+                                    blue: ((accent >> 16) & 0xFF) / 255.0
                                    alpha: 1.0];
+}
+
+/* Windows' accent palette: AccentPalette is eight RGBA entries, Light3,
+   Light2, Light1, the accent, Dark1, Dark2, Dark3 and one unused. */
+static NSArray *
+WinUIThemeAccentPaletteFromSystem(void)
+{
+  HKEY key = NULL;
+  DWORD type = 0;
+  BYTE bytes[32];
+  DWORD size = sizeof(bytes);
+  NSMutableArray *palette = nil;
+  NSUInteger index = 0;
+  LONG status = RegOpenKeyExA(HKEY_CURRENT_USER,
+                              [WinUIThemeAccentRegistryPath UTF8String],
+                              0,
+                              KEY_QUERY_VALUE,
+                              &key);
+
+  if (status != ERROR_SUCCESS)
+    {
+      return nil;
+    }
+  status = RegQueryValueExA(key, "AccentPalette", NULL, &type, bytes, &size);
+  RegCloseKey(key);
+  if (status != ERROR_SUCCESS || type != REG_BINARY || size < 28)
+    {
+      return nil;
+    }
+
+  palette = [NSMutableArray arrayWithCapacity: 7];
+  for (index = 0; index < 7; index++)
+    {
+      [palette addObject: [NSColor colorWithCalibratedRed: bytes[index * 4] / 255.0
+                                                    green: bytes[index * 4 + 1] / 255.0
+                                                     blue: bytes[index * 4 + 2] / 255.0
+                                                    alpha: 1.0]];
+    }
+  return palette;
 }
 #endif
 
@@ -323,6 +391,7 @@ WinUIThemeAccentColorFromSystem(void)
   RELEASE(_menuFontName);
   RELEASE(_monospaceFontName);
   RELEASE(_accentColor);
+  RELEASE(_accentPalette);
   [super dealloc];
 }
 
@@ -358,6 +427,7 @@ WinUIThemeAccentColorFromSystem(void)
   BOOL systemSettingsAvailable = NO;
   WinUIThemeColorScheme colorScheme = WinUIThemeColorSchemePreferLight;
   NSColor *accentColor = nil;
+  NSArray *accentPalette = nil;
   NSUInteger i = 1;
 
 #ifdef _WIN32
@@ -400,7 +470,10 @@ WinUIThemeAccentColorFromSystem(void)
         systemSettingsAvailable = YES;
       }
 
-    accentColor = WinUIThemeAccentColorFromSystem();
+    accentPalette = WinUIThemeAccentPaletteFromSystem();
+    accentColor = (accentPalette != nil)
+      ? [accentPalette objectAtIndex: 3]
+      : WinUIThemeAccentColorFromSystem();
     if (accentColor != nil)
       {
         accentHex = WinUIThemeHexStringFromColor(accentColor);
@@ -522,9 +595,13 @@ WinUIThemeAccentColorFromSystem(void)
     {
       monospaceFontSize = WinUIThemeDefaultMonospaceFontSize;
     }
-  if ([accentHex length] == 0)
+  /* An explicit WinUIThemeAccentColorHex wins over the system's accent,
+     as the other WinUITheme* overrides do. */
+  if (WinUIThemeColorFromHexString(accentHexOverride) != nil)
     {
       accentHex = accentHexOverride;
+      accentColor = WinUIThemeColorFromHexString(accentHexOverride);
+      accentPalette = nil;
     }
   if ([accentHex length] == 0)
     {
@@ -537,6 +614,10 @@ WinUIThemeAccentColorFromSystem(void)
   if (accentColor == nil)
     {
       accentColor = WinUIThemeColorFromHexString(WinUIThemeDefaultAccentHex);
+    }
+  if (accentPalette == nil)
+    {
+      accentPalette = WinUIThemeAccentPaletteFromColor(accentColor);
     }
 
   if (colorSchemeOverride != nil)
@@ -616,6 +697,7 @@ WinUIThemeAccentColorFromSystem(void)
   ASSIGNCOPY(_monospaceFontName, monospaceFontName);
   _monospaceFontSize = monospaceFontSize;
   ASSIGN(_accentColor, accentColor);
+  ASSIGN(_accentPalette, accentPalette);
   _colorScheme = colorScheme;
   _highContrast = highContrast;
   _reducedTransparency = reducedTransparency;
@@ -646,6 +728,17 @@ WinUIThemeAccentColorFromSystem(void)
 - (NSColor *) accentColor
 {
   return _accentColor;
+}
+
+- (NSColor *) accentShade: (NSInteger)level
+{
+  NSInteger index = 3 - MAX(-3, MIN(3, level));
+
+  if ([_accentPalette count] < 7)
+    {
+      return _accentColor;
+    }
+  return [_accentPalette objectAtIndex: index];
 }
 
 - (WinUIThemeColorScheme) colorScheme

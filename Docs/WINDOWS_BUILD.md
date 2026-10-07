@@ -150,3 +150,7 @@ metrics with `--scale 1.5`, not the backing store), prints one
 PASS/FAIL/KNOWN/SKIP line per check, and exits with the number of failures.
 `-Theme PATH` checks another build, and `-OutputDirectory DIR` saves a PNG of
 each rendered check. Add a check with each fix.
+
+Some checks click with the real pointer (`popup-click-stays-open`), so the
+probe moves it while it runs; pass `-NoPointer` to skip those while you use
+the desktop.

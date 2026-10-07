@@ -18,6 +18,7 @@ static NSString *WinUIThemeRuntimeDefaultsDomain = @"WinUIThemeRuntimeDomain";
 - (NSDictionary *) runtimeDefaultsDictionary;
 - (BOOL) shouldUseWindowIntegration;
 - (void) windowNeedsMainMenu: (NSNotification *)notification;
+- (void) applicationDidFinishLaunching: (NSNotification *)notification;
 - (void) addFont: (NSFont *)font
           forKey: (NSString *)key
      toDictionary: (NSMutableDictionary *)dictionary;
@@ -121,6 +122,10 @@ WinUIThemeOriginalMethod(SEL selector, id receiver, Class baseClass)
                                            selector: @selector(windowNeedsMainMenu:)
                                                name: NSWindowDidBecomeMainNotification
                                              object: nil];
+  [[NSNotificationCenter defaultCenter] addObserver: self
+                                           selector: @selector(applicationDidFinishLaunching:)
+                                               name: NSApplicationDidFinishLaunchingNotification
+                                             object: nil];
   if ([self shouldUseWindowIntegration])
     {
       WinUIThemeWindowIntegrationActivate(self);
@@ -137,10 +142,17 @@ WinUIThemeOriginalMethod(SEL selector, id receiver, Class baseClass)
 
   [center removeObserver: self name: NSWindowDidBecomeKeyNotification object: nil];
   [center removeObserver: self name: NSWindowDidBecomeMainNotification object: nil];
+  [center removeObserver: self name: NSApplicationDidFinishLaunchingNotification object: nil];
   WinUIThemeWindowIntegrationDeactivate();
   [self removeRuntimeDefaults];
   _runtimeDefaultsApplied = NO;
   [super deactivate];
+}
+
+/* Once the app's own launch code has run (it may build its menus then). */
+- (void) applicationDidFinishLaunching: (NSNotification *)notification
+{
+  [self performSelector: @selector(tidyMainMenu) withObject: nil afterDelay: 0.0];
 }
 
 /* With NSWindows95InterfaceStyle, GNUstep puts the main menu only into the
@@ -153,6 +165,8 @@ WinUIThemeOriginalMethod(SEL selector, id receiver, Class baseClass)
 {
   NSWindow *window = [notification object];
   NSMenu *mainMenu = [NSApp mainMenu];
+
+  [self tidyMainMenu];
 
   if (mainMenu == nil || [window isKindOfClass: [NSWindow class]] == NO)
     {

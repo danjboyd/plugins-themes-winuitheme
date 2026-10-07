@@ -422,6 +422,12 @@ WinUIThemeUsesModernPushButton(int style)
 {
   switch (style)
     {
+      /* No bezel style set: libs-gui's -[NSButtonCell init] leaves 0, and
+         NSAlert's buttons (made with -init) keep it. Cocoa draws such a
+         button as a rounded push button. Left to GNUstep's bezel, an
+         alert's default button got GNUstep's white bezel under the
+         theme's white default-button title, and read as an empty box. */
+      case 0:
       case NSRoundRectBezelStyle:
       case NSTexturedRoundedBezelStyle:
       case NSRoundedBezelStyle:
@@ -438,10 +444,15 @@ WinUIThemeUsesModernPushButton(int style)
     }
 }
 
+/* A window's default button: one with Return as its key equivalent, or the
+   window's default button cell (GNUstep's alerts make OK default that way).
+   The bezel and the title must agree, or a white title is drawn on a
+   button that isn't filled with the accent. */
 BOOL
 WinUIThemeButtonIsDefault(NSCell *cell)
 {
   NSString *keyEquivalent = nil;
+  NSWindow *window = nil;
 
   if ([cell isKindOfClass: [NSButtonCell class]] == NO)
     {
@@ -449,8 +460,14 @@ WinUIThemeButtonIsDefault(NSCell *cell)
     }
 
   keyEquivalent = [(NSButtonCell *)cell keyEquivalent];
-  return ([keyEquivalent isEqualToString: @"\r"]
-          || [keyEquivalent isEqualToString: @"\n"]);
+  if ([keyEquivalent isEqualToString: @"\r"]
+      || [keyEquivalent isEqualToString: @"\n"])
+    {
+      return YES;
+    }
+
+  window = [[cell controlView] window];
+  return (window != nil && [window defaultButtonCell] == (NSButtonCell *)cell);
 }
 
 BOOL

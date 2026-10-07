@@ -122,7 +122,9 @@
           "id": "alerts",
           "title": "Alerts",
           "fixtures": [
-            { "id": "message-dialog", "kind": "dialog", "title": "Message dialog" }
+            { "id": "message-dialog", "kind": "dialog", "title": "Message dialog" },
+            { "id": "alert-modal", "kind": "dialog", "title": "Stock NSAlert, modal (ContentDialog)" },
+            { "id": "alert-sheet", "kind": "dialog", "title": "Stock NSAlert as a sheet" }
           ]
         },
         {
@@ -168,7 +170,8 @@
           "title": "Document Shell",
           "fixtures": [
             { "id": "main-window", "kind": "realapp", "title": "Document window shell" },
-            { "id": "toolbar-density", "kind": "realapp", "title": "Toolbar density" }
+            { "id": "toolbar-density", "kind": "realapp", "title": "Toolbar density" },
+            { "id": "window-toolbar", "kind": "realapp", "title": "Window NSToolbar (CommandBar)" }
           ]
         },
         {
@@ -180,7 +183,39 @@
           ]
         }
       ]
+    },
+    {
+      "id": "surfaces",
+      "title": "More Surfaces",
+      "description": "Colour well, date picker, level indicator, groups, forms, browser, tool tips and template images.",
+      "sections": [
+        {
+          "id": "pickers",
+          "title": "Pickers And Indicators",
+          "fixtures": [
+            { "id": "color-well", "kind": "picker", "title": "Colour well" },
+            { "id": "date-picker", "kind": "picker", "title": "Date picker" },
+            { "id": "level-indicator", "kind": "range", "title": "Level indicator" }
+          ]
+        },
+        {
+          "id": "groups",
+          "title": "Groups And Forms",
+          "fixtures": [
+            { "id": "titled-box", "kind": "group", "title": "Titled grooved box" },
+            { "id": "form", "kind": "field", "title": "NSForm entries" },
+            { "id": "browser", "kind": "browser", "title": "Column browser" }
+          ]
+        },
+        {
+          "id": "icons",
+          "title": "Tool Tips And Icons",
+          "fixtures": [
+            { "id": "tool-tip", "kind": "tooltip", "title": "Tool tip" },
+            { "id": "template-images", "kind": "icon", "title": "Template images" }
+          ]
+        }
+      ]
     }
   ]
 }
-

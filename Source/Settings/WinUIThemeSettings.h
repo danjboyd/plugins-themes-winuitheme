@@ -19,6 +19,7 @@ typedef enum
   NSString *_monospaceFontName;
   CGFloat _monospaceFontSize;
   NSColor *_accentColor;
+  NSArray *_accentPalette;
   WinUIThemeColorScheme _colorScheme;
   BOOL _highContrast;
   BOOL _reducedTransparency;
@@ -33,6 +34,10 @@ typedef enum
 - (NSString *) monospaceFontName;
 - (CGFloat) monospaceFontSize;
 - (NSColor *) accentColor;
+/* The accent's shades, as Windows' AccentPalette has them: 3, 2, 1 are
+   Light3..Light1, 0 the accent itself, -1..-3 Dark1..Dark3. WinUI fills
+   with Dark1 in the light theme and Light2 in the dark one. */
+- (NSColor *) accentShade: (NSInteger)level;
 - (WinUIThemeColorScheme) colorScheme;
 - (BOOL) prefersDarkAppearance;
 - (BOOL) highContrastEnabled;

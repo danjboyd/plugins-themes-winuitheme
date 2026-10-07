@@ -40,6 +40,7 @@
   BOOL _lastSystemPrefersDark;
   BOOL _lastSystemHighContrast;
   BOOL _lastSystemReducedTransparency;
+  unsigned int _lastSystemAccent;
   BOOL _reloadingTheme;
 }
 
@@ -129,6 +130,23 @@ WinUIThemeSystemHighContrastEnabled(void)
     }
 
   return ((settings.dwFlags & HCF_HIGHCONTRASTON) != 0);
+}
+
+/* The accent Settings sets (0xAABBGGRR), or 0. */
+static unsigned int
+WinUIThemeSystemAccent(void)
+{
+  DWORD accent = 0;
+
+  if (WinUIThemeReadRegistryDWORD(
+        @"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Accent",
+        @"AccentColorMenu",
+        &accent) == NO)
+    {
+      return 0;
+    }
+
+  return (unsigned int)accent;
 }
 
 static BOOL
@@ -493,6 +511,7 @@ WinUIThemeApplyWindowIdentity(NSWindow *window,
   _lastSystemPrefersDark = WinUIThemeSystemPrefersDarkAppearance();
   _lastSystemHighContrast = WinUIThemeSystemHighContrastEnabled();
   _lastSystemReducedTransparency = WinUIThemeSystemReducedTransparency();
+  _lastSystemAccent = WinUIThemeSystemAccent();
   _hasSystemSnapshot = YES;
 #endif
 }
@@ -503,16 +522,19 @@ WinUIThemeApplyWindowIdentity(NSWindow *window,
   BOOL prefersDark = NO;
   BOOL highContrast = NO;
   BOOL reducedTransparency = NO;
+  unsigned int accent = 0;
 
   prefersDark = WinUIThemeSystemPrefersDarkAppearance();
   highContrast = WinUIThemeSystemHighContrastEnabled();
   reducedTransparency = WinUIThemeSystemReducedTransparency();
+  accent = WinUIThemeSystemAccent();
 
   if (_hasSystemSnapshot == NO)
     {
       _lastSystemPrefersDark = prefersDark;
       _lastSystemHighContrast = highContrast;
       _lastSystemReducedTransparency = reducedTransparency;
+      _lastSystemAccent = accent;
       _hasSystemSnapshot = YES;
       return;
     }
@@ -520,11 +542,13 @@ WinUIThemeApplyWindowIdentity(NSWindow *window,
   if (_reloadingTheme == NO
       && (prefersDark != _lastSystemPrefersDark
           || highContrast != _lastSystemHighContrast
-          || reducedTransparency != _lastSystemReducedTransparency))
+          || reducedTransparency != _lastSystemReducedTransparency
+          || accent != _lastSystemAccent))
     {
       _lastSystemPrefersDark = prefersDark;
       _lastSystemHighContrast = highContrast;
       _lastSystemReducedTransparency = reducedTransparency;
+      _lastSystemAccent = accent;
 
       if (_theme != nil)
         {
@@ -538,6 +562,7 @@ WinUIThemeApplyWindowIdentity(NSWindow *window,
   _lastSystemPrefersDark = prefersDark;
   _lastSystemHighContrast = highContrast;
   _lastSystemReducedTransparency = reducedTransparency;
+  _lastSystemAccent = accent;
 #endif
 }
 

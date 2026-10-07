@@ -1,6 +1,7 @@
 #import "QuirkProbe.h"
 
 #import <GNUstepGUI/GSTheme.h>
+#import <GNUstepGUI/GSDisplayServer.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -11,6 +12,24 @@
 
 static NSString *QuirkProbeImageItem = @"ImageItem";
 static const NSTimeInterval QuirkProbeSettleDelay = 0.8;
+
+/* Moves the pointer to `point` in GNUstep screen coordinates (origin at
+   the bottom left). libs-back's Windows server doesn't implement
+   -setMouseLocation:onScreen:. */
+static void
+QuirkProbeSetPointer(NSPoint point)
+{
+#ifdef _WIN32
+  CGFloat screenHeight = NSHeight([[NSScreen mainScreen] frame]);
+
+  SetCursorPos((int)point.x, (int)(screenHeight - point.y));
+#else
+  [GSCurrentServer() setMouseLocation: point onScreen: [[NSScreen mainScreen] screenNumber]];
+#endif
+}
+
+/* What a timer firing during menu tracking saw. */
+static NSString *QuirkProbeMenuSeen = nil;
 
 #pragma mark Pixels
 
@@ -269,6 +288,11 @@ QuirkProbeModuleOfAddress(void *address)
 - (void) checkMultilineLabels;
 - (void) checkSwitches;
 - (void) checkStepper;
+- (void) checkDefaultButtons;
+- (void) checkPopUpClick;
+- (void) checkWindowsMenuConventions;
+- (void) checkAccentColor;
+- (void) checkAlertLayout;
 - (void) createLateWindow: (NSTimer *)timer;
 - (void) checkLateWindow: (NSTimer *)timer;
 - (void) checkMenuBarTitles: (NSWindow *)window;
@@ -917,6 +941,399 @@ objectValueForTableColumn: (NSTableColumn *)column
     }
 }
 
+/* A default button's title is readable on its fill (issue #53). NSAlert
+   makes its buttons with -init, which leaves no bezel style; the theme
+   drew those with GNUstep's white bezel but the default button's white
+   title. Checks one made that way with a Return key equivalent, and one
+   made default with -setDefaultButtonCell:. */
+- (void) checkDefaultButtons
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(420, 120, 300, 80)
+                                     title: @"QuirkProbe Default Buttons"];
+  NSButton *alertStyle = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(20, 20, 100, 32)]);
+  NSButton *windowDefault = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(160, 20, 100, 32)]);
+  NSArray *buttons = [NSArray arrayWithObjects: alertStyle, windowDefault, nil];
+  NSArray *names = [NSArray arrayWithObjects: @"alert-style", @"window-default", nil];
+  NSMutableArray *unreadable = [NSMutableArray array];
+  NSUInteger index;
+
+  [alertStyle setButtonType: NSMomentaryPushInButton];
+  [alertStyle setTitle: @"OK"];
+  [alertStyle setKeyEquivalent: @"\r"];
+  [windowDefault setButtonType: NSMomentaryPushInButton];
+  [windowDefault setTitle: @"OK"];
+  [[window contentView] addSubview: alertStyle];
+  [[window contentView] addSubview: windowDefault];
+  [window setDefaultButtonCell: [windowDefault cell]];
+  [window orderFront: nil];
+  [window display];
+
+  for (index = 0; index < [buttons count]; index++)
+    {
+      NSButton *button = [buttons objectAtIndex: index];
+      NSString *name = [names objectAtIndex: index];
+      NSBitmapImageRep *rep = QuirkProbeRender(button);
+      CGFloat scale = QuirkProbeScale(rep, button);
+      NSInteger width = [rep pixelsWide];
+      NSInteger height = [rep pixelsHigh];
+      NSUInteger red, green, blue;
+      QuirkProbeInk ink;
+
+      [self saveView: button named: [@"default-button-" stringByAppendingString: name]];
+      /* The fill, inside the left edge, then the title's ink against it,
+         away from the border. */
+      QuirkProbePixel(rep, (NSInteger)(8 * scale), height / 2, &red, &green, &blue);
+      QuirkProbeInkBackground = red + green + blue;
+      ink = QuirkProbeMeasureIn(rep, QuirkProbeIsInk,
+                                NSMakeRect(6 * scale, 6 * scale,
+                                           width - 12 * scale, height - 12 * scale));
+      if (ink.count < 20)
+        {
+          [unreadable addObject: [NSString stringWithFormat: @"%@ (%lu px of title)",
+                                                             name, (unsigned long)ink.count]];
+        }
+    }
+
+  if ([unreadable count] == 0)
+    {
+      [self pass: @"default-button-title-readable" detail:
+        @"default buttons' titles stand out from their fill"];
+    }
+  else
+    {
+      [self fail: @"default-button-title-readable" detail:
+        [@"unreadable: " stringByAppendingString: [unreadable componentsJoinedByString: @", "]]];
+    }
+}
+
+/* Fires while a pop-up button's menu is tracking: notes whether it's
+   showing, then clicks well away from it, which should close it. */
+- (void) inspectPopUpMenu: (NSTimer *)timer
+{
+  NSPopUpButton *popUp = [timer userInfo];
+  NSWindow *window = [popUp window];
+  NSWindow *menuWindow = [[[popUp menu] menuRepresentation] window];
+  NSPoint away = NSMakePoint(NSWidth([window frame]) - 20, 20);
+  NSEvent *down = [NSEvent mouseEventWithType: NSLeftMouseDown location: away modifierFlags: 0
+                                    timestamp: 0 windowNumber: [window windowNumber] context: nil
+                                  eventNumber: 0 clickCount: 1 pressure: 1];
+  NSEvent *up = [NSEvent mouseEventWithType: NSLeftMouseUp location: away modifierFlags: 0
+                                  timestamp: 0 windowNumber: [window windowNumber] context: nil
+                                eventNumber: 0 clickCount: 1 pressure: 0];
+
+  ASSIGN(QuirkProbeMenuSeen, (menuWindow != nil && [menuWindow isVisible]) ? @"open" : @"closed");
+  QuirkProbeSetPointer([window convertBaseToScreen: away]);
+  [NSApp postEvent: down atStart: NO];
+  [NSApp postEvent: up atStart: NO];
+}
+
+/* A click on a pop-up button opens its menu and the menu stays open
+   (issue #54): in gui 0.32 the click's release ended menu tracking, so the
+   menu closed at once. A click elsewhere closes it and changes nothing.
+   Moves the pointer, so only with -ProbeMovesPointer YES. */
+- (void) checkPopUpClick
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(420, 300, 340, 160)
+                                     title: @"QuirkProbe Pop-up"];
+  NSPopUpButton *popUp = AUTORELEASE([[NSPopUpButton alloc] initWithFrame: NSMakeRect(20, 100, 180, 32)
+                                                                pullsDown: NO]);
+  NSMutableArray *seen = [NSMutableArray array];
+  NSString *before = nil;
+  NSRect frame;
+  NSPoint point;
+  NSWindow *menuWindow = nil;
+  NSString *detail = nil;
+  int i;
+
+  if ([[NSUserDefaults standardUserDefaults] boolForKey: @"ProbeMovesPointer"] == NO)
+    {
+      [self skip: @"popup-click-stays-open" detail: @"moves the pointer: needs -ProbeMovesPointer YES"];
+      return;
+    }
+
+  [popUp addItemsWithTitles: [NSArray arrayWithObjects: @"First", @"Second", @"Third", nil]];
+  [[window contentView] addSubview: popUp];
+  [window makeKeyAndOrderFront: nil];
+  [window display];
+  before = [popUp titleOfSelectedItem];
+  frame = [popUp convertRect: [popUp bounds] toView: nil];
+  point = NSMakePoint(NSMidX(frame), NSMidY(frame));
+
+  for (i = 0; i < 3; i++)
+    {
+      NSEvent *down = [NSEvent mouseEventWithType: NSLeftMouseDown location: point modifierFlags: 0
+                                        timestamp: 0 windowNumber: [window windowNumber] context: nil
+                                      eventNumber: 0 clickCount: 1 pressure: 1];
+      NSEvent *up = [NSEvent mouseEventWithType: NSLeftMouseUp location: point modifierFlags: 0
+                                      timestamp: 0 windowNumber: [window windowNumber] context: nil
+                                    eventNumber: 0 clickCount: 1 pressure: 0];
+      NSTimer *timer = [NSTimer timerWithTimeInterval: 0.3
+                                               target: self
+                                             selector: @selector(inspectPopUpMenu:)
+                                             userInfo: popUp
+                                              repeats: NO];
+
+      ASSIGN(QuirkProbeMenuSeen, @"closed");
+      QuirkProbeSetPointer([window convertBaseToScreen: point]);
+      [[NSRunLoop currentRunLoop] addTimer: timer forMode: NSEventTrackingRunLoopMode];
+      /* The release is queued before the press is handled, as with a
+         click that's already over when the app gets to it. */
+      [NSApp postEvent: up atStart: NO];
+      [popUp mouseDown: down];
+      [timer invalidate];
+      [seen addObject: QuirkProbeMenuSeen];
+    }
+
+  menuWindow = [[[popUp menu] menuRepresentation] window];
+  detail = [NSString stringWithFormat: @"0.3s after each of 3 clicks: %@; after a click elsewhere: %@, selection %@ -> %@",
+                                       [seen componentsJoinedByString: @", "],
+                                       [menuWindow isVisible] ? @"showing" : @"closed",
+                                       before, [popUp titleOfSelectedItem]];
+  if ([seen containsObject: @"closed"] == NO && [menuWindow isVisible] == NO
+      && [before isEqualToString: [popUp titleOfSelectedItem]])
+    {
+      [self pass: @"popup-click-stays-open" detail: detail];
+    }
+  else
+    {
+      [self fail: @"popup-click-stays-open" detail: detail];
+    }
+}
+
+/* Whether the probe runs with `flag` (--mode dark, --high-contrast), as
+   the theme reads them. */
+static BOOL
+QuirkProbeHasArgument(NSString *flag, NSString *value)
+{
+  NSArray *arguments = [[NSProcessInfo processInfo] arguments];
+  NSUInteger index = [arguments indexOfObject: flag];
+
+  if (index == NSNotFound)
+    {
+      return NO;
+    }
+  return value == nil
+    || (index + 1 < [arguments count]
+        && [[[arguments objectAtIndex: index + 1] lowercaseString] isEqualToString: value]);
+}
+
+/* Shade `index` of Windows' AccentPalette (0 Light3 ... 3 the accent ...
+   6 Dark3), or nil. */
+static NSColor *
+QuirkProbeSystemAccentShade(NSUInteger index)
+{
+#ifdef _WIN32
+  HKEY key = NULL;
+  DWORD type = 0;
+  BYTE bytes[32];
+  DWORD size = sizeof(bytes);
+
+  if (RegOpenKeyExA(HKEY_CURRENT_USER,
+                    "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Accent",
+                    0, KEY_QUERY_VALUE, &key) != ERROR_SUCCESS)
+    {
+      return nil;
+    }
+  if (RegQueryValueExA(key, "AccentPalette", NULL, &type, bytes, &size) != ERROR_SUCCESS
+      || type != REG_BINARY || size < 28)
+    {
+      RegCloseKey(key);
+      return nil;
+    }
+  RegCloseKey(key);
+  return [NSColor colorWithCalibratedRed: bytes[index * 4] / 255.0
+                                   green: bytes[index * 4 + 1] / 255.0
+                                    blue: bytes[index * 4 + 2] / 255.0
+                                   alpha: 1.0];
+#else
+  return nil;
+#endif
+}
+
+static NSString *
+QuirkProbeHex(NSColor *color)
+{
+  NSColor *rgb = [color colorUsingColorSpaceName: NSCalibratedRGBColorSpace];
+
+  if (rgb == nil)
+    {
+      return @"(none)";
+    }
+  return [NSString stringWithFormat: @"#%02X%02X%02X",
+                                     (int)round([rgb redComponent] * 255),
+                                     (int)round([rgb greenComponent] * 255),
+                                     (int)round([rgb blueComponent] * 255)];
+}
+
+/* The accent (issue #34): Windows' accent palette, filled with its Dark1
+   shade in the light palette and Light2 in the dark one, as WinUI's
+   AccentFillColorDefault; text on it white, or black in the dark palette.
+   The theme read DWM's frame colour and used one shade everywhere. */
+- (void) checkAccentColor
+{
+  BOOL dark = QuirkProbeHasArgument(@"--mode", @"dark");
+  NSColorList *colors = [[GSTheme theme] colors];
+  NSColor *accent = [colors colorWithKey: @"accentColor"];
+  NSColor *onAccent = [colors colorWithKey: @"selectedControlTextColor"];
+  NSColor *expected = QuirkProbeSystemAccentShade(dark ? 1 : 4);
+  NSString *expectedOn = dark ? @"#000000" : @"#FFFFFF";
+
+  if (QuirkProbeHasArgument(@"--high-contrast", nil))
+    {
+      [self skip: @"accent-shade" detail: @"high contrast uses the contrast theme's colours (#45)"];
+      return;
+    }
+  if (expected == nil)
+    {
+      [self skip: @"accent-shade" detail: @"no AccentPalette in the registry"];
+    }
+  else if ([QuirkProbeHex(accent) isEqualToString: QuirkProbeHex(expected)])
+    {
+      [self pass: @"accent-shade" detail:
+        [NSString stringWithFormat: @"%@, the accent's %@ shade", QuirkProbeHex(accent),
+                                    dark ? @"Light2" : @"Dark1"]];
+    }
+  else
+    {
+      [self fail: @"accent-shade" detail:
+        [NSString stringWithFormat: @"%@, expected the accent's %@ shade %@", QuirkProbeHex(accent),
+                                    dark ? @"Light2" : @"Dark1", QuirkProbeHex(expected)]];
+    }
+
+  if ([QuirkProbeHex(onAccent) isEqualToString: expectedOn])
+    {
+      [self pass: @"text-on-accent" detail: QuirkProbeHex(onAccent)];
+    }
+  else
+    {
+      [self fail: @"text-on-accent" detail:
+        [NSString stringWithFormat: @"%@, expected %@", QuirkProbeHex(onAccent), expectedOn]];
+    }
+}
+
+/* The panel of an NSAlert, laid out without running it. */
+static NSPanel *
+QuirkProbeAlertPanel(NSAlert *alert)
+{
+  NSPanel *panel = nil;
+
+  [alert performSelector: @selector(_setupPanel)];
+  panel = [alert window];
+  if ([panel respondsToSelector: @selector(sizePanelToFit)])
+    {
+      [panel performSelector: @selector(sizePanelToFit)];
+    }
+  return panel;
+}
+
+/* Alerts as WinUI's ContentDialog (issue #23): within its 320-548pt
+   widths, no icon, the title left-aligned at the 24pt padding, and 32pt
+   buttons of equal width with the primary one first (Save, Don't Save,
+   Cancel), a lone button in the right half. */
+- (void) checkAlertLayout
+{
+  NSAlert *alert = AUTORELEASE([NSAlert new]);
+  NSAlert *single = AUTORELEASE([NSAlert new]);
+  NSPanel *panel = nil;
+  NSPanel *singlePanel = nil;
+  NSMutableArray *problems = [NSMutableArray array];
+  NSButton *save, *cancel, *dontSave, *ok;
+  NSTextField *titleField = nil;
+  NSButton *icon = nil;
+  CGFloat width;
+
+  [alert setMessageText: @"Save changes to \"Notes\"?"];
+  [alert setInformativeText: @"Your changes will be lost if you don't save them."];
+  save = [alert addButtonWithTitle: @"Save"];
+  cancel = [alert addButtonWithTitle: @"Cancel"];
+  dontSave = [alert addButtonWithTitle: @"Don't Save"];
+  panel = QuirkProbeAlertPanel(alert);
+  if (panel == nil)
+    {
+      [self skip: @"alert-content-dialog" detail: @"NSAlert made no panel"];
+      return;
+    }
+  [single setMessageText: @"Done"];
+  [single setInformativeText: @"The file was exported."];
+  [single addButtonWithTitle: @"OK"];
+  singlePanel = QuirkProbeAlertPanel(single);
+
+  /* The panel's buttons are copies of the alert's, matched by title. */
+  {
+    NSEnumerator *enumerator = [[[panel contentView] subviews] objectEnumerator];
+    NSView *view = nil;
+
+    while ((view = [enumerator nextObject]) != nil)
+      {
+        if ([view isKindOfClass: [NSButton class]] && [view isHidden] == NO)
+          {
+            NSString *title = [(NSButton *)view title];
+
+            if ([title isEqualToString: @"Save"]) save = (NSButton *)view;
+            else if ([title isEqualToString: @"Cancel"]) cancel = (NSButton *)view;
+            else if ([title isEqualToString: @"Don't Save"]) dontSave = (NSButton *)view;
+          }
+      }
+    enumerator = [[[singlePanel contentView] subviews] objectEnumerator];
+    ok = nil;
+    while ((view = [enumerator nextObject]) != nil)
+      {
+        if ([view isKindOfClass: [NSButton class]] && [[(NSButton *)view title] isEqualToString: @"OK"])
+          {
+            ok = (NSButton *)view;
+          }
+      }
+  }
+  titleField = [panel valueForKey: @"titleField"];
+  icon = [panel valueForKey: @"icoButton"];
+  width = NSWidth([[panel contentView] bounds]);
+
+  if (width < 320.0 || width > 548.0)
+    {
+      [problems addObject: [NSString stringWithFormat: @"%.0fpt wide", width]];
+    }
+  if (icon != nil && [icon superview] != nil && [icon isHidden] == NO)
+    {
+      [problems addObject: @"the icon shows"];
+    }
+  if (titleField == nil || fabs(NSMinX([titleField frame]) - 22.0) > 2.0
+      || [titleField alignment] != NSLeftTextAlignment)
+    {
+      [problems addObject: [NSString stringWithFormat: @"title at x=%.0f, not left-aligned at 22",
+                                                      NSMinX([titleField frame])]];
+    }
+  if (!(NSMinX([save frame]) < NSMinX([dontSave frame])
+        && NSMinX([dontSave frame]) < NSMinX([cancel frame])))
+    {
+      [problems addObject: [NSString stringWithFormat: @"button order Save x=%.0f, Don't Save x=%.0f, Cancel x=%.0f",
+                                                      NSMinX([save frame]), NSMinX([dontSave frame]),
+                                                      NSMinX([cancel frame])]];
+    }
+  if (fabs(NSHeight([save frame]) - 32.0) > 0.5
+      || fabs(NSWidth([save frame]) - NSWidth([dontSave frame])) > 1.5)
+    {
+      [problems addObject: [NSString stringWithFormat: @"buttons %.0fx%.0f and %.0fx%.0f",
+                                                      NSWidth([save frame]), NSHeight([save frame]),
+                                                      NSWidth([dontSave frame]), NSHeight([dontSave frame])]];
+    }
+  if (ok == nil || NSMinX([ok frame]) < NSWidth([[singlePanel contentView] bounds]) / 2.0 - 1.0)
+    {
+      [problems addObject: [NSString stringWithFormat: @"a lone OK at x=%.0f, not in the right half",
+                                                      NSMinX([ok frame])]];
+    }
+
+  [self saveView: [panel contentView] named: @"alert"];
+  if ([problems count] == 0)
+    {
+      [self pass: @"alert-content-dialog" detail:
+        [NSString stringWithFormat: @"%.0fpt wide, Save | Don't Save | Cancel, 32pt buttons", width]];
+    }
+  else
+    {
+      [self fail: @"alert-content-dialog" detail: [problems componentsJoinedByString: @"; "]];
+    }
+}
+
 /* A window created after launch gets the main menu (issue #1). libs-gui
    only attaches the Windows 95 style menu to windows that exist when it
    first updates the menu. */
@@ -949,6 +1366,7 @@ objectValueForTableColumn: (NSTableColumn *)column
     }
   [self saveView: [[_lateWindow contentView] superview] named: @"late-window"];
   [self checkMenuBarTitles: _lateWindow];
+  [self checkWindowsMenuConventions];
   [self checkThemeSwitchRestoresMethods];
   [self finish];
 }
@@ -1023,6 +1441,115 @@ objectValueForTableColumn: (NSTableColumn *)column
     {
       [self fail: @"menu-bar-titles-fit" detail:
         [@"clipped: " stringByAppendingString: [clipped componentsJoinedByString: @", "]]];
+    }
+}
+
+/* Whether any item in `menu` or its submenus has `action`, or a submenu
+   titled `title`. */
+static BOOL
+QuirkProbeMenuTreeHas(NSMenu *menu, SEL action, NSString *title)
+{
+  NSEnumerator *enumerator = [[menu itemArray] objectEnumerator];
+  NSMenuItem *item = nil;
+
+  while ((item = [enumerator nextObject]) != nil)
+    {
+      if ((action != NULL && [item action] != NULL && sel_isEqual([item action], action))
+          || (title != nil && [item hasSubmenu] && [[item title] isEqualToString: title]))
+        {
+          return YES;
+        }
+      if ([item hasSubmenu] && QuirkProbeMenuTreeHas([item submenu], action, title))
+        {
+          return YES;
+        }
+    }
+  return NO;
+}
+
+/* The last item of the main menu's submenu titled `title`. */
+static NSMenuItem *
+QuirkProbeLastItemOfMenu(NSString *title)
+{
+  NSMenu *submenu = [[[NSApp mainMenu] itemWithTitle: title] submenu];
+
+  if (submenu == nil || [submenu numberOfItems] == 0)
+    {
+      return nil;
+    }
+  return (NSMenuItem *)[submenu itemAtIndex: [submenu numberOfItems] - 1];
+}
+
+/* Windows menu conventions (issue #24). The probe's main menu is
+   Cocoa-style: an untitled application menu (About, Preferences, Services,
+   Hide, Show All, Quit), File, Edit and no Help. The theme should leave no
+   application menu, end File with Exit, Edit with Preferences and a new
+   Help with About, and drop Hide, Show All and Services; and show key
+   equivalents as Windows does ("Ctrl+Q"). */
+- (void) checkWindowsMenuConventions
+{
+  NSMenu *mainMenu = [NSApp mainMenu];
+  NSMutableArray *problems = [NSMutableArray array];
+  NSMenuItem *first = ([mainMenu numberOfItems] > 0) ? (NSMenuItem *)[mainMenu itemAtIndex: 0] : nil;
+  NSMenuItem *exitItem = QuirkProbeLastItemOfMenu(@"File");
+  NSMenuItem *preferencesItem = QuirkProbeLastItemOfMenu(@"Edit");
+  NSMenuItem *aboutItem = QuirkProbeLastItemOfMenu(@"Help");
+  NSString *quit = [[GSTheme theme] keyForKeyEquivalent: @"#q"];
+  NSString *redo = [[GSTheme theme] keyForKeyEquivalent: @"/#z"];
+
+  if (NSInterfaceStyleForKey(@"NSMenuInterfaceStyle", nil) != NSWindows95InterfaceStyle)
+    {
+      [self skip: @"windows-menu-conventions" detail: @"the menu style isn't NSWindows95InterfaceStyle"];
+      return;
+    }
+  if ([[first title] length] == 0 || [[first title] isEqualToString: @"QuirkProbe"])
+    {
+      [problems addObject: [NSString stringWithFormat: @"the bar starts with \"%@\"", [first title]]];
+    }
+  if (exitItem == nil || sel_isEqual([exitItem action], @selector(terminate:)) == NO
+      || [[exitItem title] isEqualToString: @"Exit"] == NO)
+    {
+      [problems addObject: [NSString stringWithFormat: @"File ends with \"%@\", not Exit", [exitItem title]]];
+    }
+  if (preferencesItem == nil
+      || sel_isEqual([preferencesItem action], @selector(orderFrontPreferencesPanel:)) == NO)
+    {
+      [problems addObject: [NSString stringWithFormat: @"Edit ends with \"%@\", not Preferences",
+                                                      [preferencesItem title]]];
+    }
+  if (aboutItem == nil
+      || sel_isEqual([aboutItem action], @selector(orderFrontStandardAboutPanel:)) == NO)
+    {
+      [problems addObject: @"no Help menu ending with About"];
+    }
+  if (QuirkProbeMenuTreeHas(mainMenu, @selector(hide:), nil)
+      || QuirkProbeMenuTreeHas(mainMenu, @selector(unhideAllApplications:), nil))
+    {
+      [problems addObject: @"Hide or Show All is still there"];
+    }
+  if (QuirkProbeMenuTreeHas(mainMenu, NULL, @"Services"))
+    {
+      [problems addObject: @"Services is still there"];
+    }
+
+  if ([problems count] == 0)
+    {
+      [self pass: @"windows-menu-conventions" detail:
+        @"no application menu; File ends with Exit, Edit with Preferences, Help with About"];
+    }
+  else
+    {
+      [self fail: @"windows-menu-conventions" detail: [problems componentsJoinedByString: @"; "]];
+    }
+
+  if ([quit isEqualToString: @"Ctrl+Q"] && [redo isEqualToString: @"Ctrl+Shift+Z"])
+    {
+      [self pass: @"shortcut-text" detail: @"Command-Q shows as Ctrl+Q, Command-Shift-Z as Ctrl+Shift+Z"];
+    }
+  else
+    {
+      [self fail: @"shortcut-text" detail:
+        [NSString stringWithFormat: @"Command-Q shows as \"%@\", Command-Shift-Z as \"%@\"", quit, redo]];
     }
 }
 
@@ -1108,6 +1635,7 @@ objectValueForTableColumn: (NSTableColumn *)column
   fflush(stdout);
 
   [self checkTheme];
+  [self checkAccentColor];
   [self checkSubclassImageCell];
   [self checkToolbarImageItem];
   [self checkScrollerEdge];
@@ -1115,6 +1643,9 @@ objectValueForTableColumn: (NSTableColumn *)column
   [self checkMultilineLabels];
   [self checkSwitches];
   [self checkStepper];
+  [self checkDefaultButtons];
+  [self checkAlertLayout];
+  [self checkPopUpClick];
   [self after: QuirkProbeSettleDelay perform: @selector(createLateWindow:)];
 }
 

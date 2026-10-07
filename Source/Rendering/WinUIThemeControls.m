@@ -1931,7 +1931,6 @@ WinUIThemeSwitchColors(WinUITheme *theme,
         ? WinUIThemeColorFromTheme(theme, @"labelColor", [NSColor controlTextColor])
         : WinUIThemeColorFromTheme(theme, @"disabledControlTextColor", [NSColor disabledControlTextColor]);
       NSRect titleRect = WinUIThemeButtonTitleRect(cell, cellFrame);
-      NSString *keyEquivalent = [cell keyEquivalent];
 
       if (searchButton || cancelButton)
         {
@@ -1966,11 +1965,11 @@ WinUIThemeSwitchColors(WinUITheme *theme,
                                                     0.35);
                 }
 
+              /* White on the grey circle: selectedControlTextColor is the
+                 text-on-accent colour, black in the dark palette. */
               WinUIThemeDrawDismissGlyph(cellFrame,
                                          circleFill,
-                                         WinUIThemeColorFromTheme(theme,
-                                                                  @"selectedControlTextColor",
-                                                                  [NSColor whiteColor]));
+                                         [NSColor whiteColor]);
             }
           return;
         }
@@ -1984,12 +1983,7 @@ WinUIThemeSwitchColors(WinUITheme *theme,
           return;
         }
 
-      defaultButton = ([keyEquivalent isEqualToString: @"\r"]
-                       || [keyEquivalent isEqualToString: @"\n"]);
-      if (defaultButton == NO && controlView != nil && [controlView window] != nil)
-        {
-          defaultButton = ([[controlView window] defaultButtonCell] == cell);
-        }
+      defaultButton = WinUIThemeButtonIsDefault(cell);
 
       if (defaultButton && enabled)
         {

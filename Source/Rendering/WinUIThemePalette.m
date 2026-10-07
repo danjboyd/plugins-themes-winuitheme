@@ -16,8 +16,14 @@ WinUIThemeRGB(CGFloat red, CGFloat green, CGFloat blue)
 + (NSColorList *) colorListForSettings: (WinUIThemeSettings *)settings
 {
   NSColorList *colors = [[NSColorList alloc] initWithName: @"System" fromFile: nil];
-  NSColor *accent = [settings accentColor];
   BOOL dark = [settings prefersDarkAppearance];
+  /* WinUI's AccentFillColorDefault: the accent's Dark1 shade in the light
+     theme, Light2 in the dark one; text on it (TextOnAccentFillColorPrimary)
+     is white, or black in the dark theme. Selected text keeps the accent
+     itself with white text, as WinUI's text controls do. */
+  NSColor *accent = [settings accentShade: dark ? 2 : -1];
+  NSColor *textSelection = [settings accentColor];
+  NSColor *textOnAccent = dark ? [NSColor blackColor] : [NSColor whiteColor];
   BOOL highContrast = [settings highContrastEnabled];
   BOOL reducedTransparency = [settings reducedTransparencyEnabled];
   NSColor *controlColor = nil;
@@ -201,11 +207,11 @@ WinUIThemeRGB(CGFloat red, CGFloat green, CGFloat blue)
   [colors setColor: accent forKey: @"accentColor"];
   [colors setColor: accent forKey: @"highlightColor"];
   [colors setColor: accent forKey: @"selectedControlColor"];
-  [colors setColor: selectedTextColor forKey: @"selectedControlTextColor"];
+  [colors setColor: highContrast ? selectedTextColor : textOnAccent forKey: @"selectedControlTextColor"];
   [colors setColor: menuSelectionColor forKey: @"menuSelectionColor"];
   [colors setColor: menuSelectionColor forKey: @"selectedMenuItemColor"];
   [colors setColor: menuSelectionTextColor forKey: @"selectedMenuItemTextColor"];
-  [colors setColor: accent forKey: @"selectedTextBackgroundColor"];
+  [colors setColor: highContrast ? accent : textSelection forKey: @"selectedTextBackgroundColor"];
   [colors setColor: selectedTextColor forKey: @"selectedTextColor"];
   [colors setColor: gridColor forKey: @"gridColor"];
   [colors setColor: rowBackground forKey: @"rowBackgroundColor"];

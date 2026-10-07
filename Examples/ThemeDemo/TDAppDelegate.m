@@ -4,6 +4,18 @@
 
 #import <GNUstepGUI/GSTheme.h>
 
+/* -[NSImage setTemplate:] exists in libs-gui after 0.32; called only when
+   the running libs-gui has it. */
+@interface NSImage (TDTemplateImages)
+- (void) setTemplate: (BOOL)flag;
+@end
+
+static NSString *TDToolbarNew = @"TDToolbarNew";
+static NSString *TDToolbarOpen = @"TDToolbarOpen";
+static NSString *TDToolbarSave = @"TDToolbarSave";
+static NSString *TDToolbarShare = @"TDToolbarShare";
+static NSString *TDToolbarSearch = @"TDToolbarSearch";
+
 @interface TDFlippedView : NSView
 @end
 
@@ -166,6 +178,9 @@ TDLabel(NSString *string, NSRect frame, NSFont *font, NSColor *color)
 
   [label setEditable: NO];
   [label setSelectable: NO];
+  /* NSTextField is bezeled by default: without this every label drew as
+     an empty text field. */
+  [label setBezeled: NO];
   [label setBordered: NO];
   [label setDrawsBackground: NO];
   [label setStringValue: string != nil ? string : @""];
@@ -278,6 +293,77 @@ TDSegmentedControl(NSRect frame, NSArray *labels)
   return control;
 }
 
+/* A 20x20 monochrome glyph, drawn in black as an app's template icons
+   are, and named "...Template" (Cocoa's convention) so a theme can tint
+   it: "plus", "folder", "disk", "share", "gear". */
+static NSImage *
+TDGlyphImage(NSString *glyph)
+{
+  NSString *name = [NSString stringWithFormat: @"TD%@Template", [glyph capitalizedString]];
+  NSImage *image = [NSImage imageNamed: name];
+  NSBezierPath *path = nil;
+
+  if (image != nil)
+    {
+      return image;
+    }
+  image = [[[NSImage alloc] initWithSize: NSMakeSize(20.0, 20.0)] autorelease];
+  [image lockFocus];
+  [[NSColor blackColor] set];
+  path = [NSBezierPath bezierPath];
+  [path setLineWidth: 1.6];
+  [path setLineCapStyle: NSRoundLineCapStyle];
+  [path setLineJoinStyle: NSRoundLineJoinStyle];
+  if ([glyph isEqualToString: @"plus"])
+    {
+      [path moveToPoint: NSMakePoint(10.0, 3.0)];
+      [path lineToPoint: NSMakePoint(10.0, 17.0)];
+      [path moveToPoint: NSMakePoint(3.0, 10.0)];
+      [path lineToPoint: NSMakePoint(17.0, 10.0)];
+    }
+  else if ([glyph isEqualToString: @"folder"])
+    {
+      [path moveToPoint: NSMakePoint(2.5, 4.0)];
+      [path lineToPoint: NSMakePoint(2.5, 16.0)];
+      [path lineToPoint: NSMakePoint(8.0, 16.0)];
+      [path lineToPoint: NSMakePoint(10.0, 14.0)];
+      [path lineToPoint: NSMakePoint(17.5, 14.0)];
+      [path lineToPoint: NSMakePoint(17.5, 4.0)];
+      [path closePath];
+    }
+  else if ([glyph isEqualToString: @"disk"])
+    {
+      [path appendBezierPathWithRect: NSMakeRect(3.0, 3.0, 14.0, 14.0)];
+      [path appendBezierPathWithRect: NSMakeRect(6.0, 11.0, 8.0, 6.0)];
+      [path appendBezierPathWithRect: NSMakeRect(6.0, 3.0, 8.0, 4.5)];
+    }
+  else if ([glyph isEqualToString: @"share"])
+    {
+      [path moveToPoint: NSMakePoint(10.0, 4.0)];
+      [path lineToPoint: NSMakePoint(10.0, 16.0)];
+      [path moveToPoint: NSMakePoint(6.0, 12.5)];
+      [path lineToPoint: NSMakePoint(10.0, 16.5)];
+      [path lineToPoint: NSMakePoint(14.0, 12.5)];
+      [path moveToPoint: NSMakePoint(4.0, 8.0)];
+      [path lineToPoint: NSMakePoint(4.0, 3.0)];
+      [path lineToPoint: NSMakePoint(16.0, 3.0)];
+      [path lineToPoint: NSMakePoint(16.0, 8.0)];
+    }
+  else
+    {
+      [path appendBezierPathWithOvalInRect: NSMakeRect(6.5, 6.5, 7.0, 7.0)];
+      [path appendBezierPathWithOvalInRect: NSMakeRect(3.0, 3.0, 14.0, 14.0)];
+    }
+  [path stroke];
+  [image unlockFocus];
+  [image setName: name];
+  if ([image respondsToSelector: @selector(setTemplate:)])
+    {
+      [(id)image setTemplate: YES];
+    }
+  return image;
+}
+
 static NSView *
 TDMenuBarFixture(NSRect frame)
 {
@@ -310,7 +396,14 @@ TDMenuBarFixture(NSRect frame)
 - (NSView *) dialogsPageViewForPage: (NSDictionary *)page;
 - (NSView *) stressPageViewForPage: (NSDictionary *)page;
 - (NSView *) realAppPageViewForPage: (NSDictionary *)page;
+- (NSView *) surfacesPageViewForPage: (NSDictionary *)page;
 - (NSView *) placeholderPageViewForPage: (NSDictionary *)page;
+- (NSToolbar *) windowToolbar;
+- (void) showAlertDemo: (id)sender;
+- (void) showAlertSheetDemo: (id)sender;
+- (void) alertSheetDidEnd: (NSAlert *)alert
+               returnCode: (NSInteger)returnCode
+              contextInfo: (void *)contextInfo;
 - (void) showSampleContextMenu: (id)sender;
 - (void) openPanelDemo: (id)sender;
 - (void) savePanelDemo: (id)sender;
@@ -334,6 +427,7 @@ TDMenuBarFixture(NSRect frame)
   RELEASE(_lastSavePanelResult);
   RELEASE(_lastPrintPanelResult);
   RELEASE(_lastPageLayoutResult);
+  RELEASE(_lastAlertResult);
   RELEASE(_window);
   [super dealloc];
 }
@@ -423,6 +517,7 @@ TDMenuBarFixture(NSRect frame)
   ASSIGN(_lastSavePanelResult, @"No path chosen yet");
   ASSIGN(_lastPrintPanelResult, @"Dialog not shown yet");
   ASSIGN(_lastPageLayoutResult, @"Dialog not shown yet");
+  ASSIGN(_lastAlertResult, @"No alert shown yet");
   [self installMainMenu];
   [self buildWindow];
   [self populatePageSelector];
@@ -505,6 +600,7 @@ TDMenuBarFixture(NSRect frame)
                 backing: NSBackingStoreBuffered
                   defer: NO];
   [_window setTitle: @"ThemeDemo"];
+  [_window setToolbar: [self windowToolbar]];
   [_window center];
   [_window setMinSize: NSMakeSize(860.0, 640.0)];
 
@@ -1120,8 +1216,20 @@ TDMenuBarFixture(NSRect frame)
   [view addSubview: button];
   [view addSubview: TDReadOnlyField(_lastPageLayoutResult, NSMakeRect(190.0, 252.0, 600.0, 30.0))];
 
+  /* A stock NSAlert, modal and as a sheet: the theme lays it out as a
+     WinUI ContentDialog. */
+  button = TDButton(@"Show Alert", NSMakeRect(20.0, 302.0, 150.0, 34.0), NSMomentaryPushInButton, NSRoundedBezelStyle);
+  [button setTarget: self];
+  [button setAction: @selector(showAlertDemo:)];
+  [view addSubview: button];
+  button = TDButton(@"Alert Sheet", NSMakeRect(20.0, 354.0, 150.0, 34.0), NSMomentaryPushInButton, NSRoundedBezelStyle);
+  [button setTarget: self];
+  [button setAction: @selector(showAlertSheetDemo:)];
+  [view addSubview: button];
+  [view addSubview: TDReadOnlyField(_lastAlertResult, NSMakeRect(190.0, 304.0, 600.0, 30.0))];
+
   [view addSubview: TDLabel(@"Expected review points: native title bars, native file pickers, modern print/page setup chrome, and safe fallback when native integration is unavailable.",
-                            NSMakeRect(20.0, 320.0, 900.0, 20.0),
+                            NSMakeRect(20.0, 420.0, 900.0, 20.0),
                             [NSFont systemFontOfSize: 13.0],
                             [NSColor secondaryLabelColor])];
 
@@ -1197,6 +1305,8 @@ TDMenuBarFixture(NSRect frame)
   NSBox *toolbarBox = nil;
   NSSplitView *documentSplit = nil;
   NSBox *sidebarBox = nil;
+  TDFlippedView *sidebarList = nil;
+  TDFlippedView *previewPane = nil;
   NSBox *documentsBox = nil;
   NSBox *previewBox = nil;
   NSScrollView *scrollView = nil;
@@ -1236,11 +1346,16 @@ TDMenuBarFixture(NSRect frame)
 
   sidebarBox = [[[NSBox alloc] initWithFrame: NSMakeRect(0.0, 0.0, 180.0, 320.0)] autorelease];
   [sidebarBox setTitlePosition: NSNoTitle];
-  [[sidebarBox contentView] addSubview: TDLabel(@"Workspaces", NSMakeRect(14.0, 14.0, 120.0, 20.0), sectionFont, [NSColor controlTextColor])];
-  [[sidebarBox contentView] addSubview: TDLabel(@"Inbox", NSMakeRect(14.0, 46.0, 120.0, 20.0), nil, [NSColor controlTextColor])];
-  [[sidebarBox contentView] addSubview: TDLabel(@"Drafts", NSMakeRect(14.0, 72.0, 120.0, 20.0), nil, [NSColor controlTextColor])];
-  [[sidebarBox contentView] addSubview: TDLabel(@"Published", NSMakeRect(14.0, 98.0, 120.0, 20.0), nil, [NSColor controlTextColor])];
-  [[sidebarBox contentView] addSubview: TDLabel(@"Archives", NSMakeRect(14.0, 124.0, 120.0, 20.0), nil, [NSColor secondaryLabelColor])];
+  /* An NSBox's content view isn't flipped: lay the list out top-down in a
+     flipped view, or it reads bottom-up. */
+  sidebarList = [[[TDFlippedView alloc] initWithFrame: [[sidebarBox contentView] bounds]] autorelease];
+  [sidebarList setAutoresizingMask: (NSViewWidthSizable | NSViewHeightSizable)];
+  [sidebarList addSubview: TDLabel(@"Workspaces", NSMakeRect(14.0, 14.0, 120.0, 20.0), sectionFont, [NSColor controlTextColor])];
+  [sidebarList addSubview: TDLabel(@"Inbox", NSMakeRect(14.0, 46.0, 120.0, 20.0), nil, [NSColor controlTextColor])];
+  [sidebarList addSubview: TDLabel(@"Drafts", NSMakeRect(14.0, 72.0, 120.0, 20.0), nil, [NSColor controlTextColor])];
+  [sidebarList addSubview: TDLabel(@"Published", NSMakeRect(14.0, 98.0, 120.0, 20.0), nil, [NSColor controlTextColor])];
+  [sidebarList addSubview: TDLabel(@"Archives", NSMakeRect(14.0, 124.0, 120.0, 20.0), nil, [NSColor secondaryLabelColor])];
+  [[sidebarBox contentView] addSubview: sidebarList];
   [documentSplit addSubview: sidebarBox];
 
   documentsBox = [[[NSBox alloc] initWithFrame: NSMakeRect(180.0, 0.0, 260.0, 320.0)] autorelease];
@@ -1265,13 +1380,17 @@ TDMenuBarFixture(NSRect frame)
 
   previewBox = [[[NSBox alloc] initWithFrame: NSMakeRect(440.0, 0.0, 520.0, 320.0)] autorelease];
   [previewBox setTitlePosition: NSNoTitle];
-  [[previewBox contentView] addSubview: TDLabel(@"Release notes draft", NSMakeRect(16.0, 16.0, 260.0, 24.0), [NSFont boldSystemFontOfSize: 20.0], [NSColor controlTextColor])];
-  [[previewBox contentView] addSubview: TDLabel(@"Updated 3 minutes ago", NSMakeRect(16.0, 46.0, 180.0, 18.0), [NSFont systemFontOfSize: 12.0], [NSColor secondaryLabelColor])];
+  /* Top-down, as the sidebar. */
+  previewPane = [[[TDFlippedView alloc] initWithFrame: [[previewBox contentView] bounds]] autorelease];
+  [previewPane setAutoresizingMask: (NSViewWidthSizable | NSViewHeightSizable)];
+  [[previewBox contentView] addSubview: previewPane];
+  [previewPane addSubview: TDLabel(@"Release notes draft", NSMakeRect(16.0, 16.0, 260.0, 26.0), [NSFont boldSystemFontOfSize: 20.0], [NSColor controlTextColor])];
+  [previewPane addSubview: TDLabel(@"Updated 3 minutes ago", NSMakeRect(16.0, 46.0, 180.0, 18.0), [NSFont systemFontOfSize: 12.0], [NSColor secondaryLabelColor])];
   textView = [[[NSTextView alloc] initWithFrame: NSMakeRect(16.0, 80.0, 480.0, 208.0)] autorelease];
   [textView setEditable: NO];
   [textView setSelectable: YES];
   [textView setString: @"This document-shell surface is the acceptance target for ObjcMarkdown-like windows.\n\nReview points:\n- toolbar density\n- sidebar contrast\n- document list selection\n- content surface framing\n- inactive-state clarity\n"];
-  [[previewBox contentView] addSubview: textView];
+  [previewPane addSubview: textView];
   [documentSplit addSubview: previewBox];
   [view addSubview: documentSplit];
 
@@ -1404,6 +1523,63 @@ TDMenuBarFixture(NSRect frame)
   (void)sender;
 }
 
+static NSAlert *
+TDSaveChangesAlert(void)
+{
+  NSAlert *alert = [[[NSAlert alloc] init] autorelease];
+
+  [alert setMessageText: @"Save changes to \"Release notes\"?"];
+  [alert setInformativeText: @"Your changes will be lost if you don't save them."];
+  [alert addButtonWithTitle: @"Save"];
+  [alert addButtonWithTitle: @"Cancel"];
+  [alert addButtonWithTitle: @"Don't Save"];
+  return alert;
+}
+
+static NSString *
+TDAlertResultString(NSInteger result)
+{
+  switch (result)
+    {
+      case NSAlertFirstButtonReturn:
+        return @"Save";
+      case NSAlertSecondButtonReturn:
+        return @"Cancel";
+      case NSAlertThirdButtonReturn:
+        return @"Don't Save";
+      default:
+        return [NSString stringWithFormat: @"Result %ld", (long)result];
+    }
+}
+
+- (void) showAlertDemo: (id)sender
+{
+  NSInteger result = [TDSaveChangesAlert() runModal];
+
+  ASSIGN(_lastAlertResult, [@"Modal alert: " stringByAppendingString: TDAlertResultString(result)]);
+  [self updateDisplayedPage];
+  (void)sender;
+}
+
+- (void) showAlertSheetDemo: (id)sender
+{
+  [TDSaveChangesAlert() beginSheetModalForWindow: _window
+                                   modalDelegate: self
+                                  didEndSelector: @selector(alertSheetDidEnd:returnCode:contextInfo:)
+                                     contextInfo: NULL];
+  (void)sender;
+}
+
+- (void) alertSheetDidEnd: (NSAlert *)alert
+               returnCode: (NSInteger)returnCode
+              contextInfo: (void *)contextInfo
+{
+  ASSIGN(_lastAlertResult, [@"Alert sheet: " stringByAppendingString: TDAlertResultString(returnCode)]);
+  [self performSelector: @selector(updateDisplayedPage) withObject: nil afterDelay: 0.0];
+  (void)alert;
+  (void)contextInfo;
+}
+
 - (void) pageLayoutDemo: (id)sender
 {
   NSPageLayout *panel = [NSPageLayout pageLayout];
@@ -1413,6 +1589,205 @@ TDMenuBarFixture(NSRect frame)
          (result == NSOKButton) ? @"Page setup accepted" : @"Page setup cancelled");
   [self updateDisplayedPage];
   (void)sender;
+}
+
+#pragma mark Toolbar
+
+/* A real NSToolbar, as a document app has: image and label items, a
+   search field as a view item after a flexible space, tool tips. */
+- (NSToolbar *) windowToolbar
+{
+  NSToolbar *toolbar = [[[NSToolbar alloc] initWithIdentifier: @"ThemeDemoToolbar"] autorelease];
+
+  [toolbar setDelegate: self];
+  [toolbar setDisplayMode: NSToolbarDisplayModeIconAndLabel];
+  [toolbar setAllowsUserCustomization: NO];
+  return toolbar;
+}
+
+- (NSArray *) toolbarDefaultItemIdentifiers: (NSToolbar *)toolbar
+{
+  return [NSArray arrayWithObjects: TDToolbarNew, TDToolbarOpen, TDToolbarSave,
+                                    NSToolbarSeparatorItemIdentifier, TDToolbarShare,
+                                    NSToolbarFlexibleSpaceItemIdentifier, TDToolbarSearch, nil];
+}
+
+- (NSArray *) toolbarAllowedItemIdentifiers: (NSToolbar *)toolbar
+{
+  return [self toolbarDefaultItemIdentifiers: toolbar];
+}
+
+- (NSToolbarItem *) toolbar: (NSToolbar *)toolbar
+      itemForItemIdentifier: (NSString *)identifier
+  willBeInsertedIntoToolbar: (BOOL)flag
+{
+  NSToolbarItem *item = [[[NSToolbarItem alloc] initWithItemIdentifier: identifier] autorelease];
+
+  if ([identifier isEqualToString: TDToolbarSearch])
+    {
+      NSSearchField *field = TDSearchField(@"", NSMakeRect(0.0, 0.0, 200.0, 30.0));
+
+      [item setLabel: @"Search"];
+      [item setView: field];
+      [item setMinSize: NSMakeSize(140.0, 30.0)];
+      [item setMaxSize: NSMakeSize(260.0, 30.0)];
+      [item setToolTip: @"Search the review pages"];
+      return item;
+    }
+
+  if ([identifier isEqualToString: TDToolbarNew])
+    {
+      [item setLabel: @"New"];
+      [item setImage: TDGlyphImage(@"plus")];
+      [item setToolTip: @"New document (Ctrl+N)"];
+    }
+  else if ([identifier isEqualToString: TDToolbarOpen])
+    {
+      [item setLabel: @"Open"];
+      [item setImage: TDGlyphImage(@"folder")];
+      [item setToolTip: @"Open a document (Ctrl+O)"];
+    }
+  else if ([identifier isEqualToString: TDToolbarSave])
+    {
+      [item setLabel: @"Save"];
+      [item setImage: TDGlyphImage(@"disk")];
+      [item setToolTip: @"Save the document (Ctrl+S)"];
+    }
+  else
+    {
+      [item setLabel: @"Share"];
+      [item setImage: TDGlyphImage(@"share")];
+      [item setToolTip: @"Share the document"];
+    }
+  [item setTarget: self];
+  [item setAction: @selector(toolbarItemClicked:)];
+  return item;
+}
+
+- (void) toolbarItemClicked: (id)sender
+{
+  (void)sender;
+}
+
+#pragma mark Browser
+
+- (NSInteger) browser: (NSBrowser *)browser numberOfRowsInColumn: (NSInteger)column
+{
+  return (column < 2) ? 4 : 3;
+}
+
+- (void) browser: (NSBrowser *)browser
+ willDisplayCell: (id)cell
+           atRow: (NSInteger)row
+          column: (NSInteger)column
+{
+  static NSString *names[3][4] = {
+    { @"Documents", @"Pictures", @"Projects", @"Downloads" },
+    { @"Notes", @"Release notes", @"Roadmap", @"Archive" },
+    { @"draft.md", @"final.md", @"review.md", nil }
+  };
+  NSString *name = names[MIN(column, 2)][MIN(row, 3)];
+
+  [cell setStringValue: (name != nil) ? name : @""];
+  [cell setLeaf: (column >= 2)];
+}
+
+#pragma mark More surfaces
+
+/* AppKit surfaces the other pages don't show: colour well, date picker,
+   level indicator, a titled grooved box, NSForm, NSBrowser, tool tips and
+   template images. */
+- (NSView *) surfacesPageViewForPage: (NSDictionary *)page
+{
+  TDFlippedView *view = [[[TDFlippedView alloc] initWithFrame: NSMakeRect(0.0, 0.0, 1040.0, 760.0)] autorelease];
+  NSFont *sectionFont = [NSFont boldSystemFontOfSize: 15.0];
+  NSColorWell *well = nil;
+  NSDatePicker *datePicker = nil;
+  NSLevelIndicator *level = nil;
+  NSBox *box = nil;
+  NSForm *form = nil;
+  NSBrowser *browser = nil;
+  NSButton *button = nil;
+  NSSegmentedControl *segments = nil;
+
+  [view addSubview: TDLabel(TDStringOrEmpty([page objectForKey: @"title"]),
+                            NSMakeRect(20.0, 12.0, 320.0, 22.0),
+                            sectionFont,
+                            [NSColor controlTextColor])];
+
+  [view addSubview: TDLabel(@"Pickers And Indicators", NSMakeRect(20.0, 52.0, 300.0, 20.0),
+                            sectionFont, [NSColor controlTextColor])];
+  well = [[[NSColorWell alloc] initWithFrame: NSMakeRect(20.0, 84.0, 64.0, 32.0)] autorelease];
+  [well setColor: [NSColor colorWithCalibratedRed: 0.0 green: 0.47 blue: 0.83 alpha: 1.0]];
+  [view addSubview: well];
+  [view addSubview: TDLabel(@"Colour well", NSMakeRect(20.0, 122.0, 120.0, 18.0),
+                            [NSFont systemFontOfSize: 12.0], [NSColor secondaryLabelColor])];
+  datePicker = [[[NSDatePicker alloc] initWithFrame: NSMakeRect(160.0, 84.0, 200.0, 32.0)] autorelease];
+  [datePicker setDateValue: [NSDate dateWithTimeIntervalSince1970: 1791244800.0]];
+  [view addSubview: datePicker];
+  [view addSubview: TDLabel(@"Date picker", NSMakeRect(160.0, 122.0, 120.0, 18.0),
+                            [NSFont systemFontOfSize: 12.0], [NSColor secondaryLabelColor])];
+  level = [[[NSLevelIndicator alloc] initWithFrame: NSMakeRect(400.0, 90.0, 200.0, 20.0)] autorelease];
+  [level setMinValue: 0.0];
+  [level setMaxValue: 10.0];
+  [level setDoubleValue: 6.0];
+  [[level cell] setLevelIndicatorStyle: NSContinuousCapacityLevelIndicatorStyle];
+  [view addSubview: level];
+  [view addSubview: TDLabel(@"Level indicator", NSMakeRect(400.0, 122.0, 140.0, 18.0),
+                            [NSFont systemFontOfSize: 12.0], [NSColor secondaryLabelColor])];
+
+  [view addSubview: TDLabel(@"Groups And Forms", NSMakeRect(20.0, 168.0, 300.0, 20.0),
+                            sectionFont, [NSColor controlTextColor])];
+  box = [[[NSBox alloc] initWithFrame: NSMakeRect(20.0, 198.0, 360.0, 170.0)] autorelease];
+  [box setTitle: @"Export Options"];
+  [box setTitlePosition: NSAtTop];
+  [box setBoxType: NSBoxPrimary];
+  [box setBorderType: NSGrooveBorder];
+  form = [[[NSForm alloc] initWithFrame: NSMakeRect(12.0, 30.0, 320.0, 80.0)] autorelease];
+  [form addEntry: @"Title:"];
+  [form addEntry: @"Author:"];
+  [[form cellAtIndex: 0] setStringValue: @"Release notes"];
+  [[form cellAtIndex: 1] setStringValue: @"Docs team"];
+  [form setInterlineSpacing: 10.0];
+  [form sizeToCells];
+  [[box contentView] addSubview: form];
+  [view addSubview: box];
+
+  browser = [[[NSBrowser alloc] initWithFrame: NSMakeRect(420.0, 198.0, 540.0, 170.0)] autorelease];
+  [browser setDelegate: self];
+  [browser setMaxVisibleColumns: 3];
+  [browser setTitled: NO];
+  [browser loadColumnZero];
+  [browser selectRow: 2 inColumn: 0];
+  [browser selectRow: 1 inColumn: 1];
+  [view addSubview: browser];
+
+  [view addSubview: TDLabel(@"Tool Tips And Icons", NSMakeRect(20.0, 404.0, 300.0, 20.0),
+                            sectionFont, [NSColor controlTextColor])];
+  button = TDButton(@"Hover for a tip", NSMakeRect(20.0, 436.0, 160.0, 34.0),
+                    NSMomentaryPushInButton, NSRoundedBezelStyle);
+  [button setToolTip: @"A tool tip, as WinUI's ToolTip shows it"];
+  [view addSubview: button];
+  button = TDButton(@"", NSMakeRect(200.0, 436.0, 44.0, 34.0), NSMomentaryPushInButton, NSRoundedBezelStyle);
+  [button setImage: TDGlyphImage(@"gear")];
+  [button setImagePosition: NSImageOnly];
+  [button setToolTip: @"Settings (a template image)"];
+  [view addSubview: button];
+  button = TDButton(@"Share", NSMakeRect(260.0, 436.0, 120.0, 34.0), NSMomentaryPushInButton, NSRoundedBezelStyle);
+  [button setImage: TDGlyphImage(@"share")];
+  [button setImagePosition: NSImageLeft];
+  [view addSubview: button];
+  segments = TDSegmentedControl(NSMakeRect(400.0, 436.0, 180.0, 34.0),
+                                [NSArray arrayWithObjects: @"", @"", @"", nil]);
+  [segments setImage: TDGlyphImage(@"plus") forSegment: 0];
+  [segments setImage: TDGlyphImage(@"folder") forSegment: 1];
+  [segments setImage: TDGlyphImage(@"disk") forSegment: 2];
+  [view addSubview: segments];
+  [view addSubview: TDLabel(@"Template images: an icon button, an icon and label button, and a segmented control. They should follow the text colour in every palette (#25).",
+                            NSMakeRect(20.0, 482.0, 920.0, 20.0),
+                            [NSFont systemFontOfSize: 13.0], [NSColor secondaryLabelColor])];
+
+  return view;
 }
 
 - (NSInteger) numberOfRowsInTableView: (NSTableView *)tableView
@@ -1525,6 +1900,10 @@ objectValueForTableColumn: (NSTableColumn *)tableColumn
   if ([pageID isEqualToString: @"real-app"])
     {
       return [self realAppPageViewForPage: page];
+    }
+  if ([pageID isEqualToString: @"surfaces"])
+    {
+      return [self surfacesPageViewForPage: page];
     }
 
   return [self placeholderPageViewForPage: page];
