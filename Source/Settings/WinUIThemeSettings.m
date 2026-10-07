@@ -38,6 +38,46 @@
 static NSString *WinUIThemeDefaultInterfaceFontName = @"SegoeUIVariable";
 static NSString *WinUIThemeDefaultMonospaceFontName = @"Cascadia Mono";
 static CGFloat WinUIThemeDefaultInterfaceFontSize = 14.0;
+/* GNUstep's default NSFontSize, which Gorm and nib layouts were made at. */
+static CGFloat WinUIThemeCompactInterfaceFontSize = 12.0;
+
+/* The user's WinUIThemeMetrics, then the app's own in its Info.plist (an app
+   laid out for WinUI's metrics declares "winui"), then whether it has a
+   main nib or Gorm file. */
+static BOOL
+WinUIThemeWantsCompactMetrics(void)
+{
+  NSDictionary *info = [[NSBundle mainBundle] infoDictionary];
+  NSString *choice = [[NSUserDefaults standardUserDefaults] stringForKey: @"WinUIThemeMetrics"];
+  id declared = [info objectForKey: @"WinUIThemeMetrics"];
+  NSEnumerator *enumerator = nil;
+  NSString *key = nil;
+
+  if (choice == nil && [declared isKindOfClass: [NSString class]])
+    {
+      choice = declared;
+    }
+  if (choice != nil && [choice caseInsensitiveCompare: @"compact"] == NSOrderedSame)
+    {
+      return YES;
+    }
+  if (choice != nil && [choice caseInsensitiveCompare: @"winui"] == NSOrderedSame)
+    {
+      return NO;
+    }
+  enumerator = [[NSArray arrayWithObjects: @"NSMainNibFile", @"NSMainStoryboardFile",
+                                           @"GSMainMarkupFile", nil] objectEnumerator];
+  while ((key = [enumerator nextObject]) != nil)
+    {
+      id value = [info objectForKey: key];
+
+      if ([value isKindOfClass: [NSString class]] && [value length] > 0)
+        {
+          return YES;
+        }
+    }
+  return NO;
+}
 static CGFloat WinUIThemeDefaultMonospaceFontSize = 9.0;
 static CGFloat WinUIThemeMinimumResolvedInterfaceFontSize = 13.0;
 static CGFloat WinUIThemeMinimumResolvedMenuFontSize = 13.0;
@@ -445,6 +485,7 @@ WinUIThemeAccentPaletteFromSystem(void)
   BOOL reducedTransparency = NO;
   BOOL dynamicScrollbars = YES;
   BOOL systemSettingsAvailable = NO;
+  BOOL compactMetrics = WinUIThemeWantsCompactMetrics();
   WinUIThemeColorScheme colorScheme = WinUIThemeColorSchemePreferLight;
   NSColor *accentColor = nil;
   NSArray *accentPalette = nil;
@@ -611,13 +652,17 @@ WinUIThemeAccentPaletteFromSystem(void)
     {
       textScaleFactor = [textScaleOverride floatValue] / 100.0;
     }
+  /* Compact metrics: GNUstep's 12pt for the interface font, so labels
+     fit layouts made at it; menus, which size themselves, keep WinUI's. */
   if (interfaceFontSize <= 0.0)
     {
-      interfaceFontSize = round(WinUIThemeDefaultInterfaceFontSize * textScaleFactor);
+      interfaceFontSize = round((compactMetrics ? WinUIThemeCompactInterfaceFontSize
+                                                : WinUIThemeDefaultInterfaceFontSize) * textScaleFactor);
     }
   if (menuFontSize <= 0.0)
     {
-      menuFontSize = interfaceFontSize;
+      menuFontSize = compactMetrics ? round(WinUIThemeDefaultInterfaceFontSize * textScaleFactor)
+                                    : interfaceFontSize;
     }
   if (monospaceFontSize <= 0.0)
     {
@@ -733,6 +778,12 @@ WinUIThemeAccentPaletteFromSystem(void)
   _desktopScaleFactor = desktopScaleFactor > 0.0 ? desktopScaleFactor : 1.0;
   _textScaleFactor = textScaleFactor;
   _systemSettingsAvailable = systemSettingsAvailable;
+  _compactMetrics = compactMetrics;
+}
+
+- (BOOL) compactMetrics
+{
+  return _compactMetrics;
 }
 
 - (NSString *) interfaceFontName
@@ -742,7 +793,9 @@ WinUIThemeAccentPaletteFromSystem(void)
 
 - (CGFloat) interfaceFontSize
 {
-  return MAX(WinUIThemeMinimumResolvedInterfaceFontSize, _interfaceFontSize);
+  /* Compact metrics may go down to GNUstep's 12pt. */
+  return MAX(_compactMetrics ? WinUIThemeCompactInterfaceFontSize : WinUIThemeMinimumResolvedInterfaceFontSize,
+             _interfaceFontSize);
 }
 
 - (NSString *) monospaceFontName

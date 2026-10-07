@@ -41,9 +41,14 @@
   CGFloat _tableRowHeight;
   CGFloat _controlCornerRadius;
   CGFloat _windowCornerRadius;
+  BOOL _compact;
 }
 
 - (void) reloadFromSettings: (WinUIThemeSettings *)settings;
+
+/* WinUI's compact density, for layouts made at GNUstep's sizes (see
+   -[WinUIThemeSettings compactMetrics]). */
+- (BOOL) compact;
 
 - (CGFloat) menuBarHeight;
 - (CGFloat) menuItemHeight;

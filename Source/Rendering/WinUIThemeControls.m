@@ -833,6 +833,16 @@ WinUIThemeDrawProgressRing(WinUITheme *theme, NSRect bounds, NSColor *color,
     {
       CGFloat verticalInset = MAX(5.0, ceil([[self metrics] buttonVerticalPadding]));
 
+      /* Compact (#31): the title from 8pt in, clear of the chevron 20pt
+         from the trailing edge, and no more height than GNUstep's. */
+      if ([[self metrics] compact])
+        {
+          margins.left = 8.0;
+          margins.right = WinUIThemeComboBoxGlyphInset + 8.0;
+          margins.top = 2.0;
+          margins.bottom = 2.0;
+          return margins;
+        }
       margins.left = 12.0;
       margins.right = 42.0;
       margins.top = verticalInset + 1.0;
@@ -840,7 +850,9 @@ WinUIThemeDrawProgressRing(WinUITheme *theme, NSRect bounds, NSColor *color,
       return margins;
     }
 
-  if (WinUIThemeUsesModernPushButton(style) == NO)
+  /* Compact (#31): GNUstep's own margins, which nib and Gorm layouts were
+     made with. */
+  if (WinUIThemeUsesModernPushButton(style) == NO || [[self metrics] compact])
     {
       return [super buttonMarginsForCell: cell style: style state: state];
     }

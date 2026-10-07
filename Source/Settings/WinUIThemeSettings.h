@@ -47,6 +47,7 @@ typedef enum
   CGFloat _desktopScaleFactor;
   CGFloat _textScaleFactor;
   BOOL _systemSettingsAvailable;
+  BOOL _compactMetrics;
 }
 
 - (void) reload;
@@ -71,6 +72,12 @@ typedef enum
 /* Windows' Text size (Accessibility), 1.0 to 2.25: it scales the fonts. */
 - (CGFloat) textScaleFactor;
 - (BOOL) systemSettingsAvailable;
+/* Compact metrics (#31), for layouts made at GNUstep's sizes: apps with a
+   main Gorm or nib file (NSMainNibFile, NSMainStoryboardFile or
+   GSMainMarkupFile in their Info.plist) get them unless they say otherwise.
+   WinUIThemeMetrics, "winui" or "compact", in the user's defaults or the
+   app's Info.plist, overrides the choice. */
+- (BOOL) compactMetrics;
 
 - (NSFont *) interfaceFont;
 - (NSFont *) menuFont;

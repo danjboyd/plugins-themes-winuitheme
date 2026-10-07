@@ -35,6 +35,15 @@ static const NSTimeInterval QuirkProbeSettleDelay = 0.8;
 
 static BOOL QuirkProbeHasArgument(NSString *flag, NSString *value);
 
+/* YES when the probe runs with -WinUIThemeMetrics compact. */
+static BOOL
+QuirkProbeCompactMetrics(void)
+{
+  NSString *choice = [[NSUserDefaults standardUserDefaults] stringForKey: @"WinUIThemeMetrics"];
+
+  return choice != nil && [choice caseInsensitiveCompare: @"compact"] == NSOrderedSame;
+}
+
 /* Moves the pointer to `point` in GNUstep screen coordinates (origin at
    the bottom left). libs-back's Windows server doesn't implement
    -setMouseLocation:onScreen:. */
@@ -329,6 +338,7 @@ QuirkProbeModuleOfAddress(void *address)
 - (void) checkColorWell;
 - (void) checkSegmentedControl;
 - (void) checkTabView;
+- (void) checkMetricsChoice;
 - (void) checkTableDefaults;
 - (void) checkLiveSettings;
 - (void) checkIndicators;
@@ -3265,6 +3275,124 @@ QuirkProbeAccentRuns(NSBitmapImageRep *rep, NSInteger y, CGFloat scale, CGFloat 
   [window orderOut: nil];
 }
 
+/* Compact metrics (issue #31): the probe builds its windows in code, so it
+   gets WinUI's metrics unless run with -WinUIThemeMetrics compact. WinUI's:
+   14pt text, 32pt tabs and WinUI's button margins; compact: GNUstep's 12pt,
+   no minimum tab height and GNUstep's button margins, so 22pt nib and Gorm
+   controls fit their titles. */
+- (void) checkMetricsChoice
+{
+  GSTheme *theme = [GSTheme theme];
+  BOOL compact = QuirkProbeCompactMetrics();
+  CGFloat textScale = [[NSUserDefaults standardUserDefaults] floatForKey: @"WinUIThemeTextScaleFactor"];
+  CGFloat expectedFont = round((compact ? 12.0 : 14.0) * ((textScale >= 100.0) ? textScale / 100.0 : 1.0));
+  CGFloat font = [[NSFont systemFontOfSize: 0.0] pointSize];
+  CGFloat tab = [theme tabHeightForType: NSTopTabsBezelBorder];
+  NSButtonCell *cell = AUTORELEASE([[NSButtonCell alloc] initTextCell: @"Miniaturize"]);
+  GSThemeMargins margins;
+  BOOL ok;
+
+  [cell setBezelStyle: NSRoundedBezelStyle];
+  margins = [theme buttonMarginsForCell: cell style: NSRoundedBezelStyle state: GSThemeNormalState];
+  if (compact)
+    {
+      ok = (fabs(font - expectedFont) < 0.5 && tab < 32.0 && margins.left < 8.0);
+    }
+  else
+    {
+      ok = (fabs(font - expectedFont) < 0.5 && tab >= 32.0 && margins.left >= 8.0);
+    }
+  if (ok)
+    {
+      [self pass: @"metrics-choice" detail: [NSString stringWithFormat:
+        @"%@ metrics: %.0fpt text, %.0fpt tabs, %.0fpt button margins",
+        compact ? @"compact" : @"WinUI", font, tab, margins.left]];
+    }
+  else
+    {
+      [self fail: @"metrics-choice" detail: [NSString stringWithFormat:
+        @"expected %@ metrics; got %.0fpt text (expected %.0f), %.0fpt tabs, %.0fpt button margins",
+        compact ? @"compact" : @"WinUI", font, expectedFont, tab, margins.left]];
+    }
+
+  /* A button laid out at GNUstep's metrics, as in a nib: "Miniaturize" in
+     72x22pt. Compact metrics show the whole title (Adwaita's showed
+     "Miniatur" before its compact metrics). */
+  if (compact == NO)
+    {
+      [self skip: @"compact-nib-button" detail: @"needs -WinUIThemeMetrics compact"];
+    }
+  else
+    {
+      NSWindow *window = [self windowWithFrame: NSMakeRect(260, 260, 160, 60)
+                                         title: @"QuirkProbe Compact"];
+      NSButton *button = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(20, 20, 72, 22)]);
+      NSBitmapImageRep *rep = nil;
+      CGFloat scale, titleWidth;
+      NSUInteger red, green, blue;
+      QuirkProbeInk ink;
+
+      [button setTitle: @"Miniaturize"];
+      [button setBezelStyle: NSRoundedBezelStyle];
+      [[window contentView] addSubview: button];
+      [window orderFront: nil];
+      [window display];
+      rep = QuirkProbeRender(button);
+      scale = QuirkProbeScale(rep, button);
+      [self saveView: button named: @"compact-nib-button"];
+      QuirkProbePixel(rep, [rep pixelsWide] / 2, 3 * scale, &red, &green, &blue);
+      QuirkProbeInkBackground = red + green + blue;
+      ink = QuirkProbeMeasureIn(rep, QuirkProbeIsInk,
+                                NSMakeRect(2 * scale, 3 * scale, [rep pixelsWide] - 4 * scale, [rep pixelsHigh] - 6 * scale));
+      titleWidth = [@"Miniaturize" sizeWithAttributes:
+        [NSDictionary dictionaryWithObject: [button font] forKey: NSFontAttributeName]].width;
+      if (ink.count > 0 && ink.width / scale >= titleWidth - 3.0)
+        {
+          [self pass: @"compact-nib-button" detail: [NSString stringWithFormat:
+            @"the whole title shows in a 72x22pt button (%.0fpt of ink, the title %.0fpt)",
+            ink.width / scale, titleWidth]];
+        }
+      else
+        {
+          [self fail: @"compact-nib-button" detail: [NSString stringWithFormat:
+            @"%.0fpt of title ink in a 72x22pt button; the title is %.0fpt", ink.width / scale, titleWidth]];
+        }
+      [window orderOut: nil];
+    }
+
+  /* A label laid out at GNUstep's 12pt, as in a nib: buttons give up their
+     padding before their title (#14), but a label can't, so at WinUI's 14pt
+     its text runs past the frame. 107pt is what GNUstep's own layout gives
+     "Miniaturize window": 103pt of Tahoma 12 (its default font on Windows)
+     and the cell's 4pt. */
+  if (compact == NO)
+    {
+      [self skip: @"compact-nib-label" detail: @"needs -WinUIThemeMetrics compact"];
+    }
+  else
+    {
+      NSTextField *label = AUTORELEASE([[NSTextField alloc] initWithFrame: NSMakeRect(0, 0, 107, 17)]);
+      NSSize needed;
+
+      [label setStringValue: @"Miniaturize window"];
+      [label setBezeled: NO];
+      [label setBordered: NO];
+      [label setEditable: NO];
+      [label setDrawsBackground: NO];
+      needed = [[label cell] cellSize];
+      if (needed.width <= 107.5)
+        {
+          [self pass: @"compact-nib-label" detail: [NSString stringWithFormat:
+            @"\"Miniaturize window\" needs %.0fpt of a 107pt nib label", needed.width]];
+        }
+      else
+        {
+          [self fail: @"compact-nib-label" detail: [NSString stringWithFormat:
+            @"\"Miniaturize window\" needs %.0fpt; a nib made at GNUstep's 12pt gives it 107", needed.width]];
+        }
+    }
+}
+
 /* A table built in code looks like a WinUI list (issue #28): libs-gui's
    16pt rows, grid and 5x2pt spacing become 32pt rows, no grid and none;
    the header shows column dividers only under the pointer; and a row under
@@ -3561,7 +3689,9 @@ QuirkProbeFindListener(HWND hwnd, LPARAM found)
   NSString *family = [[manager availableFontFamilies] containsObject: @"Segoe UI Variable"]
     ? @"Segoe UI Variable" : @"Segoe UI";
   CGFloat textScale = [[NSUserDefaults standardUserDefaults] floatForKey: @"WinUIThemeTextScaleFactor"];
-  CGFloat size = round(14.0 * ((textScale >= 100.0) ? textScale / 100.0 : 1.0));
+  /* Compact metrics (#31) use GNUstep's 12pt. */
+  CGFloat base = QuirkProbeCompactMetrics() ? 12.0 : 14.0;
+  CGFloat size = round(base * ((textScale >= 100.0) ? textScale / 100.0 : 1.0));
   NSString *detail = nil;
 
   detail = [NSString stringWithFormat: @"the system font is %@ (%@) at %.1f; expected %@ at %.0f",
@@ -5202,6 +5332,7 @@ QuirkProbeLastItemOfMenu(NSString *title)
   [self checkColorWell];
   [self checkSegmentedControl];
   [self checkTabView];
+  [self checkMetricsChoice];
   [self checkTableDefaults];
   [self checkLiveSettings];
   [self checkIndicators];

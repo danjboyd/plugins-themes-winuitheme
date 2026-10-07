@@ -83,6 +83,24 @@ Build the WinUI 3 reference harness:
 powershell -ExecutionPolicy Bypass -File Reference/WinUI3ReferenceApp/build.ps1
 ```
 
+## Metrics for Gorm and Nib Apps
+
+Apps whose windows are built in code get WinUI's metrics: 14px Segoe UI
+Variable, 32px controls and tabs, WinUI's button margins. Apps with a main
+Gorm or nib file (`NSMainNibFile`, `NSMainStoryboardFile` or
+`GSMainMarkupFile` in their Info.plist) get `compact` metrics instead:
+GNUstep's 12pt interface font, WinUI's compact 24px control height, no
+minimum tab height and GNUstep's own button margins, so layouts made at
+GNUstep's sizes keep fitting their text. Menus keep WinUI's size either way.
+
+`WinUIThemeMetrics`, `winui` or `compact`, overrides the choice: in the
+app's Info.plist (an app laid out for WinUI's metrics declares `winui`), or
+as a user default, which wins over the Info.plist:
+
+```sh
+defaults write SystemPreferences WinUIThemeMetrics compact
+```
+
 ## Real-App Gate
 
 Before release, the theme must validate against `ObjcMarkdown` in the sibling
