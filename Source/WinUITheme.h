@@ -34,6 +34,14 @@
    for `baseClass`, the class the override was installed on, instead. */
 IMP WinUIThemeOriginalMethod(SEL selector, id receiver, Class baseClass);
 
+/* Centred and right-aligned text as the running libs-gui numbers them.
+   libs-gui after 0.32 numbers NSTextAlignment as AppKit does (centre 1,
+   right 2; 0.32 has right 1, centre 2), so the constants a theme built
+   against one release's headers mean the other alignment with the other
+   release (#13). */
+NSTextAlignment WinUIThemeCenterTextAlignment(void);
+NSTextAlignment WinUIThemeRightTextAlignment(void);
+
 @interface WinUITheme : GSTheme
 {
   WinUIThemeSettings *_settings;

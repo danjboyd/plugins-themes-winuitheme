@@ -385,7 +385,7 @@ WinUIThemePlaceToolbarView(NSView *backView, NSToolbarItem *item)
       labelRect.origin.y = floor(NSMidY(content) - label.height / 2.0);
     }
   style = AUTORELEASE([[NSParagraphStyle defaultParagraphStyle] mutableCopy]);
-  [style setAlignment: NSCenterTextAlignment];
+  [style setAlignment: WinUIThemeCenterTextAlignment()];
   attributes = [NSDictionary dictionaryWithObjectsAndKeys:
     WinUIThemeToolbarLabelFont(toolbar), NSFontAttributeName,
     [item isEnabled]

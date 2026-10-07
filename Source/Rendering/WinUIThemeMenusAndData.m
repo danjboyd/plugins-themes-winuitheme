@@ -1143,7 +1143,7 @@ WinUIThemeDrawTableHover(WinUITheme *theme, NSTableView *tableView, NSRect clipR
 
   attributes = WinUIThemeMenuTextAttributes(font,
                                             textColor,
-                                            isHorizontal ? NSCenterTextAlignment : NSLeftTextAlignment);
+                                            isHorizontal ? WinUIThemeCenterTextAlignment() : NSLeftTextAlignment);
   attributedTitle = [[[NSAttributedString alloc] initWithString: title
                                                      attributes: attributes] autorelease];
   titleSize = [attributedTitle size];
@@ -1311,7 +1311,7 @@ WinUIThemeDrawTableHover(WinUITheme *theme, NSTableView *tableView, NSRect clipR
 
   /* GNUstep centres header titles by default; WinUI (and Cocoa) start them
      at the leading edge. Titles an app aligned left or right keep that. */
-  if ([cell alignment] == NSCenterTextAlignment)
+  if ([cell alignment] == WinUIThemeCenterTextAlignment())
     {
       [cell setAlignment: NSLeftTextAlignment];
     }
@@ -1433,7 +1433,7 @@ WinUIThemeDrawTableHover(WinUITheme *theme, NSTableView *tableView, NSRect clipR
         : WinUIThemeColorFromTheme(self, @"secondaryLabelColor", [NSColor disabledControlTextColor]);
       NSDictionary *attributes = WinUIThemeMenuTextAttributes([NSFont systemFontOfSize: [NSFont systemFontSize]],
                                                               textColor,
-                                                              NSCenterTextAlignment);
+                                                              WinUIThemeCenterTextAlignment());
       NSSize labelSize = [title sizeWithAttributes: attributes];
       CGFloat tabWidth = MAX(78.0, ceil(labelSize.width + 28.0));
       NSRect tabRect = NSMakeRect(x,
@@ -1991,7 +1991,7 @@ WinUIThemeDrawTableHover(WinUITheme *theme, NSTableView *tableView, NSRect clipR
       if ([key length] > 0)
         {
           NSFont *font = [cell font] != nil ? [cell font] : [NSFont menuFontOfSize: 0.0];
-          NSDictionary *attributes = WinUIThemeMenuTextAttributes(font, color, NSRightTextAlignment);
+          NSDictionary *attributes = WinUIThemeMenuTextAttributes(font, color, WinUIThemeRightTextAlignment());
           NSSize size = [key sizeWithAttributes: attributes];
           NSRect textRect = NSMakeRect(NSMinX(keyRect),
                                        floor(NSMidY(keyRect) - size.height / 2.0),

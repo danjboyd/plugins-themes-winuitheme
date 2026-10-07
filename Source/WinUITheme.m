@@ -74,6 +74,32 @@ WinUIThemeOriginalMethod(SEL selector, id receiver, Class baseClass)
   return [theme overriddenMethod: selector for: prototype];
 }
 
+/* NSParagraphStyle's class version went to 4 when libs-gui renumbered
+   NSTextAlignment. */
+static BOOL
+WinUIThemeUsesAppKitAlignments(void)
+{
+  static int appKit = -1;
+
+  if (appKit < 0)
+    {
+      appKit = [NSParagraphStyle version] >= 4 ? 1 : 0;
+    }
+  return appKit == 1;
+}
+
+NSTextAlignment
+WinUIThemeCenterTextAlignment(void)
+{
+  return WinUIThemeUsesAppKitAlignments() ? 1 : 2;
+}
+
+NSTextAlignment
+WinUIThemeRightTextAlignment(void)
+{
+  return WinUIThemeUsesAppKitAlignments() ? 2 : 1;
+}
+
 @implementation WinUITheme
 
 + (NSString *) themeName

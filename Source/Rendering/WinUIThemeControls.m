@@ -447,7 +447,7 @@ WinUIThemeSegmentedLabelAttributes(NSSegmentedCell *cell,
     }
 
   paragraphStyle = [[[NSMutableParagraphStyle alloc] init] autorelease];
-  [paragraphStyle setAlignment: NSCenterTextAlignment];
+  [paragraphStyle setAlignment: WinUIThemeCenterTextAlignment()];
   [paragraphStyle setLineBreakMode: NSLineBreakByTruncatingTail];
   [attributes setObject: paragraphStyle forKey: NSParagraphStyleAttributeName];
 

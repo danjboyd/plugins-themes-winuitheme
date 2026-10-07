@@ -306,6 +306,7 @@ QuirkProbeModuleOfAddress(void *address)
 - (void) checkSubclassImageCell;
 - (void) checkToolbarImageItem;
 - (void) checkScrollerEdge;
+- (void) checkTextAlignment;
 - (void) checkTableHeader;
 - (void) checkMultilineLabels;
 - (void) checkSwitches;
@@ -521,6 +522,20 @@ QuirkProbeModuleOfAddress(void *address)
 
   [item setLabel: @"Image"];
   [item setImage: [self magentaImage]];
+  /* The alignment check needs a view item (the theme draws its label)
+     with a label much narrower than the view. */
+  if ([[toolbar identifier] isEqualToString: @"QuirkProbeAlignmentToolbar"])
+    {
+      NSImageView *view = [[NSImageView alloc] initWithFrame: NSMakeRect(0, 0, 96, 24)];
+
+      [view setImage: [self magentaImage]];
+      [view setImageScaling: NSImageScaleNone];
+      [item setView: view];
+      [item setMinSize: NSMakeSize(96, 24)];
+      [item setMaxSize: NSMakeSize(96, 24)];
+      [item setLabel: @"Go"];
+      RELEASE(view);
+    }
   /* An item without an action is disabled, and draws its image faded. */
   [item setTarget: self];
   [item setAction: @selector(toolbarItemClicked:)];
@@ -880,6 +895,79 @@ objectValueForTableColumn: (NSTableColumn *)column
     {
       [self fail: @"table-header-title-inset" detail:
         [NSString stringWithFormat: @"title starts %.0fpt in, expected about 12", inset]];
+    }
+}
+
+/* Centred text stays centred whichever way the running libs-gui numbers
+   NSTextAlignment (issue #13): libs-gui after 0.32 swapped centre and
+   right, so the label of a toolbar view item, set with 0.32's
+   NSCenterTextAlignment, drew right-aligned under its view. Measured from the drawing; the table
+   header check covers left alignment and the menu check the shortcuts. */
+- (void) checkTextAlignment
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(320, 300, 320, 160)
+                                     title: @"QuirkProbe Alignment"];
+  NSToolbar *toolbar = [[NSToolbar alloc] initWithIdentifier: @"QuirkProbeAlignmentToolbar"];
+  NSView *toolbarView = nil;
+  NSBitmapImageRep *rep = nil;
+  NSUInteger red, green, blue;
+  QuirkProbeInk icon, label;
+  CGFloat scale, iconCentre, labelCentre;
+
+  [toolbar setDelegate: self];
+  [toolbar setDisplayMode: NSToolbarDisplayModeIconAndLabel];
+  [window setToolbar: toolbar];
+  RELEASE(toolbar);
+  [window orderFront: nil];
+  [window display];
+
+  toolbarView = QuirkProbeFindViewOfClass([[window contentView] superview],
+                                          NSClassFromString(@"GSToolbarView"));
+  if (toolbarView == nil)
+    {
+      [self skip: @"toolbar-label-centred" detail: @"no GSToolbarView in the window"];
+      return;
+    }
+  /* The magenta square is centred in its view. */
+  rep = QuirkProbeRender(toolbarView);
+  scale = QuirkProbeScale(rep, toolbarView);
+  [self saveView: toolbarView named: @"toolbar-label"];
+
+  icon = QuirkProbeMeasureIn(rep, QuirkProbeIsMagenta, NSZeroRect);
+  if (icon.count == 0
+      || QuirkProbePixel(rep, [rep pixelsWide] - (NSInteger)(10 * scale),
+                         icon.minY + icon.height + (NSInteger)(4 * scale),
+                         &red, &green, &blue) == NO)
+    {
+      [self fail: @"toolbar-label-centred" detail: @"couldn't find the item's view"];
+      return;
+    }
+  QuirkProbeInkBackground = red + green + blue;
+  /* Under the icon, across the item's width either side of it, above the
+     line under the toolbar. */
+  label = QuirkProbeMeasureIn(rep, QuirkProbeIsInk,
+                              NSMakeRect(MAX(0, icon.minX - 60 * scale),
+                                         icon.minY + icon.height + 1,
+                                         icon.width + 120 * scale,
+                                         [rep pixelsHigh] - (icon.minY + icon.height + 1) - 2));
+  if (label.count == 0)
+    {
+      [self fail: @"toolbar-label-centred" detail: @"the item shows no label"];
+      return;
+    }
+  iconCentre = (icon.minX + icon.width / 2.0) / scale;
+  labelCentre = (label.minX + label.width / 2.0) / scale;
+  if (fabs(labelCentre - iconCentre) <= 2.0)
+    {
+      [self pass: @"toolbar-label-centred" detail:
+        [NSString stringWithFormat: @"the label is centred under the view (%.1fpt off)",
+                                    labelCentre - iconCentre]];
+    }
+  else
+    {
+      [self fail: @"toolbar-label-centred" detail:
+        [NSString stringWithFormat: @"the label's centre is %.1fpt from the view's",
+                                    labelCentre - iconCentre]];
     }
 }
 
@@ -2707,6 +2795,24 @@ QuirkProbeMenuRows(NSMenuView *view, NSBitmapImageRep *rep, NSInteger index,
             @"%ld px between the longest title and its shortcut, WinUI has 24pt", (long)gap]];
         }
 
+      /* Shortcuts are right-aligned (issue #13: with libs-gui after 0.32,
+         0.32's NSRightTextAlignment centred them). */
+      {
+        CGFloat trailing = (width - 1 - lastInk) / scale;
+
+        /* WinUI's 12pt padding, and the side bearing. */
+        if (trailing <= 18.0)
+          {
+            [self pass: @"menu-shortcut-trailing" detail: [NSString stringWithFormat:
+              @"the shortcut ends %.0fpt from the flyout's edge", trailing]];
+          }
+        else
+          {
+            [self fail: @"menu-shortcut-trailing" detail: [NSString stringWithFormat:
+              @"the shortcut ends %.0fpt from the flyout's edge: not right-aligned", trailing]];
+          }
+      }
+
       /* The strongest ink of each: secondary text is fainter. */
       for (x = firstInk; x <= lastInk; x++)
         {
@@ -3942,6 +4048,7 @@ QuirkProbeLastItemOfMenu(NSString *title)
   [self checkToolbarImageItem];
   [self checkScrollerEdge];
   [self checkTableHeader];
+  [self checkTextAlignment];
   [self checkMultilineLabels];
   [self checkSwitches];
   [self checkStepper];
