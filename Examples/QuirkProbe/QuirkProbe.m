@@ -299,6 +299,7 @@ QuirkProbeModuleOfAddress(void *address)
 - (void) checkButtonChrome;
 - (void) checkMenuFlyout;
 - (void) checkOverlayScrollers;
+- (void) checkHorizontalOnlyScroller;
 - (void) createLateWindow: (NSTimer *)timer;
 - (void) checkLateWindow: (NSTimer *)timer;
 - (void) checkMenuBarTitles: (NSWindow *)window;
@@ -1946,6 +1947,54 @@ QuirkProbeStripInk(NSScrollView *scrollView, NSUInteger fill, CGFloat inset)
   return ink;
 }
 
+/* A scroll view with only a horizontal scroller keeps it above the
+   content, which overlay scroll bars run under (issue #29). Re-raised
+   "below the vertical scroller" when there was none, it went under the
+   clip view, unseen and unclickable. It's re-raised once something else
+   is above it, as here. */
+- (void) checkHorizontalOnlyScroller
+{
+  NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+  NSWindow *window = [self windowWithFrame: NSMakeRect(80, 360, 260, 200)
+                                     title: @"QuirkProbe Horizontal Scroller"];
+  NSScrollView *scrollView = AUTORELEASE([[NSScrollView alloc] initWithFrame: NSMakeRect(20, 20, 200, 150)]);
+  NSView *document = AUTORELEASE([[NSView alloc] initWithFrame: NSMakeRect(0, 0, 600, 140)]);
+  NSView *above = AUTORELEASE([[NSView alloc] initWithFrame: NSMakeRect(0, 0, 10, 10)]);
+  NSArray *subviews = nil;
+  NSUInteger clip, scroller;
+
+  if (QuirkProbeHasArgument(@"--high-contrast", nil))
+    {
+      [self skip: @"scroller-horizontal-only-above" detail: @"high contrast keeps classic scroll bars"];
+      return;
+    }
+  /* Whatever the Windows setting here. */
+  [defaults setBool: YES forKey: @"WinUIThemeOverlayScrollbars"];
+  [scrollView setHasHorizontalScroller: YES];
+  [scrollView setHasVerticalScroller: NO];
+  [scrollView setDocumentView: document];
+  [[window contentView] addSubview: scrollView];
+  [window orderFront: nil];
+  [scrollView tile];
+  [scrollView addSubview: above];
+  [scrollView tile];
+  subviews = [scrollView subviews];
+  [defaults removeObjectForKey: @"WinUIThemeOverlayScrollbars"];
+  clip = [subviews indexOfObjectIdenticalTo: [scrollView contentView]];
+  scroller = [subviews indexOfObjectIdenticalTo: [scrollView horizontalScroller]];
+  if (scroller != NSNotFound && clip != NSNotFound && scroller > clip)
+    {
+      [self pass: @"scroller-horizontal-only-above" detail: @"a lone horizontal scroller sits above the content"];
+    }
+  else
+    {
+      [self fail: @"scroller-horizontal-only-above" detail: [NSString stringWithFormat:
+        @"the horizontal scroller is subview %ld, the clip view %ld: under the content",
+        (long)scroller, (long)clip]];
+    }
+  [window orderOut: nil];
+}
+
 /* WinUI's ScrollBar (issue #29): the content runs under the scroll bar,
    which shows nothing at rest, a thin indicator while the content
    scrolls, then fades; WinUIThemeOverlayScrollbars NO keeps a classic
@@ -2371,6 +2420,7 @@ QuirkProbeLastItemOfMenu(NSString *title)
   [self checkButtonChrome];
   [self checkMenuFlyout];
   [self checkOverlayScrollers];
+  [self checkHorizontalOnlyScroller];
   [self checkPopUpClick];
   [self after: QuirkProbeSettleDelay perform: @selector(createLateWindow:)];
 }
