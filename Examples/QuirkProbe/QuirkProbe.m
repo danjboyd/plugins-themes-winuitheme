@@ -327,6 +327,7 @@ QuirkProbeModuleOfAddress(void *address)
 - (void) checkDatePicker;
 - (void) checkBrowser;
 - (void) checkColorWell;
+- (void) checkSegmentedControl;
 - (void) checkTableDefaults;
 - (void) checkLiveSettings;
 - (void) checkIndicators;
@@ -2994,6 +2995,151 @@ QuirkProbeIsSwatchRed(NSUInteger red, NSUInteger green, NSUInteger blue)
   [window orderOut: nil];
 }
 
+static NSSegmentedControl *
+QuirkProbeSegments(NSView *content, NSRect frame, NSInteger mode)
+{
+  NSSegmentedControl *control = AUTORELEASE([[NSSegmentedControl alloc] initWithFrame: frame]);
+  NSArray *labels = [NSArray arrayWithObjects: @"Write", @"Preview", @"Split", nil];
+  NSUInteger index;
+
+  [control setSegmentCount: 3];
+  [[control cell] setTrackingMode: mode];
+  for (index = 0; index < 3; index++)
+    {
+      [control setLabel: [labels objectAtIndex: index] forSegment: index];
+      [control setWidth: 100 forSegment: index];
+    }
+  [content addSubview: control];
+  return control;
+}
+
+/* Accent runs along one pixel row: their count and the first one's centre
+   and length in points. */
+static NSUInteger
+QuirkProbeAccentRuns(NSBitmapImageRep *rep, NSInteger y, CGFloat scale, CGFloat *firstCentre, CGFloat *firstLength)
+{
+  NSUInteger runs = 0;
+  NSInteger x, start = -1;
+  BOOL inRun = NO;
+
+  for (x = 0; x <= [rep pixelsWide]; x++)
+    {
+      NSUInteger r = 0, g = 0, b = 0;
+      BOOL hit = (x < [rep pixelsWide]) && QuirkProbePixel(rep, x, y, &r, &g, &b) && QuirkProbeIsAccentBlue(r, g, b);
+
+      if (hit && inRun == NO)
+        {
+          start = x;
+        }
+      if (hit == NO && inRun)
+        {
+          if (runs == 0)
+            {
+              *firstCentre = (start + x) / 2.0 / scale;
+              *firstLength = (x - start) / scale;
+            }
+          runs++;
+        }
+      inRun = hit;
+    }
+  return runs;
+}
+
+/* NSSegmentedControl as WinUI's Segmented control (issue #48): one rounded
+   container with no dividers; the selected segment raised, with a 3x16pt
+   accent pill under its label; in multiple selection, a pill under each
+   selected segment. The theme drew dividers between segments and tinted
+   the selected one. */
+- (void) checkSegmentedControl
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(220, 160, 360, 140)
+                                     title: @"QuirkProbe Segments"];
+  NSView *content = [window contentView];
+  NSSegmentedControl *one = QuirkProbeSegments(content, NSMakeRect(20, 90, 300, 32), NSSegmentSwitchTrackingSelectOne);
+  NSSegmentedControl *any = QuirkProbeSegments(content, NSMakeRect(20, 30, 300, 32), NSSegmentSwitchTrackingSelectAny);
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale, centre = 0.0, length = 0.0;
+  NSUInteger red, green, blue;
+  QuirkProbeInk pill;
+
+  if (QuirkProbeHasArgument(@"--high-contrast", nil))
+    {
+      [self skip: @"segmented-pill" detail: @"high contrast draws the selection as the highlight"];
+      [self skip: @"segmented-no-dividers" detail: @"high contrast draws the selection as the highlight"];
+      [self skip: @"segmented-multiple" detail: @"high contrast draws the selection as the highlight"];
+      return;
+    }
+  [one setSelectedSegment: 0];
+  [any setSelected: YES forSegment: 0];
+  [any setSelected: YES forSegment: 2];
+  [window orderFront: nil];
+  [window display];
+
+  rep = QuirkProbeRender(one);
+  scale = QuirkProbeScale(rep, one);
+  [self saveView: one named: @"segmented"];
+  pill = QuirkProbeMeasureIn(rep, QuirkProbeIsAccentBlue, NSZeroRect);
+  if (pill.count > 0 && fabs(pill.width / scale - 16.0) <= 1.5 && fabs(pill.height / scale - 3.0) <= 1.0
+      && fabs((pill.minX + pill.width / 2.0) / scale - 50.0) <= 2.0)
+    {
+      [self pass: @"segmented-pill" detail: [NSString stringWithFormat:
+        @"a %.0fx%.0fpt accent pill under the selected segment", pill.width / scale, pill.height / scale]];
+    }
+  else
+    {
+      [self fail: @"segmented-pill" detail: [NSString stringWithFormat:
+        @"accent %.0fx%.0fpt centred at %.0fpt (expected 16x3 at 50)",
+        pill.width / scale, pill.height / scale,
+        pill.count ? (pill.minX + pill.width / 2.0) / scale : -1.0]];
+    }
+
+  /* Between the two unselected segments, at mid-height: the container's
+     fill, as 10pt to either side. */
+  {
+    NSInteger y = [rep pixelsHigh] / 2;
+    NSUInteger at, left;
+    NSInteger x, worst = 0;
+
+    QuirkProbePixel(rep, (NSInteger)(190 * scale), y, &red, &green, &blue);
+    left = red + green + blue;
+    for (x = (NSInteger)(197 * scale); x <= (NSInteger)(203 * scale); x++)
+      {
+        QuirkProbePixel(rep, x, y, &red, &green, &blue);
+        at = red + green + blue;
+        worst = MAX(worst, (NSInteger)llabs((long long)at - (long long)left));
+      }
+    if (worst <= 12)
+      {
+        [self pass: @"segmented-no-dividers" detail: [NSString stringWithFormat:
+          @"no divider between unselected segments (%ld of 765 from the fill)", (long)worst]];
+      }
+    else
+      {
+        [self fail: @"segmented-no-dividers" detail: [NSString stringWithFormat:
+          @"a mark %ld of 765 from the fill between unselected segments", (long)worst]];
+      }
+  }
+
+  /* Multiple selection: a pill under the first and the last. */
+  rep = QuirkProbeRender(any);
+  [self saveView: any named: @"segmented-multiple"];
+  pill = QuirkProbeMeasureIn(rep, QuirkProbeIsAccentBlue, NSZeroRect);
+  {
+    NSUInteger runs = pill.count ? QuirkProbeAccentRuns(rep, pill.minY + pill.height / 2, scale, &centre, &length) : 0;
+
+    if (runs == 2 && fabs(centre - 50.0) <= 2.0)
+      {
+        [self pass: @"segmented-multiple" detail: @"two selected segments, two pills"];
+      }
+    else
+      {
+        [self fail: @"segmented-multiple" detail: [NSString stringWithFormat:
+          @"%lu accent runs, the first centred at %.0fpt", (unsigned long)runs, centre]];
+      }
+  }
+  [window orderOut: nil];
+}
+
 /* A table built in code looks like a WinUI list (issue #28): libs-gui's
    16pt rows, grid and 5x2pt spacing become 32pt rows, no grid and none;
    the header shows column dividers only under the pointer; and a row under
@@ -4929,6 +5075,7 @@ QuirkProbeLastItemOfMenu(NSString *title)
   [self checkDatePicker];
   [self checkBrowser];
   [self checkColorWell];
+  [self checkSegmentedControl];
   [self checkTableDefaults];
   [self checkLiveSettings];
   [self checkIndicators];

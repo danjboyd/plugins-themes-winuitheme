@@ -430,16 +430,23 @@ WinUIThemeSegmentedLabelAttributes(NSSegmentedCell *cell,
     }
 
   attributes = WinUIThemeMutableTypingAttributes(cell);
+  /* Regular in every state, as WinUI's segments: a semibold selection
+     would change the label's width. */
   font = WinUIThemePreferredControlFont(theme,
                                         [attributes objectForKey: NSFontAttributeName],
-                                        selected);
+                                        NO);
   if (font != nil)
     {
       [attributes setObject: font forKey: NSFontAttributeName];
     }
 
+  /* In high contrast the selected segment is the highlight: its text
+     colour. */
   color = WinUIThemeColorFromTheme(theme,
-                                   selected ? @"labelColor" : @"secondaryLabelColor",
+                                   selected
+                                     ? ([[theme settings] highContrastEnabled] ? @"selectedControlTextColor"
+                                                                              : @"labelColor")
+                                     : @"secondaryLabelColor",
                                    [NSColor controlTextColor]);
   if (color != nil)
     {
@@ -513,7 +520,9 @@ WinUIThemeDrawSegmentedLabel(NSSegmentedCell *cell,
   textFrame.origin.x += leftInset;
   textFrame.size.width = MAX(0.0, textFrame.size.width - (leftInset + rightInset));
   textFrame.origin.x += opticalXOffset;
-  textFrame.origin.y = floor(NSMidY(frame) - (titleSize.height / 2.0)) - 1.0;
+  /* 2pt above the middle, clear of the selected segment's pill. */
+  textFrame.origin.y = floor(NSMidY(frame) - (titleSize.height / 2.0))
+    + ([[cell controlView] isFlipped] ? -2.0 : 2.0);
   textFrame.size.height = ceil(titleSize.height);
   [cell _drawAttributedText: attrstring inFrame: textFrame];
   RELEASE(attributes);
@@ -894,32 +903,95 @@ WinUIThemeDrawProgressRing(WinUITheme *theme, NSRect bounds, NSColor *color,
   BOOL enabled = (state != GSThemeDisabledState);
   BOOL selected = WinUIThemeStateIsHighlighted(state);
   BOOL dark = [[self settings] prefersDarkAppearance];
-  NSColor *separator = WinUIThemeColorFromTheme(self,
-                                                @"separatorColor",
-                                                [NSColor controlShadowColor]);
+  BOOL highContrast = [[self settings] highContrastEnabled];
+  BOOL flipped = [controlView isFlipped];
+  NSColor *window = WinUIThemeColorFromTheme(self, @"windowBackgroundColor", [NSColor windowBackgroundColor]);
+  NSColor *ink = dark ? [NSColor whiteColor] : [NSColor blackColor];
+  NSColor *containerFill = nil;
+  NSColor *containerStroke = nil;
+  CGFloat radius = WinUIThemeControlCornerRadius(self);
+  NSRect frame = NSIntegralRect(cellFrame);
+  NSRect outline = frame;
+  NSGraphicsContext *context = [NSGraphicsContext currentContext];
 
   (void)cell;
-  (void)controlView;
   (void)style;
 
-  WinUIThemeDrawSegmentChrome(self,
-                              cellFrame,
-                              enabled,
-                              selected,
-                              NO,
-                              roundedLeft,
-                              roundedRight);
-
+  /* WinUI's Segmented control (#48): one rounded container,
+     ControlAltFillColorSecondary inside ControlStrokeColorDefault, with no
+     dividers between segments. Each segment draws its share; at a join the
+     outline runs past the segment's edge, so no line is drawn there. */
+  if (highContrast)
+    {
+      containerFill = window;
+      containerStroke = enabled ? WinUIThemeColorFromTheme(self, @"labelColor", [NSColor controlTextColor])
+                                : WinUIThemeColorFromTheme(self, @"disabledControlTextColor",
+                                                           [NSColor disabledControlTextColor]);
+    }
+  else
+    {
+      containerFill = WinUIThemeBlendColor(window, [NSColor blackColor], dark ? 0.10 : 0.024);
+      containerStroke = WinUIThemeBlendColor(containerFill, ink, dark ? 0.08 : 0.07);
+    }
+  if (roundedLeft == NO)
+    {
+      outline.origin.x -= 2.0;
+      outline.size.width += 2.0;
+    }
   if (roundedRight == NO)
     {
-      NSRect drawRect = NSInsetRect(NSIntegralRect(cellFrame), 0.5, 0.5);
-
-      [WinUIThemeColorWithAlpha(separator, dark ? 0.72 : 0.92) set];
-      NSRectFill(NSMakeRect(NSMaxX(drawRect) - 0.5,
-                            drawRect.origin.y + 7.0,
-                            1.0,
-                            MAX(4.0, drawRect.size.height - 14.0)));
+      outline.size.width += 2.0;
     }
+  [context saveGraphicsState];
+  NSRectClip(frame);
+  {
+    NSBezierPath *path = WinUIThemeSegmentedControlPath(NSInsetRect(outline, 0.5, 0.5), radius,
+                                                        roundedLeft, roundedRight);
+
+    [containerFill set];
+    [path fill];
+    [containerStroke set];
+    [path setLineWidth: 1.0];
+    [path stroke];
+  }
+  [context restoreGraphicsState];
+
+  if (selected == NO)
+    {
+      return;
+    }
+
+  /* The selected segment: a raised item 2pt inside the container (the
+     theme's button chrome: ControlFillColorDefault and its elevation
+     border), with a 3x16pt accent pill under the label. High contrast:
+     the highlight. */
+  {
+    NSRect item = NSInsetRect(frame, roundedLeft ? 3.0 : 1.0, 3.0);
+
+    if (roundedRight)
+      {
+        item.size.width -= 2.0;
+      }
+    if (highContrast)
+      {
+        WinUIThemeFillAndStrokeRoundedRect(item, MAX(0.0, radius - 1.0),
+                                           WinUIThemeColorFromTheme(self, @"selectedControlColor",
+                                                                    [NSColor selectedControlColor]),
+                                           nil, 0.0);
+        return;
+      }
+    WinUIThemeDrawButtonChrome(self, item, controlView, enabled, NO, NO, NO);
+    if (enabled)
+      {
+        CGFloat pillWidth = MIN(16.0, NSWidth(item) - 8.0);
+        NSRect pill = NSMakeRect(floor(NSMidX(item) - pillWidth / 2.0),
+                                 flipped ? NSMaxY(item) - 3.0 : NSMinY(item),
+                                 pillWidth, 3.0);
+
+        [WinUIThemeColorFromTheme(self, @"accentColor", [NSColor selectedControlColor]) set];
+        [WinUIThemeRoundedPath(pill, 1.5) fill];
+      }
+  }
 }
 
 - (void) drawStepperCell: (NSCell *)cell
