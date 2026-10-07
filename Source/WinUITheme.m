@@ -98,6 +98,25 @@ WinUIThemeOriginalMethod(SEL selector, id receiver, Class baseClass)
     }
 }
 
+- (void) systemSettingsDidChange
+{
+  [self reloadConfiguration];
+  if ([GSTheme theme] == self)
+    {
+      /* NSColor keeps the palette it had at activation; this notification
+         has it take the new one and recache every system colour. Window
+         decorations, browsers and the interface style refresh too. */
+      [[NSNotificationCenter defaultCenter]
+        postNotificationName: GSThemeDidActivateNotification
+                      object: self
+                    userInfo: nil];
+      if ([self shouldUseWindowIntegration])
+        {
+          WinUIThemeWindowIntegrationReloadTheme(self);
+        }
+    }
+}
+
 - (WinUIThemeSettings *) settings
 {
   return _settings;

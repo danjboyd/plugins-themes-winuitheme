@@ -302,6 +302,7 @@ QuirkProbeModuleOfAddress(void *address)
 - (void) checkSlider;
 - (void) checkProgress;
 - (void) checkTableDefaults;
+- (void) checkLiveSettings;
 - (void) checkMenuFlyout;
 - (void) checkOverlayScrollers;
 - (void) checkFocusVisual;
@@ -2066,6 +2067,84 @@ QuirkProbeColumnCount(NSBitmapImageRep *rep, QuirkProbePixelTest test,
   [window orderOut: nil];
 }
 
+#ifdef _WIN32
+static WINBOOL CALLBACK
+QuirkProbeFindListener(HWND hwnd, LPARAM found)
+{
+  wchar_t name[64];
+
+  if (GetClassNameW(hwnd, name, 64) > 0 && wcscmp(name, L"WinUIThemeSettingsListener") == 0)
+    {
+      *(HWND *)found = hwnd;
+      return FALSE;
+    }
+  return TRUE;
+}
+#endif
+
+/* Live settings changes (issue #46): the theme hears Windows' broadcasts
+   through a hidden window, and on "ImmersiveColorSet" (a theme or accent
+   change) reloads, and AppKit's system colours follow. The probe stands
+   in an accent (WinUIThemeAccentColorHex, red) for Settings' and sends
+   the message to this thread's listener. */
+- (void) checkLiveSettings
+{
+#ifdef _WIN32
+  NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+  NSMutableArray *searchList = nil;
+  HWND listener = NULL;
+  NSColor *changed = nil;
+  NSColor *restored = nil;
+
+  EnumThreadWindows(GetCurrentThreadId(), QuirkProbeFindListener, (LPARAM)&listener);
+  if (listener == NULL)
+    {
+      [self fail: @"live-accent-change" detail: @"the theme has no settings listener window"];
+      return;
+    }
+  if (QuirkProbeHasArgument(@"--high-contrast", nil))
+    {
+      [self skip: @"live-accent-change" detail: @"high contrast uses the contrast theme's colours"];
+      return;
+    }
+
+  [defaults setVolatileDomain: [NSDictionary dictionaryWithObject: @"C42B1C"
+                                                           forKey: @"WinUIThemeAccentColorHex"]
+                      forName: @"QuirkProbeLive"];
+  searchList = AUTORELEASE([[defaults searchList] mutableCopy]);
+  [searchList insertObject: @"QuirkProbeLive" atIndex: 0];
+  [defaults setSearchList: searchList];
+  SendMessageW(listener, WM_SETTINGCHANGE, 0, (LPARAM)L"ImmersiveColorSet");
+  QuirkProbeDispatchEvents(0.6);
+  changed = [[NSColor selectedControlColor] colorUsingColorSpaceName: NSCalibratedRGBColorSpace];
+
+  [searchList removeObject: @"QuirkProbeLive"];
+  [defaults setSearchList: searchList];
+  [defaults removeVolatileDomainForName: @"QuirkProbeLive"];
+  SendMessageW(listener, WM_SETTINGCHANGE, 0, (LPARAM)L"ImmersiveColorSet");
+  QuirkProbeDispatchEvents(0.6);
+  restored = [[NSColor selectedControlColor] colorUsingColorSpaceName: NSCalibratedRGBColorSpace];
+
+  if ([changed redComponent] > [changed blueComponent] + 0.25
+      && QuirkProbeIsAccentBlue([restored redComponent] * 255, [restored greenComponent] * 255,
+                                [restored blueComponent] * 255))
+    {
+      [self pass: @"live-accent-change" detail: [NSString stringWithFormat:
+        @"the accent followed the change (%.2f,%.2f,%.2f) and came back",
+        [changed redComponent], [changed greenComponent], [changed blueComponent]]];
+    }
+  else
+    {
+      [self fail: @"live-accent-change" detail: [NSString stringWithFormat:
+        @"after the change the accent was %.2f,%.2f,%.2f, after restoring %.2f,%.2f,%.2f",
+        [changed redComponent], [changed greenComponent], [changed blueComponent],
+        [restored redComponent], [restored greenComponent], [restored blueComponent]]];
+    }
+#else
+  [self skip: @"live-accent-change" detail: @"Windows only"];
+#endif
+}
+
 /* WinUI's type ramp (issue #44): the interface font is Segoe UI Variable
    (Segoe UI without it, as on Windows 10) at Body's 14px, scaled by
    Windows' text size (-WinUIThemeTextScaleFactor stands in for it); bold
@@ -3532,6 +3611,7 @@ QuirkProbeLastItemOfMenu(NSString *title)
   [self checkSlider];
   [self checkProgress];
   [self checkTableDefaults];
+  [self checkLiveSettings];
   [self checkMenuFlyout];
   [self checkOverlayScrollers];
   [self checkFocusVisual];

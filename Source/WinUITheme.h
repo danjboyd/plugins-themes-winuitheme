@@ -25,6 +25,10 @@ IMP WinUIThemeOriginalMethod(SEL selector, id receiver, Class baseClass);
 + (NSString *) themeName;
 
 - (void) reloadConfiguration;
+/* After Windows' theme, accent, contrast, colours or text size change
+   (#46): reloads, has AppKit recache its system colours, and redraws
+   every window. */
+- (void) systemSettingsDidChange;
 - (WinUIThemeSettings *) settings;
 - (WinUIThemeMetrics *) metrics;
 
