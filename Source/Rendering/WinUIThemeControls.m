@@ -1283,6 +1283,17 @@ WinUIThemeSwitchColors(WinUITheme *theme,
   titleRect.origin.y = aRect.origin.y + floor((aRect.size.height - titleSize.height) / 2.0);
   titleRect.size.height = ceil(titleSize.height);
 
+  /* A TextBox keeps its text, and the field editor's background, off its
+     border and focus underline, however large Windows' text size makes the
+     font (#44). */
+  if (([cell isBezeled] || [cell isBordered])
+      && [cell isKindOfClass: [NSTableHeaderCell class]] == NO
+      && NSHeight(titleRect) > NSHeight(aRect) - 4.0)
+    {
+      titleRect.origin.y = aRect.origin.y + 2.0;
+      titleRect.size.height = MAX(0.0, NSHeight(aRect) - 4.0);
+    }
+
   return titleRect;
 }
 

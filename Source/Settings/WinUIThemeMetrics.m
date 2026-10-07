@@ -6,10 +6,10 @@
 
 - (void) reloadFromSettings: (WinUIThemeSettings *)settings
 {
-  CGFloat baseFontSize = [settings interfaceFontSize];
   CGFloat scaleFactor = [settings desktopScaleFactor];
   CGFloat density = scaleFactor > 0.0 ? scaleFactor : 1.0;
-  CGFloat scaledBase = MAX(baseFontSize, 9.0) * density;
+  /* Menu rows: WinUI's 32px at 100% text size, taller with larger text. */
+  CGFloat scaledBase = 13.0 * [settings textScaleFactor] * density;
 
   _menuBarHeight = MAX(32.0, ceil(scaledBase * 2.40));
   _menuItemHeight = MAX(32.0, ceil(scaledBase * 2.40));

@@ -1,7 +1,7 @@
 param(
   [string]$Theme,
   [string]$OutputDirectory,
-  [string[]]$Configuration = @("light", "dark", "high-contrast", "light-150"),
+  [string[]]$Configuration = @("light", "dark", "high-contrast", "light-150", "large-text"),
   [int]$TimeoutSeconds = 60,
   # Checks that click with the real pointer (popup-click-stays-open) move
   # it; pass -NoPointer to skip them while using the desktop.
@@ -37,6 +37,8 @@ $configurationArguments = @{
   "dark"          = @("--mode", "dark")
   "high-contrast" = @("--mode", "light", "--high-contrast", "yes")
   "light-150"     = @("--mode", "light", "--scale", "1.5")
+  # Windows' Text size at 150% (Accessibility).
+  "large-text"    = @("--mode", "light", "-WinUIThemeTextScaleFactor", "150")
 }
 
 $totalFailed = 0

@@ -626,7 +626,6 @@ WinUIThemePreferredControlFont(WinUITheme *theme,
                                BOOL emphasized)
 {
   NSFontManager *fontManager = [NSFontManager sharedFontManager];
-  NSString *familyName = nil;
   NSFont *resolvedFont = nil;
   CGFloat pointSize = 0.0;
 
@@ -654,21 +653,8 @@ WinUIThemePreferredControlFont(WinUITheme *theme,
       return font;
     }
 
-  familyName = [font familyName];
-  if ([familyName length] > 0)
-    {
-      resolvedFont = [fontManager fontWithFamily: familyName
-                                          traits: NSBoldFontMask
-                                          weight: 9
-                                            size: [font pointSize]];
-      if (resolvedFont != nil)
-        {
-          return resolvedFont;
-        }
-    }
-
-  resolvedFont = [fontManager convertFont: font toHaveTrait: NSBoldFontMask];
-  return resolvedFont != nil ? resolvedFont : [NSFont boldSystemFontOfSize: [font pointSize]];
+  /* Emphasis is Semibold, WinUI's BodyStrong (#44). */
+  return WinUIThemeSemiboldFont(font, [font pointSize]);
 }
 
 NSFont *

@@ -11,15 +11,21 @@
 #include <windows.h>
 #endif
 
-static NSString *WinUIThemeDefaultInterfaceFontName = @"Segoe UI Variable Text";
+/* WinUI's type ramp (#44): Body is Segoe UI Variable Text at 14px, with
+   Segoe UI on Windows 10. "SegoeUIVariable" is the variable font's
+   default (Text) instance. WinUI ignores the non-client metrics' message
+   and menu fonts, Segoe UI at 9pt, and so does the theme. */
+static NSString *WinUIThemeDefaultInterfaceFontName = @"SegoeUIVariable";
 static NSString *WinUIThemeDefaultMonospaceFontName = @"Cascadia Mono";
-static CGFloat WinUIThemeDefaultInterfaceFontSize = 9.0;
+static CGFloat WinUIThemeDefaultInterfaceFontSize = 14.0;
 static CGFloat WinUIThemeDefaultMonospaceFontSize = 9.0;
 static CGFloat WinUIThemeMinimumResolvedInterfaceFontSize = 13.0;
 static CGFloat WinUIThemeMinimumResolvedMenuFontSize = 13.0;
 static NSString *WinUIThemePersonalizeRegistryPath = @"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize";
 static NSString *WinUIThemeAccentRegistryPath = @"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Accent";
 static NSString *WinUIThemeAccessibilityRegistryPath = @"Control Panel\\Accessibility";
+/* Settings > Accessibility > Text size: TextScaleFactor, 100 to 225. */
+static NSString *WinUIThemeTextScaleRegistryPath = @"Software\\Microsoft\\Accessibility";
 /* Windows' default blue. */
 static NSString *WinUIThemeDefaultAccentHex = @"0078D4";
 
@@ -168,6 +174,61 @@ WinUIThemeResolveFont(NSString *preferredName,
   return font;
 }
 
+/* The Semibold (600) face of `font`'s family: WinUI's BodyStrong, Subtitle
+   and Title, and the theme's bold (#44). Segoe UI Variable names it
+   SegoeUIVariable-SemiboldText, Segoe UI SegoeUI-Semibold. By name first:
+   the variable font has a Semibold for each optical size. Bold if the
+   family has no Semibold. */
+NSFont *
+WinUIThemeSemiboldFont(NSFont *font, CGFloat size)
+{
+  NSFontManager *fontManager = [NSFontManager sharedFontManager];
+  NSString *name = [font fontName];
+  NSArray *candidates = nil;
+  NSEnumerator *enumerator = nil;
+  NSString *candidate = nil;
+  NSFont *semibold = nil;
+
+  if (font == nil)
+    {
+      return [NSFont boldSystemFontOfSize: size];
+    }
+  if (size <= 0.0)
+    {
+      size = [font pointSize];
+    }
+
+  candidates = [NSArray arrayWithObjects:
+                          [name stringByAppendingString: @"-SemiboldText"],
+                          [name stringByAppendingString: @"-Semibold"],
+                          nil];
+  enumerator = [candidates objectEnumerator];
+  while (semibold == nil && (candidate = [enumerator nextObject]) != nil)
+    {
+      semibold = [NSFont fontWithName: candidate size: size];
+    }
+  if (semibold == nil && fontManager != nil && [[font familyName] length] > 0)
+    {
+      semibold = [fontManager fontWithFamily: [font familyName]
+                                      traits: 0
+                                      weight: 7
+                                        size: size];
+      if ([fontManager weightOfFont: semibold] < 6)
+        {
+          semibold = [fontManager fontWithFamily: [font familyName]
+                                          traits: NSBoldFontMask
+                                          weight: 9
+                                            size: size];
+        }
+    }
+  if (semibold == nil && fontManager != nil)
+    {
+      semibold = [fontManager convertFont: [NSFont fontWithName: name size: size]
+                              toHaveTrait: NSBoldFontMask];
+    }
+  return (semibold != nil) ? semibold : [NSFont boldSystemFontOfSize: size];
+}
+
 #ifdef _WIN32
 static BOOL
 WinUIThemeReadRegistryDWORD(NSString *subkey,
@@ -231,71 +292,6 @@ WinUIThemeSystemDpi(void)
     }
 
   return dpi;
-}
-
-static CGFloat
-WinUIThemePointSizeFromLogfontHeight(LONG height)
-{
-  LONG pixelHeight = height < 0 ? -height : height;
-  CGFloat dpi = WinUIThemeSystemDpi();
-
-  if (pixelHeight <= 0)
-    {
-      return 0.0;
-    }
-
-  return ((CGFloat)pixelHeight * 72.0) / dpi;
-}
-
-static NSString *
-WinUIThemeStringFromWideCharacters(const WCHAR *characters)
-{
-  if (characters == NULL || characters[0] == L'\0')
-    {
-      return nil;
-    }
-
-  return [NSString stringWithCharacters: (const unichar *)characters
-                                 length: wcslen(characters)];
-}
-
-static BOOL
-WinUIThemeLoadNonClientFonts(NSString **interfaceFontName,
-                             CGFloat *interfaceFontSize,
-                             NSString **menuFontName,
-                             CGFloat *menuFontSize)
-{
-  NONCLIENTMETRICSW metrics;
-
-  memset(&metrics, 0, sizeof(metrics));
-  metrics.cbSize = sizeof(metrics);
-
-  if (SystemParametersInfoW(SPI_GETNONCLIENTMETRICS,
-                            metrics.cbSize,
-                            &metrics,
-                            0) == FALSE)
-    {
-      return NO;
-    }
-
-  if (interfaceFontName != NULL)
-    {
-      *interfaceFontName = WinUIThemeStringFromWideCharacters(metrics.lfMessageFont.lfFaceName);
-    }
-  if (interfaceFontSize != NULL)
-    {
-      *interfaceFontSize = WinUIThemePointSizeFromLogfontHeight(metrics.lfMessageFont.lfHeight);
-    }
-  if (menuFontName != NULL)
-    {
-      *menuFontName = WinUIThemeStringFromWideCharacters(metrics.lfMenuFont.lfFaceName);
-    }
-  if (menuFontSize != NULL)
-    {
-      *menuFontSize = WinUIThemePointSizeFromLogfontHeight(metrics.lfMenuFont.lfHeight);
-    }
-
-  return YES;
 }
 
 static BOOL
@@ -410,6 +406,7 @@ WinUIThemeAccentPaletteFromSystem(void)
   NSNumber *reducedTransparencyOverride = [defaults objectForKey: @"WinUIThemeReducedTransparency"];
   NSNumber *desktopScaleFactorOverride = [defaults objectForKey: @"WinUIThemeDesktopScaleFactor"];
   NSNumber *interfaceFontSizeOverride = [defaults objectForKey: @"WinUIThemeInterfaceFontSize"];
+  NSNumber *textScaleOverride = [defaults objectForKey: @"WinUIThemeTextScaleFactor"];
   NSNumber *monospaceFontSizeOverride = [defaults objectForKey: @"WinUIThemeMonospaceFontSize"];
   NSArray *arguments = [[NSProcessInfo processInfo] arguments];
   NSString *interfaceFontName = nil;
@@ -423,6 +420,7 @@ WinUIThemeAccentPaletteFromSystem(void)
   CGFloat monospaceFontSize = 0.0;
   CGFloat commandScaleFactorOverride = 0.0;
   CGFloat desktopScaleFactor = 1.0;
+  CGFloat textScaleFactor = 1.0;
   BOOL highContrast = NO;
   BOOL reducedTransparency = NO;
   BOOL dynamicScrollbars = YES;
@@ -436,10 +434,7 @@ WinUIThemeAccentPaletteFromSystem(void)
   {
     DWORD appsUseLightTheme = 1;
     DWORD enableTransparency = 1;
-    NSString *systemInterfaceFontName = nil;
-    NSString *systemMenuFontName = nil;
-    CGFloat systemInterfaceFontSize = 0.0;
-    CGFloat systemMenuFontSize = 0.0;
+    DWORD textScale = 100;
 
     desktopScaleFactor = WinUIThemeSystemDpi() / 96.0;
     highContrast = WinUIThemeHighContrastEnabledFromSystem();
@@ -470,16 +465,12 @@ WinUIThemeAccentPaletteFromSystem(void)
           : WinUIThemeColorSchemePreferLight;
         systemSettingsAvailable = YES;
       }
-    if (WinUIThemeLoadNonClientFonts(&systemInterfaceFontName,
-                                     &systemInterfaceFontSize,
-                                     &systemMenuFontName,
-                                     &systemMenuFontSize) == YES)
+    if (WinUIThemeReadRegistryDWORD(WinUIThemeTextScaleRegistryPath,
+                                    @"TextScaleFactor",
+                                    &textScale) == YES
+        && textScale >= 100 && textScale <= 225)
       {
-        interfaceFontName = systemInterfaceFontName;
-        interfaceFontSize = systemInterfaceFontSize;
-        menuFontName = systemMenuFontName;
-        menuFontSize = systemMenuFontSize;
-        systemSettingsAvailable = YES;
+        textScaleFactor = textScale / 100.0;
       }
 
     accentPalette = WinUIThemeAccentPaletteFromSystem();
@@ -595,9 +586,14 @@ WinUIThemeAccentPaletteFromSystem(void)
     {
       monospaceFontSize = [monospaceFontSizeOverride floatValue];
     }
+  /* A percentage, as Windows stores it. */
+  if ([textScaleOverride floatValue] >= 100.0 && [textScaleOverride floatValue] <= 225.0)
+    {
+      textScaleFactor = [textScaleOverride floatValue] / 100.0;
+    }
   if (interfaceFontSize <= 0.0)
     {
-      interfaceFontSize = WinUIThemeDefaultInterfaceFontSize;
+      interfaceFontSize = round(WinUIThemeDefaultInterfaceFontSize * textScaleFactor);
     }
   if (menuFontSize <= 0.0)
     {
@@ -605,7 +601,7 @@ WinUIThemeAccentPaletteFromSystem(void)
     }
   if (monospaceFontSize <= 0.0)
     {
-      monospaceFontSize = WinUIThemeDefaultMonospaceFontSize;
+      monospaceFontSize = round(WinUIThemeDefaultMonospaceFontSize * textScaleFactor);
     }
   /* An explicit WinUIThemeAccentColorHex wins over the system's accent,
      as the other WinUITheme* overrides do. */
@@ -715,6 +711,7 @@ WinUIThemeAccentPaletteFromSystem(void)
   _reducedTransparency = reducedTransparency;
   _dynamicScrollbars = dynamicScrollbars;
   _desktopScaleFactor = desktopScaleFactor > 0.0 ? desktopScaleFactor : 1.0;
+  _textScaleFactor = textScaleFactor;
   _systemSettingsAvailable = systemSettingsAvailable;
 }
 
@@ -784,6 +781,11 @@ WinUIThemeAccentPaletteFromSystem(void)
   return _desktopScaleFactor;
 }
 
+- (CGFloat) textScaleFactor
+{
+  return _textScaleFactor;
+}
+
 - (BOOL) systemSettingsAvailable
 {
   return _systemSettingsAvailable;
@@ -793,7 +795,7 @@ WinUIThemeAccentPaletteFromSystem(void)
 {
   return WinUIThemeResolveFont(_interfaceFontName,
                                [self interfaceFontSize],
-                               [NSArray arrayWithObjects: @"Segoe UI", @"Arial", nil],
+                               [NSArray arrayWithObjects: @"Segoe UI Variable", @"SegoeUI", @"Segoe UI", @"Arial", nil],
                                NO);
 }
 
@@ -801,7 +803,7 @@ WinUIThemeAccentPaletteFromSystem(void)
 {
   return WinUIThemeResolveFont(_menuFontName,
                                MAX(WinUIThemeMinimumResolvedMenuFontSize, _menuFontSize),
-                               [NSArray arrayWithObjects: @"Segoe UI", @"Arial", nil],
+                               [NSArray arrayWithObjects: @"Segoe UI Variable", @"SegoeUI", @"Segoe UI", @"Arial", nil],
                                NO);
 }
 
@@ -809,8 +811,13 @@ WinUIThemeAccentPaletteFromSystem(void)
 {
   return WinUIThemeResolveFont(_menuFontName,
                                MAX(WinUIThemeMinimumResolvedMenuFontSize, _menuFontSize),
-                               [NSArray arrayWithObjects: @"Segoe UI", @"Arial", nil],
+                               [NSArray arrayWithObjects: @"Segoe UI Variable", @"SegoeUI", @"Segoe UI", @"Arial", nil],
                                NO);
+}
+
+- (NSFont *) semiboldInterfaceFontOfSize: (CGFloat)size
+{
+  return WinUIThemeSemiboldFont([self interfaceFont], size);
 }
 
 - (NSFont *) fixedPitchFont

@@ -1944,4 +1944,42 @@ WinUIThemePreparePopupMenuTypography(WinUITheme *theme, NSMenuView *menuView)
     }
 }
 
+/* libs-gui makes every header 22pt tall. A header grows when its titles'
+   font needs more, as with a larger Windows text size (#44). */
+- (void) _overrideNSTableViewMethod_tile
+{
+  typedef void (*TileIMP)(id, SEL);
+  TileIMP originalIMP = (TileIMP)WinUIThemeOriginalMethod(_cmd, self, [NSTableView class]);
+  NSTableView *tableView = (NSTableView *)self;
+  NSTableHeaderView *headerView = nil;
+  NSArray *columns = nil;
+  NSFont *font = nil;
+  CGFloat needed = 0.0;
+
+  if (originalIMP != NULL)
+    {
+      originalIMP(self, _cmd);
+    }
+  if ([[GSTheme theme] isKindOfClass: [WinUITheme class]] == NO
+      || (headerView = [tableView headerView]) == nil)
+    {
+      return;
+    }
+
+  columns = [tableView tableColumns];
+  font = ([columns count] > 0) ? [[[columns objectAtIndex: 0] headerCell] font] : nil;
+  if (font == nil)
+    {
+      font = [NSFont systemFontOfSize: 0];
+    }
+  /* The title's line, inside -tableHeaderCellDrawingRectForBounds:. */
+  needed = ceil([font defaultLineHeightForFont]) + 2.0;
+  if (NSHeight([headerView frame]) + 0.5 < needed)
+    {
+      [headerView setFrameSize: NSMakeSize(NSWidth([headerView frame]), needed)];
+      [[tableView cornerView] setFrameSize: NSMakeSize(NSWidth([[tableView cornerView] frame]), needed)];
+      [[tableView enclosingScrollView] tile];
+    }
+}
+
 @end

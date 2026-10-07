@@ -298,6 +298,7 @@ QuirkProbeModuleOfAddress(void *address)
 - (void) checkTemplateImages;
 - (void) checkButtonChrome;
 - (void) checkSizeToFit;
+- (void) checkTypography;
 - (void) checkMenuFlyout;
 - (void) checkOverlayScrollers;
 - (void) checkFocusVisual;
@@ -1746,6 +1747,75 @@ QuirkProbeBrightnessAt(NSBitmapImageRep *rep, CGFloat scale, CGFloat x, CGFloat 
   [window orderOut: nil];
 }
 
+/* WinUI's type ramp (issue #44): the interface font is Segoe UI Variable
+   (Segoe UI without it, as on Windows 10) at Body's 14px, scaled by
+   Windows' text size (-WinUIThemeTextScaleFactor stands in for it); bold
+   is the family's Semibold, not another face; a default button's title
+   is regular weight. */
+- (void) checkTypography
+{
+  NSFontManager *manager = [NSFontManager sharedFontManager];
+  NSFont *body = [NSFont systemFontOfSize: 0];
+  NSFont *bold = [NSFont boldSystemFontOfSize: 0];
+  NSString *family = [[manager availableFontFamilies] containsObject: @"Segoe UI Variable"]
+    ? @"Segoe UI Variable" : @"Segoe UI";
+  CGFloat textScale = [[NSUserDefaults standardUserDefaults] floatForKey: @"WinUIThemeTextScaleFactor"];
+  CGFloat size = round(14.0 * ((textScale >= 100.0) ? textScale / 100.0 : 1.0));
+  NSString *detail = nil;
+
+  detail = [NSString stringWithFormat: @"the system font is %@ (%@) at %.1f; expected %@ at %.0f",
+                     [body fontName], [body familyName], [body pointSize], family, size];
+  if ([[body familyName] isEqualToString: family] && fabs([body pointSize] - size) < 0.01)
+    {
+      [self pass: @"typography-body" detail: detail];
+    }
+  else
+    {
+      [self fail: @"typography-body" detail: detail];
+    }
+
+  detail = [NSString stringWithFormat: @"the bold system font is %@ (%@), weight %ld",
+                     [bold fontName], [bold familyName], (long)[manager weightOfFont: bold]];
+  if ([[bold familyName] isEqualToString: [body familyName]] && [manager weightOfFont: bold] == 7)
+    {
+      [self pass: @"typography-bold-semibold" detail: detail];
+    }
+  else
+    {
+      [self fail: @"typography-bold-semibold" detail:
+        [detail stringByAppendingString: @"; expected the body's family at Semibold (7)"]];
+    }
+
+  {
+    NSWindow *window = [self windowWithFrame: NSMakeRect(420, 360, 200, 80)
+                                       title: @"QuirkProbe Typography"];
+    NSButton *button = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(20, 20, 120, 32)]);
+    NSFont *titleFont = nil;
+
+    [button setButtonType: NSMomentaryPushInButton];
+    [button setBezelStyle: NSRoundedBezelStyle];
+    [button setTitle: @"OK"];
+    [button setKeyEquivalent: @"\r"];
+    [[window contentView] addSubview: button];
+    [window orderFront: nil];
+    [window display];
+    titleFont = [[[button cell] attributedTitle] attribute: NSFontAttributeName
+                                                   atIndex: 0
+                                            effectiveRange: NULL];
+    detail = [NSString stringWithFormat: @"the default button's title is %@, weight %ld",
+                       [titleFont fontName], (long)[manager weightOfFont: titleFont]];
+    if (titleFont != nil && [manager weightOfFont: titleFont] <= 5)
+      {
+        [self pass: @"typography-default-button-regular" detail: detail];
+      }
+    else
+      {
+        [self fail: @"typography-default-button-regular" detail: detail];
+      }
+    [window orderOut: nil];
+  }
+}
+
 /* The title's ink in `frame` of `content` (a render `rep`), between
    `leading` and `trailing` points in from its sides, on the background at
    `sample` points in from the frame's top left. */
@@ -3139,6 +3209,7 @@ QuirkProbeLastItemOfMenu(NSString *title)
   [self checkTemplateImages];
   [self checkButtonChrome];
   [self checkSizeToFit];
+  [self checkTypography];
   [self checkMenuFlyout];
   [self checkOverlayScrollers];
   [self checkFocusVisual];
