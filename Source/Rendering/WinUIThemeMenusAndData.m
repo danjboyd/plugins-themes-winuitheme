@@ -26,6 +26,7 @@
 #import <AppKit/NSWindow.h>
 
 #import <math.h>
+#import <objc/runtime.h>
 
 static void
 WinUIThemeMenuTrace(NSString *message)
@@ -752,6 +753,73 @@ WinUIThemePreparePopupMenuTypography(WinUITheme *theme, NSMenuView *menuView)
     }
 }
 
+static char WinUIThemeHoverRowKey;
+
+/* The view whose tracking rect says whether the pointer is over a table:
+   its scroll view. A tracking rect on the table itself, inside the clip
+   view, saw no entering. */
+static NSView *
+WinUIThemeTableHoverView(NSTableView *tableView)
+{
+  NSScrollView *scrollView = [tableView enclosingScrollView];
+
+  return (scrollView != nil) ? (NSView *)scrollView : (NSView *)tableView;
+}
+
+/* The row under the pointer, which -mouseMoved: records, or -1. */
+static NSInteger
+WinUIThemeTableHoverRow(NSTableView *tableView)
+{
+  NSNumber *row = objc_getAssociatedObject(tableView, &WinUIThemeHoverRowKey);
+
+  return (row != nil && WinUIThemeViewIsHovered(WinUIThemeTableHoverView(tableView)))
+    ? [row integerValue] : -1;
+}
+
+/* WinUI's list and tree rows under the pointer (#28, #43):
+   SubtleFillColorSecondary, the selection's shape without its pill. A
+   selected row keeps its selection. libs-gui tracks no row hover: the
+   table's window gets mouse-moved events, which -mouseMoved: turns into
+   the row, and the table's scroll view a tracking rect, whose exit clears
+   it. High contrast has no hover fill. */
+static void
+WinUIThemeDrawTableHover(WinUITheme *theme, NSTableView *tableView, NSRect clipRect)
+{
+  BOOL dark = [[theme settings] prefersDarkAppearance];
+  NSInteger row;
+  NSRect rowRect, itemRect;
+
+  if ([tableView window] == nil || [[theme settings] highContrastEnabled])
+    {
+      return;
+    }
+  WinUIThemeTrackHover(WinUIThemeTableHoverView(tableView));
+  if ([[tableView window] acceptsMouseMovedEvents] == NO)
+    {
+      [[tableView window] setAcceptsMouseMovedEvents: YES];
+    }
+
+  row = WinUIThemeTableHoverRow(tableView);
+  if (row < 0 || row >= [tableView numberOfRows] || [tableView isRowSelected: row])
+    {
+      return;
+    }
+  rowRect = [tableView rectOfRow: row];
+  if (NSIntersectsRect(rowRect, clipRect) == NO)
+    {
+      return;
+    }
+  itemRect = NSInsetRect(rowRect, 4.0, NSHeight(rowRect) > 20.0 ? 2.0 : 1.0);
+  [NSGraphicsContext saveGraphicsState];
+  NSRectClip(clipRect);
+  [WinUIThemeBlendColor(WinUIThemeColorFromTheme(theme, @"rowBackgroundColor",
+                                                 [NSColor controlBackgroundColor]),
+                        dark ? [NSColor whiteColor] : [NSColor blackColor],
+                        dark ? 0.06 : 0.037) set];
+  [WinUIThemeRoundedPath(itemRect, WinUIThemeControlCornerRadius(theme)) fill];
+  [NSGraphicsContext restoreGraphicsState];
+}
+
 @implementation WinUITheme (MenusAndData)
 
 - (void) displayPopUpMenu: (NSMenuView *)menuView
@@ -1239,13 +1307,19 @@ WinUIThemePreparePopupMenuTypography(WinUITheme *theme, NSMenuView *menuView)
 
   [separator set];
   NSRectFill(NSMakeRect(drawRect.origin.x, dividerY, drawRect.size.width, 1.0));
-  NSRectFill(NSMakeRect(NSMaxX(drawRect) - 1.0,
-                        drawRect.origin.y + 4.0,
-                        1.0,
-                        MAX(0.0, drawRect.size.height - 8.0)));
+
+  /* WinUI shows column dividers only while the pointer is over the
+     header, where they can be dragged (#28). */
+  WinUIThemeTrackHover(controlView);
+  if (WinUIThemeViewIsHovered(controlView) || [[self settings] highContrastEnabled])
+    {
+      NSRectFill(NSMakeRect(NSMaxX(drawRect) - 1.0,
+                            drawRect.origin.y + 4.0,
+                            1.0,
+                            MAX(0.0, drawRect.size.height - 8.0)));
+    }
 }
 
-/* WinUI list headers start their text 12px in, lined up with the rows'. */
 /* Titles 12pt in, as WinUI's column headers: NSCell's -titleRectForBounds:
    adds 3pt to this for a bezeled cell, which header cells are. */
 - (NSRect) tableHeaderCellDrawingRectForBounds: (NSRect)theRect
@@ -1443,6 +1517,7 @@ WinUIThemePreparePopupMenuTypography(WinUITheme *theme, NSMenuView *menuView)
 
   [rowBackground set];
   NSRectFill(clipRect);
+  WinUIThemeDrawTableHover(self, tableView, clipRect);
 
   if ([tableView usesAlternatingRowBackgroundColors] == NO || rowHeight <= 0.0)
     {
@@ -1941,6 +2016,75 @@ WinUIThemePreparePopupMenuTypography(WinUITheme *theme, NSMenuView *menuView)
   if (originalIMP != NULL)
     {
       originalIMP(self, _cmd, cellFrame, controlView);
+    }
+}
+
+/* A table built in code starts with libs-gui's defaults: 16pt rows, both
+   grid lines, and 5x2pt intercell spacing. Those become WinUI's (#28):
+   32pt rows (the theme's table row height, scaled with the desktop), no
+   grid, and rows that meet. Tables from nibs keep their archived values,
+   and an app's own settings, made after this, win. */
+- (id) _overrideNSTableViewMethod_initWithFrame: (NSRect)frameRect
+{
+  typedef id (*InitWithFrameIMP)(id, SEL, NSRect);
+  InitWithFrameIMP originalIMP
+    = (InitWithFrameIMP)WinUIThemeOriginalMethod(_cmd, self, [NSTableView class]);
+  NSTableView *tableView = (originalIMP != NULL) ? originalIMP(self, _cmd, frameRect) : self;
+  GSTheme *theme = [GSTheme theme];
+
+  if (tableView == nil || [theme isKindOfClass: [WinUITheme class]] == NO)
+    {
+      return tableView;
+    }
+  if (fabs([tableView rowHeight] - 16.0) < 0.01)
+    {
+      [tableView setRowHeight: [[(WinUITheme *)theme metrics] tableRowHeight]];
+    }
+  if ([tableView gridStyleMask] == (NSTableViewSolidVerticalGridLineMask
+                                    | NSTableViewSolidHorizontalGridLineMask))
+    {
+      [tableView setGridStyleMask: NSTableViewGridNone];
+    }
+  if (NSEqualSizes([tableView intercellSpacing], NSMakeSize(5.0, 2.0)))
+    {
+      [tableView setIntercellSpacing: NSZeroSize];
+    }
+  return tableView;
+}
+
+/* The row under the pointer, for the hover fill. */
+- (void) _overrideNSTableViewMethod_mouseMoved: (NSEvent *)event
+{
+  typedef void (*MouseMovedIMP)(id, SEL, NSEvent *);
+  MouseMovedIMP originalIMP = (MouseMovedIMP)WinUIThemeOriginalMethod(_cmd, self, [NSTableView class]);
+  NSTableView *tableView = (NSTableView *)self;
+
+  if ([[GSTheme theme] isKindOfClass: [WinUITheme class]])
+    {
+      NSPoint point = [tableView convertPoint: [event locationInWindow] fromView: nil];
+      NSInteger row = [tableView rowAtPoint: point];
+      NSNumber *old = objc_getAssociatedObject(tableView, &WinUIThemeHoverRowKey);
+
+      WinUIThemeSetViewHovered(WinUIThemeTableHoverView(tableView), YES);
+
+      if (old == nil || [old integerValue] != row)
+        {
+          if (old != nil && [old integerValue] >= 0 && [old integerValue] < [tableView numberOfRows])
+            {
+              [tableView setNeedsDisplayInRect: [tableView rectOfRow: [old integerValue]]];
+            }
+          if (row >= 0)
+            {
+              [tableView setNeedsDisplayInRect: [tableView rectOfRow: row]];
+            }
+          objc_setAssociatedObject(tableView, &WinUIThemeHoverRowKey,
+                                   [NSNumber numberWithInteger: row],
+                                   OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+    }
+  if (originalIMP != NULL)
+    {
+      originalIMP(self, _cmd, event);
     }
 }
 

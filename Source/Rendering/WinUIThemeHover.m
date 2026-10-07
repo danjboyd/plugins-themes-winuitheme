@@ -88,6 +88,21 @@ WinUIThemeTrackHover(NSView *view)
                            OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
+/* For a view that learns of the pointer otherwise, as a table does from
+   -mouseMoved:. A pointer already inside when the tracking rect was added
+   brings no entering, only the exit when it leaves. */
+void
+WinUIThemeSetViewHovered(NSView *view, BOOL hovered)
+{
+  if (view == nil || WinUIThemeViewIsHovered(view) == hovered)
+    {
+      return;
+    }
+  objc_setAssociatedObject(view, &WinUIThemeHoverKey,
+                           hovered ? [NSNumber numberWithBool: YES] : nil,
+                           OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
 BOOL
 WinUIThemeViewIsHovered(NSView *view)
 {

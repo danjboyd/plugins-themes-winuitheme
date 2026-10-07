@@ -1373,12 +1373,15 @@ WinUIThemeSwitchColors(WinUITheme *theme,
     }
 
   /* Table and outline rows: text 12pt in from the column's edge, as the
-     headers' titles, clear of the selection pill (#43). */
+     headers' titles, clear of the selection pill (#43). The cell starts
+     half the intercell spacing in, none in a table built in code (#28). */
   if ([cell isBezeled] == NO && [cell isBordered] == NO
       && [[cell controlView] isKindOfClass: [NSTableView class]])
     {
-      titleRect.origin.x += 10.0;
-      titleRect.size.width = MAX(0.0, titleRect.size.width - 10.0);
+      CGFloat inset = MAX(0.0, 12.0 - [(NSTableView *)[cell controlView] intercellSpacing].width / 2.0);
+
+      titleRect.origin.x += inset;
+      titleRect.size.width = MAX(0.0, titleRect.size.width - inset);
     }
 
   titleRect.origin.y = aRect.origin.y + floor((aRect.size.height - titleSize.height) / 2.0);

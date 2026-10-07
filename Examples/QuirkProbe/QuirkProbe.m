@@ -301,6 +301,7 @@ QuirkProbeModuleOfAddress(void *address)
 - (void) checkTypography;
 - (void) checkSlider;
 - (void) checkProgress;
+- (void) checkTableDefaults;
 - (void) checkMenuFlyout;
 - (void) checkOverlayScrollers;
 - (void) checkFocusVisual;
@@ -1942,6 +1943,129 @@ QuirkProbeColumnCount(NSBitmapImageRep *rep, QuirkProbePixelTest test,
   [window orderOut: nil];
 }
 
+/* A table built in code looks like a WinUI list (issue #28): libs-gui's
+   16pt rows, grid and 5x2pt spacing become 32pt rows, no grid and none;
+   the header shows column dividers only under the pointer; and a row under
+   the pointer gets a hover fill (issue #43's gap; only with
+   -ProbeMovesPointer YES). */
+- (void) checkTableDefaults
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(440, 380, 340, 240)
+                                     title: @"QuirkProbe Table Defaults"];
+  QuirkProbeRows *rows = AUTORELEASE([QuirkProbeRows new]);
+  NSScrollView *scrollView = AUTORELEASE([[NSScrollView alloc] initWithFrame: NSMakeRect(10, 10, 320, 220)]);
+  NSTableView *table = AUTORELEASE([[NSTableView alloc] initWithFrame: NSMakeRect(0, 0, 300, 200)]);
+  NSTableColumn *name = AUTORELEASE([[NSTableColumn alloc] initWithIdentifier: @"name"]);
+  NSTableColumn *size = AUTORELEASE([[NSTableColumn alloc] initWithIdentifier: @"size"]);
+  CGFloat desktop = QuirkProbeDesktopScale();
+  CGFloat expectedHeight = MAX(30.0, ceil(32.0 * desktop));
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale;
+  NSString *detail = nil;
+
+  detail = [NSString stringWithFormat: @"rows %.0fpt, grid mask %lu, spacing %.0fx%.0f",
+                     [table rowHeight], (unsigned long)[table gridStyleMask],
+                     [table intercellSpacing].width, [table intercellSpacing].height];
+  if (fabs([table rowHeight] - expectedHeight) < 0.01
+      && [table gridStyleMask] == NSTableViewGridNone
+      && NSEqualSizes([table intercellSpacing], NSZeroSize))
+    {
+      [self pass: @"table-code-defaults" detail: detail];
+    }
+  else
+    {
+      [self fail: @"table-code-defaults" detail: [detail stringByAppendingFormat:
+        @"; expected %.0fpt rows, no grid, no spacing", expectedHeight]];
+    }
+
+  [[name headerCell] setStringValue: @"Name"];
+  [[size headerCell] setStringValue: @"Size"];
+  [name setWidth: 150];
+  [size setWidth: 150];
+  [table addTableColumn: name];
+  [table addTableColumn: size];
+  [table setDataSource: rows];
+  [table setUsesAlternatingRowBackgroundColors: NO];
+  [scrollView setDocumentView: table];
+  [[window contentView] addSubview: scrollView];
+  [window makeKeyAndOrderFront: nil];
+  [table reloadData];
+  [window display];
+
+  /* The header between the columns, mid-height, against its background. */
+  {
+    NSTableHeaderView *header = [table headerView];
+    NSInteger divider, plain;
+
+    rep = QuirkProbeRender(header);
+    scale = QuirkProbeScale(rep, header);
+    [self saveView: header named: @"table-header-dividers"];
+    divider = QuirkProbeBrightnessAt(rep, scale, NSMaxX([table rectOfColumn: 0]) - 0.5,
+                                     NSHeight([header bounds]) / 2.0);
+    plain = QuirkProbeBrightnessAt(rep, scale, NSMaxX([table rectOfColumn: 0]) - 20.0,
+                                   NSHeight([header bounds]) / 2.0);
+    if (QuirkProbeHasArgument(@"--high-contrast", nil))
+      {
+        [self skip: @"table-header-dividers" detail: @"high contrast keeps the dividers"];
+      }
+    else if (llabs((long long)(divider - plain)) <= 6)
+      {
+        [self pass: @"table-header-dividers" detail: @"no column divider at rest"];
+      }
+    else
+      {
+        [self fail: @"table-header-dividers" detail: [NSString stringWithFormat:
+          @"a divider between the columns at rest: %ld against %ld (of 765)", (long)divider, (long)plain]];
+      }
+  }
+
+  if ([[NSUserDefaults standardUserDefaults] boolForKey: @"ProbeMovesPointer"] == NO)
+    {
+      [self skip: @"table-row-hover" detail: @"moves the pointer: needs -ProbeMovesPointer YES"];
+    }
+  else if (QuirkProbeHasArgument(@"--high-contrast", nil))
+    {
+      [self skip: @"table-row-hover" detail: @"high contrast has no hover fill"];
+    }
+  else
+    {
+      NSRect first = [table rectOfRow: 0];
+      NSRect third = [table rectOfRow: 2];
+      NSInteger over, rest, after;
+
+      QuirkProbeSetPointer([window convertBaseToScreen:
+        [table convertPoint: NSMakePoint(120, NSMidY(first)) toView: nil]]);
+      QuirkProbeDispatchEvents(0.4);
+      [window display];
+      rep = QuirkProbeRender(table);
+      scale = QuirkProbeScale(rep, table);
+      [self saveView: table named: @"table-row-hover"];
+      over = QuirkProbeBrightnessAt(rep, scale, 120, NSMidY(first));
+      rest = QuirkProbeBrightnessAt(rep, scale, 120, NSMidY(third));
+      QuirkProbeSetPointer([window convertBaseToScreen:
+        [table convertPoint: NSMakePoint(120, NSMidY(third)) toView: nil]]);
+      QuirkProbeDispatchEvents(0.4);
+      [window display];
+      rep = QuirkProbeRender(table);
+      after = QuirkProbeBrightnessAt(rep, scale, 120, NSMidY(first));
+      QuirkProbeSetPointer([window convertBaseToScreen: NSMakePoint(-40, -40)]);
+      QuirkProbeDispatchEvents(0.3);
+      if (llabs((long long)(over - rest)) >= 9 && llabs((long long)(after - rest)) <= 3)
+        {
+          [self pass: @"table-row-hover" detail: [NSString stringWithFormat:
+            @"the row under the pointer is %ld, others %ld (of 765), and it clears", (long)over, (long)rest]];
+        }
+      else
+        {
+          [self fail: @"table-row-hover" detail: [NSString stringWithFormat:
+            @"under the pointer %ld, another row %ld, the first row after leaving %ld (of 765)",
+            (long)over, (long)rest, (long)after]];
+        }
+    }
+  [table setDataSource: nil];
+  [window orderOut: nil];
+}
+
 /* WinUI's type ramp (issue #44): the interface font is Segoe UI Variable
    (Segoe UI without it, as on Windows 10) at Body's 14px, scaled by
    Windows' text size (-WinUIThemeTextScaleFactor stands in for it); bold
@@ -3407,6 +3531,7 @@ QuirkProbeLastItemOfMenu(NSString *title)
   [self checkTypography];
   [self checkSlider];
   [self checkProgress];
+  [self checkTableDefaults];
   [self checkMenuFlyout];
   [self checkOverlayScrollers];
   [self checkFocusVisual];
