@@ -27,6 +27,11 @@ Regression checks live in `Examples/QuirkProbe`; run
 | Buttons had a Windows 7-style gloss, 7-10pt corners, no pointer-over state, and bold default titles that moved when pressed (#38, #10, #35) | WinUI Button and AccentButton; 4pt control and 8pt overlay corners; QuirkProbe `button-no-gloss`, `button-corner-radius`, `button-pressed-title-still`, `button-hover` | the parity audit |
 | Menus had a Win32-classic gutter, a blue selection and cramped shortcuts; tool tips were a black box (#39) | WinUI MenuFlyout and ToolTip, rounded by DWM on Windows 11; QuirkProbe `menu-hover-fill`, `menu-shortcut-gap`, `menu-shortcut-colour`, `menu-separator-width` | the parity audit |
 | Scroll bars were always-shown classic strips (#29) | WinUI ScrollBar over the content, hidden at rest; Windows' "Automatically hide scroll bars" and `WinUIThemeOverlayScrollbars NO` keep them shown; QuirkProbe `scroller-*` | the parity audit |
+| Focus rings showed after a click, in a translucent accent, round a cell's interior (#36) | WinUI's double-stroke focus visual outside the control, only after keyboard navigation; QuirkProbe `focus-ring-*` | the parity audit |
+| Text fields were filled with the window's colour, focused with an accent-tinted border (#37) | WinUI TextBox: control fill, strong bottom edge, 2px accent underline when focused; QuirkProbe `textbox-*` | ThemeDemo |
+| Pop-up buttons had a tinted lane and divider; a focused combo box showed an empty field and GNUstep's "..." button (#40, #8) | WinUI ComboBox: one box, chevron, accent pill on the selected drop-down item; no editor in a non-editable combo box; QuirkProbe `popup-no-lane`, `popup-title-primary`, `combobox-focused-keeps-value` | ThemeDemo |
+| Table and outline selection was a light-blue fill with a border; nested outline rows drew their chevron over the title (#43, #51) | WinUI ListView/TreeView selection with an accent pill; the chevron placed once from the indented edge; QuirkProbe `list-selection-*`, `outline-chevron-before-title` | ThemeDemo |
+| A search field's magnifier and cancel button sat outside the field; the cancel button didn't clear text being typed (#9) | WinUI AutoSuggestBox layout and glyphs; the field editor is cleared too; QuirkProbe `search-*` | ThemeDemo |
 
 ## Found in real apps
 
@@ -40,7 +45,6 @@ Run on 2026-10-06 with gnustep-gui 0.32 (MSYS2 clang64), branch
 | An alert is a borderless band as wide as its parent window, with GNUstep's layout | ScreenshotTool | #23 |
 | A nib-based app's 22pt controls drawn with the theme's 32-34pt metrics | SystemPreferences | #31 |
 | The application menu (app name, Hide, Services) in a Windows menu bar | ScreenshotTool, SystemPreferences, ThemeDemo | #24 |
-| Outline child rows draw their chevron over the title | ThemeDemo | #51 |
 
 ## Not yet exercised
 

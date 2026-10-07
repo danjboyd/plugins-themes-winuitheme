@@ -122,7 +122,7 @@ WinUIThemeNormalizedEditorContent(NSTextFieldCell *cell, NSDictionary *attribute
   return mutableContent;
 }
 
-static NSRect
+NSRect
 WinUIThemeCenteredRect(NSRect frame, CGFloat width, CGFloat height)
 {
   return NSMakeRect(NSMidX(frame) - (width / 2.0),
@@ -1033,6 +1033,22 @@ WinUIThemeDrawSearchGlyph(NSRect rect, NSColor *color)
   [path stroke];
 }
 
+/* A plain cross filling `rect`: WinUI's delete button. */
+void
+WinUIThemeDrawCrossGlyph(NSRect rect, NSColor *color)
+{
+  NSBezierPath *mark = [NSBezierPath bezierPath];
+
+  [mark moveToPoint: NSMakePoint(NSMinX(rect), NSMinY(rect))];
+  [mark lineToPoint: NSMakePoint(NSMaxX(rect), NSMaxY(rect))];
+  [mark moveToPoint: NSMakePoint(NSMinX(rect), NSMaxY(rect))];
+  [mark lineToPoint: NSMakePoint(NSMaxX(rect), NSMinY(rect))];
+  [mark setLineWidth: 1.3];
+  [mark setLineCapStyle: NSRoundLineCapStyle];
+  [color set];
+  [mark stroke];
+}
+
 void
 WinUIThemeDrawDismissGlyph(NSRect rect, NSColor *fillColor, NSColor *markColor)
 {
@@ -1128,6 +1144,118 @@ WinUIThemeDrawInputChrome(WinUITheme *theme,
                                borderColor);
 }
 
+/* WinUI's TextBox (#37). Fluent's colours are white or black at an
+   opacity over the layer; these blend them over the window background.
+   ControlFillColorDefault at rest, Secondary under the pointer,
+   InputActive focused, Disabled. */
+NSColor *
+WinUIThemeTextBoxFillColor(WinUITheme *theme, BOOL enabled, BOOL hovered, BOOL focused)
+{
+  BOOL dark = [[theme settings] prefersDarkAppearance];
+  NSColor *window = WinUIThemeColorFromTheme(theme, @"windowBackgroundColor",
+                                             [NSColor windowBackgroundColor]);
+
+  if ([[theme settings] highContrastEnabled])
+    {
+      return window;
+    }
+  if (enabled == NO)
+    {
+      return WinUIThemeBlendColor(window, [NSColor whiteColor], dark ? 0.042 : 0.30);
+    }
+  if (focused)
+    {
+      return dark
+        ? WinUIThemeBlendColor(window, [NSColor colorWithCalibratedWhite: 30.0 / 255.0 alpha: 1.0], 0.70)
+        : WinUIThemeBlendColor(window, [NSColor whiteColor], 1.0);
+    }
+  return WinUIThemeBlendColor(window, [NSColor whiteColor],
+                              hovered ? (dark ? 0.084 : 0.50) : (dark ? 0.06 : 0.70));
+}
+
+/* A text input has focus: its field editor, or a scroll view's text view. */
+static BOOL
+WinUIThemeTextInputHasFocus(NSView *view)
+{
+  if ([view isKindOfClass: [NSScrollView class]])
+    {
+      NSView *document = [(NSScrollView *)view documentView];
+
+      return document != nil && [[view window] firstResponder] == document;
+    }
+  return WinUIThemeViewHasFocus(view);
+}
+
+/* The TextBox: its fill, a ControlStrokeColorDefault border whose bottom
+   is ControlStrongStrokeColorDefault (TextControlElevationBorder), and,
+   focused, a 2px accent bottom border in place of a ring. 4pt corners. */
+void
+WinUIThemeDrawTextBoxChrome(WinUITheme *theme, NSRect frame, NSView *view, BOOL enabled)
+{
+  NSGraphicsContext *context = [NSGraphicsContext currentContext];
+  BOOL dark = [[theme settings] prefersDarkAppearance];
+  BOOL highContrast = [[theme settings] highContrastEnabled];
+  BOOL focused = enabled && WinUIThemeTextInputHasFocus(view);
+  BOOL hovered = NO;
+  NSColor *text = WinUIThemeColorFromTheme(theme, @"labelColor", [NSColor controlTextColor]);
+  NSColor *accent = WinUIThemeColorFromTheme(theme, @"accentColor", [NSColor selectedControlColor]);
+  NSColor *fill = nil;
+  NSColor *stroke = nil;
+  NSColor *bottom = nil;
+  CGFloat bottomWidth = 1.0;
+  NSRect drawRect = NSInsetRect(NSIntegralRect(frame), 0.5, 0.5);
+  NSBezierPath *path = WinUIThemeRoundedPath(drawRect, WinUIThemeControlCornerRadius(theme));
+  BOOL flipped = (view != nil && [view isFlipped]);
+
+  if (enabled && view != nil)
+    {
+      WinUIThemeTrackHover(view);
+      hovered = WinUIThemeViewIsHovered(view);
+    }
+  fill = WinUIThemeTextBoxFillColor(theme, enabled, hovered, focused);
+  if (highContrast)
+    {
+      stroke = enabled ? text : WinUIThemeColorFromTheme(theme, @"disabledControlTextColor",
+                                                         [NSColor disabledControlTextColor]);
+      bottom = focused ? accent : stroke;
+    }
+  else
+    {
+      NSColor *ink = dark ? [NSColor whiteColor] : [NSColor blackColor];
+
+      stroke = WinUIThemeBlendColor(fill, ink, dark ? 0.07 : 0.058);
+      bottom = enabled ? WinUIThemeBlendColor(fill, ink, dark ? 0.544 : 0.446) : stroke;
+      if (focused)
+        {
+          bottom = accent;
+        }
+    }
+  if (focused)
+    {
+      bottomWidth = 2.0;
+    }
+
+  [fill set];
+  [path fill];
+  [stroke set];
+  [path setLineWidth: 1.0];
+  [path stroke];
+
+  /* The bottom edge, following the corners. */
+  {
+    NSRect outer = NSIntegralRect(frame);
+    NSRect band = NSMakeRect(NSMinX(outer),
+                             flipped ? NSMaxY(outer) - bottomWidth : NSMinY(outer),
+                             NSWidth(outer), bottomWidth);
+
+    [context saveGraphicsState];
+    [WinUIThemeRoundedPath(outer, WinUIThemeControlCornerRadius(theme)) addClip];
+    [bottom set];
+    NSRectFill(band);
+    [context restoreGraphicsState];
+  }
+}
+
 void
 WinUIThemeDrawSegmentChrome(WinUITheme *theme,
                             NSRect frame,
@@ -1209,31 +1337,26 @@ WinUIThemeResolveEntryColors(WinUITheme *theme,
                                              @"accentColor",
                                              [NSColor selectedControlColor]);
   BOOL dark = [[theme settings] prefersDarkAppearance];
-  NSColor *fillColor = textFill;
+  NSColor *fillColor = WinUIThemeTextBoxFillColor(theme, enabled, NO, focused);
   NSColor *borderColor = nil;
   CGFloat lineWidth = 1.0;
 
   (void)view;
+  (void)textFill;
 
   borderColor = WinUIThemeBlendColor(shadowColor,
                                      dark ? [NSColor whiteColor] : [NSColor blackColor],
                                      dark ? 0.14 : 0.04);
 
-  if (readonlyField)
-    {
-      fillColor = WinUIThemeBlendColor(fillColor, windowFill, dark ? 0.18 : 0.10);
-    }
-
+  (void)readonlyField;
+  (void)windowFill;
   if (enabled == NO)
     {
-      fillColor = WinUIThemeBlendColor(fillColor, windowFill, dark ? 0.22 : 0.32);
       borderColor = WinUIThemeBlendColor(borderColor, fillColor, 0.24);
     }
   else if (focused)
     {
-      fillColor = WinUIThemeBlendColor(fillColor, accent, dark ? 0.06 : 0.03);
       borderColor = WinUIThemeBlendColor(shadowColor, accent, dark ? 0.66 : 0.44);
-      lineWidth = 1.25;
     }
 
   if (fillOut != NULL)
@@ -1254,6 +1377,18 @@ CGFloat
 WinUIThemeComboBoxButtonWidth(NSRect cellFrame)
 {
   return MIN(28.0, MAX(22.0, floor(cellFrame.size.height * 0.78)));
+}
+
+/* WinUI's ComboBox chevron: 12px wide, its right edge 14px from the
+   control's, in TextFillColorSecondary (#40). */
+void
+WinUIThemeDrawComboBoxGlyph(WinUITheme *theme, NSRect frame, BOOL enabled)
+{
+  NSColor *color = enabled
+    ? WinUIThemeColorFromTheme(theme, @"secondaryLabelColor", [NSColor controlTextColor])
+    : WinUIThemeColorFromTheme(theme, @"disabledControlTextColor", [NSColor disabledControlTextColor]);
+
+  WinUIThemeDrawChevron(NSMakePoint(NSMaxX(frame) - WinUIThemeComboBoxGlyphInset, NSMidY(frame)), NO, color);
 }
 
 NSRect

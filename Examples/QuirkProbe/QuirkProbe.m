@@ -299,6 +299,11 @@ QuirkProbeModuleOfAddress(void *address)
 - (void) checkButtonChrome;
 - (void) checkMenuFlyout;
 - (void) checkOverlayScrollers;
+- (void) checkFocusVisual;
+- (void) checkTextBox;
+- (void) checkComboBoxes;
+- (void) checkListSelection;
+- (void) checkSearchField;
 - (void) checkHorizontalOnlyScroller;
 - (void) createLateWindow: (NSTimer *)timer;
 - (void) checkLateWindow: (NSTimer *)timer;
@@ -323,6 +328,45 @@ QuirkProbeModuleOfAddress(void *address)
 - (BOOL) isOpaque
 {
   return YES;
+}
+
+@end
+
+/* Rows for the selection checks: a table of three, and an outline whose
+   "Parent" holds an expandable "Child" holding "Leaf". */
+@interface QuirkProbeRows : NSObject
+@end
+
+@implementation QuirkProbeRows
+
+- (NSInteger) numberOfRowsInTableView: (NSTableView *)tableView
+{
+  return 3;
+}
+
+- (id) tableView: (NSTableView *)tableView objectValueForTableColumn: (NSTableColumn *)column row: (NSInteger)row
+{
+  return [NSString stringWithFormat: @"Row %ld", (long)row];
+}
+
+- (NSInteger) outlineView: (NSOutlineView *)outlineView numberOfChildrenOfItem: (id)item
+{
+  return (item == nil || [item isEqual: @"Parent"] || [item isEqual: @"Child"]) ? 1 : 0;
+}
+
+- (id) outlineView: (NSOutlineView *)outlineView child: (NSInteger)index ofItem: (id)item
+{
+  return item == nil ? @"Parent" : ([item isEqual: @"Parent"] ? @"Child" : @"Leaf");
+}
+
+- (BOOL) outlineView: (NSOutlineView *)outlineView isItemExpandable: (id)item
+{
+  return [item isEqual: @"Parent"] || [item isEqual: @"Child"];
+}
+
+- (id) outlineView: (NSOutlineView *)outlineView objectValueForTableColumn: (NSTableColumn *)column byItem: (id)item
+{
+  return item;
 }
 
 @end
@@ -2119,6 +2163,594 @@ QuirkProbeStripInk(NSScrollView *scrollView, NSUInteger fill, CGFloat inset)
   [window orderOut: nil];
 }
 
+/* Pixels that differ between two renders of the same size. */
+static NSUInteger
+QuirkProbeDifferingPixels(NSBitmapImageRep *a, NSBitmapImageRep *b)
+{
+  NSInteger x, y;
+  NSUInteger count = 0;
+
+  if ([a pixelsWide] != [b pixelsWide] || [a pixelsHigh] != [b pixelsHigh])
+    {
+      return NSUIntegerMax;
+    }
+  for (y = 0; y < [a pixelsHigh]; y++)
+    {
+      for (x = 0; x < [a pixelsWide]; x++)
+        {
+          NSUInteger r1, g1, b1, r2, g2, b2;
+
+          QuirkProbePixel(a, x, y, &r1, &g1, &b1);
+          QuirkProbePixel(b, x, y, &r2, &g2, &b2);
+          if (llabs((long long)(r1 + g1 + b1) - (long long)(r2 + g2 + b2)) > 6)
+            {
+              count++;
+            }
+        }
+    }
+  return count;
+}
+
+/* Sends `window` a press and release of the left button at `point`. */
+static void
+QuirkProbeClickAt(NSWindow *window, NSPoint point)
+{
+  NSEvent *down = [NSEvent mouseEventWithType: NSLeftMouseDown location: point modifierFlags: 0
+                                    timestamp: 0 windowNumber: [window windowNumber] context: nil
+                                  eventNumber: 0 clickCount: 1 pressure: 1];
+  NSEvent *up = [NSEvent mouseEventWithType: NSLeftMouseUp location: point modifierFlags: 0
+                                  timestamp: 0 windowNumber: [window windowNumber] context: nil
+                                eventNumber: 0 clickCount: 1 pressure: 0];
+
+  [NSApp sendEvent: down];
+  [NSApp sendEvent: up];
+}
+
+/* The brightness 2px left of `view`'s middle, in a render of its window's
+   content view: on the ring's outer stroke. */
+static NSInteger
+QuirkProbeBrightnessLeftOf(NSView *view)
+{
+  NSView *content = [[view window] contentView];
+  NSBitmapImageRep *rep = QuirkProbeRender(content);
+  CGFloat scale = QuirkProbeScale(rep, content);
+  NSRect frame = [content convertRect: [view bounds] fromView: view];
+  CGFloat y = [content isFlipped] ? NSMidY(frame) : NSHeight([content bounds]) - NSMidY(frame);
+
+  return QuirkProbeBrightnessAt(rep, scale, NSMinX(frame) - 2.0, y);
+}
+
+/* WinUI's focus visual (issue #36): a control focused by a click shows no
+   ring; Tab to the next one shows the double stroke outside it, in the
+   text colour rather than the accent; a click clears it. */
+- (void) checkFocusVisual
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(420, 620, 300, 80)
+                                     title: @"QuirkProbe Focus"];
+  NSButton *first = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(20, 24, 100, 32)]);
+  NSButton *second = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(160, 24, 100, 32)]);
+  NSBitmapImageRep *focused, *plain;
+  NSUInteger differing;
+  NSInteger background, ring, cleared;
+  NSEvent *tab = nil;
+
+  [first setButtonType: NSMomentaryPushInButton];
+  [first setBezelStyle: NSRoundedBezelStyle];
+  [first setTitle: @"First"];
+  [second setButtonType: NSMomentaryPushInButton];
+  [second setBezelStyle: NSRoundedBezelStyle];
+  [second setTitle: @"Second"];
+  [first setNextKeyView: second];
+  [second setNextKeyView: first];
+  [[window contentView] addSubview: first];
+  [[window contentView] addSubview: second];
+  [window makeKeyAndOrderFront: nil];
+
+  /* Focused, after a press of the pointer: as unfocused. */
+  QuirkProbeClickAt(window, NSMakePoint(290, 70));
+  [window makeFirstResponder: first];
+  [window display];
+  focused = RETAIN(QuirkProbeRender(first));
+  [window makeFirstResponder: window];
+  [window display];
+  plain = QuirkProbeRender(first);
+  differing = QuirkProbeDifferingPixels(focused, plain);
+  RELEASE(focused);
+  if (differing == 0)
+    {
+      [self pass: @"focus-ring-hidden-after-click" detail: @"a button focused by the pointer shows no ring"];
+    }
+  else
+    {
+      [self fail: @"focus-ring-hidden-after-click" detail: [NSString stringWithFormat:
+        @"a button focused by the pointer differs from an unfocused one in %lu px", (unsigned long)differing]];
+    }
+
+  /* Tab: the ring shows outside the next button. */
+  [window makeFirstResponder: first];
+  [window display];
+  background = QuirkProbeBrightnessLeftOf(second);
+  tab = [NSEvent keyEventWithType: NSKeyDown location: NSZeroPoint modifierFlags: 0 timestamp: 0
+                     windowNumber: [window windowNumber] context: nil characters: @"\t"
+      charactersIgnoringModifiers: @"\t" isARepeat: NO keyCode: 0x09];
+  [NSApp sendEvent: tab];
+  [window display];
+  [self saveView: [window contentView] named: @"focus-ring"];
+  ring = QuirkProbeBrightnessLeftOf(second);
+  if ([window firstResponder] != second)
+    {
+      [self fail: @"focus-ring-after-keyboard" detail: @"Tab didn't move focus to the next button"];
+    }
+  else if (llabs((long long)(ring - background)) >= 150)
+    {
+      [self pass: @"focus-ring-after-keyboard" detail: [NSString stringWithFormat:
+        @"after Tab, 2px outside the button is %ld, the background %ld (of 765)", (long)ring, (long)background]];
+    }
+  else
+    {
+      [self fail: @"focus-ring-after-keyboard" detail: [NSString stringWithFormat:
+        @"after Tab, 2px outside the button is %ld, the background %ld (of 765): no ring",
+        (long)ring, (long)background]];
+    }
+
+  /* A press of the pointer clears it, margin and all. */
+  QuirkProbeClickAt(window, NSMakePoint(290, 70));
+  [window display];
+  cleared = QuirkProbeBrightnessLeftOf(second);
+  if (llabs((long long)(cleared - background)) <= 6)
+    {
+      [self pass: @"focus-ring-cleared-by-click" detail: @"a press of the pointer clears the ring"];
+    }
+  else
+    {
+      [self fail: @"focus-ring-cleared-by-click" detail: [NSString stringWithFormat:
+        @"after a click, 2px outside the button is %ld, the background %ld (of 765)",
+        (long)cleared, (long)background]];
+    }
+  [window orderOut: nil];
+}
+
+/* WinUI's TextBox (issue #37): filled with ControlFillColorDefault, a
+   step off the window rather than the window's own colour; a darker
+   bottom edge; focused, a 2px accent underline. */
+- (void) checkTextBox
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(780, 620, 300, 100)
+                                     title: @"QuirkProbe TextBox"];
+  NSTextField *field = AUTORELEASE([[NSTextField alloc] initWithFrame: NSMakeRect(20, 50, 200, 32)]);
+  NSTextField *other = AUTORELEASE([[NSTextField alloc] initWithFrame: NSMakeRect(20, 10, 200, 32)]);
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale;
+  NSInteger height, width, fill, window_, edge, bottom, above;
+  NSUInteger red, green, blue, red2, green2, blue2;
+  BOOL highContrast = QuirkProbeHasArgument(@"--high-contrast", nil);
+
+  [field setStringValue: @""];
+  [other setStringValue: @""];
+  [[window contentView] addSubview: field];
+  [[window contentView] addSubview: other];
+  [window makeKeyAndOrderFront: nil];
+  [window makeFirstResponder: window];
+  [window display];
+
+  rep = QuirkProbeRender(field);
+  scale = QuirkProbeScale(rep, field);
+  height = [rep pixelsHigh];
+  width = [rep pixelsWide];
+  [self saveView: field named: @"textbox-rest"];
+  fill = QuirkProbeBrightnessAt(rep, scale, 100, NSHeight([field bounds]) / 2.0);
+  {
+    NSBitmapImageRep *content = QuirkProbeRender([window contentView]);
+
+    window_ = QuirkProbeBrightnessAt(content, QuirkProbeScale(content, [window contentView]), 260, 50);
+  }
+  QuirkProbePixel(rep, width / 2, height - 1, &red, &green, &blue);
+  edge = (NSInteger)(red + green + blue);
+
+  if (highContrast)
+    {
+      [self skip: @"textbox-fill" detail: @"high contrast fills with the window colour"];
+      [self skip: @"textbox-bottom-edge" detail: @"high contrast draws one border colour"];
+    }
+  else
+    {
+      /* Light: brighter than the window; dark: a little lighter too. */
+      if (fill - window_ >= 9)
+        {
+          [self pass: @"textbox-fill" detail: [NSString stringWithFormat:
+            @"the field is %ld, the window %ld (of 765)", (long)fill, (long)window_]];
+        }
+      else
+        {
+          [self fail: @"textbox-fill" detail: [NSString stringWithFormat:
+            @"the field is %ld, the window %ld (of 765): not ControlFillColorDefault", (long)fill, (long)window_]];
+        }
+      if (llabs((long long)(edge - fill)) >= 150)
+        {
+          [self pass: @"textbox-bottom-edge" detail: [NSString stringWithFormat:
+            @"the bottom edge is %ld against a fill of %ld (of 765)", (long)edge, (long)fill]];
+        }
+      else
+        {
+          [self fail: @"textbox-bottom-edge" detail: [NSString stringWithFormat:
+            @"the bottom edge is %ld against a fill of %ld (of 765): no strong stroke", (long)edge, (long)fill]];
+        }
+    }
+
+  /* Focused: the two bottom rows are the accent. */
+  [window makeFirstResponder: field];
+  [window display];
+  rep = QuirkProbeRender(field);
+  [self saveView: field named: @"textbox-focused"];
+  QuirkProbePixel(rep, width / 2, height - 1, &red, &green, &blue);
+  QuirkProbePixel(rep, width / 2, height - 2, &red2, &green2, &blue2);
+  bottom = (NSInteger)blue - (NSInteger)red;
+  above = (NSInteger)blue2 - (NSInteger)red2;
+  if (highContrast)
+    {
+      [self skip: @"textbox-focus-underline" detail: @"high contrast's highlight may not be blue"];
+    }
+  else if (bottom >= 40 && above >= 40)
+    {
+      [self pass: @"textbox-focus-underline" detail: @"focused, a 2px accent underline"];
+    }
+  else
+    {
+      [self fail: @"textbox-focus-underline" detail: [NSString stringWithFormat:
+        @"focused, the bottom rows are %lu,%lu,%lu and %lu,%lu,%lu: no 2px accent underline",
+        (unsigned long)red, (unsigned long)green, (unsigned long)blue,
+        (unsigned long)red2, (unsigned long)green2, (unsigned long)blue2]];
+    }
+  [window makeFirstResponder: window];
+  [window orderOut: nil];
+}
+
+/* Pixels in `area` (pixels, from the top left) that differ from `fill`
+   by more than `threshold`, and the strongest difference. */
+static NSUInteger
+QuirkProbeInkIn(NSBitmapImageRep *rep, NSRect area, NSInteger fill, NSInteger threshold, NSInteger *strongest)
+{
+  NSInteger x, y;
+  NSUInteger count = 0;
+
+  if (strongest != NULL)
+    {
+      *strongest = 0;
+    }
+  for (y = (NSInteger)NSMinY(area); y < (NSInteger)NSMaxY(area); y++)
+    {
+      for (x = (NSInteger)NSMinX(area); x < (NSInteger)NSMaxX(area); x++)
+        {
+          NSUInteger red, green, blue;
+          NSInteger difference;
+
+          QuirkProbePixel(rep, x, y, &red, &green, &blue);
+          difference = llabs((long long)(red + green + blue) - (long long)fill);
+          if (difference > threshold)
+            {
+              count++;
+            }
+          if (strongest != NULL && difference > *strongest)
+            {
+              *strongest = difference;
+            }
+        }
+    }
+  return count;
+}
+
+/* WinUI's ComboBox (issues #40, #8): a pop-up button is one box, its title
+   in the primary text colour and no divided lane before its chevron; a
+   non-editable combo box keeps its value when focused, without a text
+   editor (libs-gui's empty field and "..." button). */
+- (void) checkComboBoxes
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(780, 100, 300, 120)
+                                     title: @"QuirkProbe ComboBox"];
+  NSPopUpButton *popUp = AUTORELEASE([[NSPopUpButton alloc] initWithFrame: NSMakeRect(20, 70, 200, 32)
+                                                                pullsDown: NO]);
+  NSComboBox *combo = AUTORELEASE([[NSComboBox alloc] initWithFrame: NSMakeRect(20, 20, 200, 32)]);
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale;
+  NSInteger width, height, fill, strongest;
+  NSUInteger lane;
+  BOOL highContrast = QuirkProbeHasArgument(@"--high-contrast", nil);
+
+  [popUp addItemsWithTitles: [NSArray arrayWithObjects: @"A", @"B", nil]];
+  [combo addItemsWithObjectValues: [NSArray arrayWithObjects: @"Value", @"Other", nil]];
+  [combo setEditable: NO];
+  [combo selectItemAtIndex: 0];
+  [[window contentView] addSubview: popUp];
+  [[window contentView] addSubview: combo];
+  [window makeKeyAndOrderFront: nil];
+  [window makeFirstResponder: window];
+  [window display];
+
+  rep = QuirkProbeRender(popUp);
+  scale = QuirkProbeScale(rep, popUp);
+  width = [rep pixelsWide];
+  height = [rep pixelsHigh];
+  [self saveView: popUp named: @"combobox-popup"];
+  fill = QuirkProbeBrightnessAt(rep, scale, NSWidth([popUp bounds]) / 2.0, NSHeight([popUp bounds]) / 2.0);
+
+  /* Between the title and the chevron: only the fill. */
+  lane = QuirkProbeInkIn(rep, NSMakeRect(width * 0.4, height * 0.2, width * 0.6 - 30 * scale, height * 0.6),
+                         fill, 12, NULL);
+  if (lane == 0)
+    {
+      [self pass: @"popup-no-lane" detail: @"one box, nothing between the title and the chevron"];
+    }
+  else
+    {
+      [self fail: @"popup-no-lane" detail: [NSString stringWithFormat:
+        @"%lu px of lane or divider before the chevron", (unsigned long)lane]];
+    }
+
+  /* The title "A": primary text, nearly the full contrast. */
+  QuirkProbeInkIn(rep, NSMakeRect(4 * scale, height * 0.2, 40 * scale, height * 0.6), fill, 12, &strongest);
+  if (highContrast)
+    {
+      [self skip: @"popup-title-primary" detail: @"high contrast has one text colour"];
+    }
+  else if (strongest >= 560)
+    {
+      [self pass: @"popup-title-primary" detail: [NSString stringWithFormat:
+        @"the title's contrast is %ld (of 765)", (long)strongest]];
+    }
+  else
+    {
+      [self fail: @"popup-title-primary" detail: [NSString stringWithFormat:
+        @"the title's contrast is %ld (of 765): secondary text", (long)strongest]];
+    }
+
+  /* Focused, the combo box keeps its value and starts no editor. */
+  [window makeFirstResponder: combo];
+  [window display];
+  rep = QuirkProbeRender(combo);
+  [self saveView: combo named: @"combobox-focused"];
+  fill = QuirkProbeBrightnessAt(rep, scale, NSWidth([combo bounds]) - 50.0, NSHeight([combo bounds]) / 2.0);
+  {
+    NSUInteger value = QuirkProbeInkIn(rep, NSMakeRect(4 * scale, [rep pixelsHigh] * 0.2, 60 * scale,
+                                                       [rep pixelsHigh] * 0.6), fill, 150, NULL);
+
+    if ([combo currentEditor] == nil && value > 10)
+      {
+        [self pass: @"combobox-focused-keeps-value" detail: @"focused, it shows its value and no text editor"];
+      }
+    else
+      {
+        [self fail: @"combobox-focused-keeps-value" detail: [NSString stringWithFormat:
+          @"focused, %@ text editor and %lu px of its value",
+          [combo currentEditor] != nil ? @"a" : @"no", (unsigned long)value]];
+      }
+  }
+  [window makeFirstResponder: window];
+  [window orderOut: nil];
+}
+
+/* WinUI's ListView and TreeView (issues #43, #51): a selected row gets a
+   neutral subtle fill and an accent pill at its leading edge, not a blue
+   fill; a nested row's chevron sits before its title, not over it. */
+- (void) checkListSelection
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(80, 620, 320, 220)
+                                     title: @"QuirkProbe Lists"];
+  QuirkProbeRows *rows = AUTORELEASE([QuirkProbeRows new]);
+  NSTableView *table = AUTORELEASE([[NSTableView alloc] initWithFrame: NSMakeRect(10, 120, 300, 90)]);
+  NSOutlineView *outline = AUTORELEASE([[NSOutlineView alloc] initWithFrame: NSMakeRect(10, 10, 300, 100)]);
+  NSTableColumn *column = AUTORELEASE([[NSTableColumn alloc] initWithIdentifier: @"name"]);
+  NSTableColumn *outlineColumn = AUTORELEASE([[NSTableColumn alloc] initWithIdentifier: @"name"]);
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale;
+  NSRect row;
+  NSInteger y, x, background, fill, pill;
+  NSUInteger red, green, blue;
+  BOOL highContrast = QuirkProbeHasArgument(@"--high-contrast", nil);
+
+  [column setWidth: 280];
+  [table addTableColumn: column];
+  [table setHeaderView: nil];
+  [table setDataSource: rows];
+  [table setUsesAlternatingRowBackgroundColors: NO];
+  [outlineColumn setWidth: 280];
+  [outline addTableColumn: outlineColumn];
+  [outline setOutlineTableColumn: outlineColumn];
+  [outline setHeaderView: nil];
+  [outline setDataSource: rows];
+  [[window contentView] addSubview: table];
+  [[window contentView] addSubview: outline];
+  [window makeKeyAndOrderFront: nil];
+  [table reloadData];
+  [table selectRowIndexes: [NSIndexSet indexSetWithIndex: 1] byExtendingSelection: NO];
+  [outline reloadData];
+  [outline expandItem: @"Parent"];
+  [window display];
+
+  /* The selected row: neutral fill at its middle, the pill at its edge. */
+  rep = QuirkProbeRender(table);
+  scale = QuirkProbeScale(rep, table);
+  [self saveView: table named: @"list-selection"];
+  row = [table rectOfRow: 1];
+  y = [table isFlipped] ? NSMidY(row) : NSHeight([table bounds]) - NSMidY(row);
+  background = QuirkProbeBrightnessAt(rep, scale, 200, [table isFlipped] ? NSMidY([table rectOfRow: 0])
+                                                                       : NSHeight([table bounds]) - NSMidY([table rectOfRow: 0]));
+  QuirkProbePixel(rep, (NSInteger)(200 * scale), (NSInteger)(y * scale), &red, &green, &blue);
+  fill = (NSInteger)(red + green + blue);
+  {
+    NSUInteger pillRed, pillGreen, pillBlue;
+
+    QuirkProbePixel(rep, (NSInteger)((NSMinX(row) + 5.0) * scale), (NSInteger)(y * scale),
+                    &pillRed, &pillGreen, &pillBlue);
+    pill = (NSInteger)(pillRed + pillGreen + pillBlue);
+    /* The accent itself, not text over a tinted fill. */
+    {
+      NSColor *accent = [[NSColor selectedControlColor] colorUsingColorSpaceName: NSCalibratedRGBColorSpace];
+
+      if (accent == nil
+          || llabs((long long)pillRed - (long long)lrint([accent redComponent] * 255.0)) > 30
+          || llabs((long long)pillGreen - (long long)lrint([accent greenComponent] * 255.0)) > 30
+          || llabs((long long)pillBlue - (long long)lrint([accent blueComponent] * 255.0)) > 30)
+        {
+          pill = fill;
+        }
+    }
+  }
+  if (highContrast)
+    {
+      [self skip: @"list-selection-fill" detail: @"high contrast keeps the system highlight"];
+      [self skip: @"list-selection-pill" detail: @"high contrast keeps the system highlight"];
+    }
+  else
+    {
+      if (llabs((long long)blue - (long long)red) <= 6 && llabs((long long)(fill - background)) >= 6)
+        {
+          [self pass: @"list-selection-fill" detail: [NSString stringWithFormat:
+            @"the selected row is a neutral %lu,%lu,%lu", (unsigned long)red, (unsigned long)green,
+            (unsigned long)blue]];
+        }
+      else
+        {
+          [self fail: @"list-selection-fill" detail: [NSString stringWithFormat:
+            @"the selected row is %lu,%lu,%lu over rows of %ld: not a subtle fill",
+            (unsigned long)red, (unsigned long)green, (unsigned long)blue, (long)background]];
+        }
+      if (llabs((long long)(pill - fill)) >= 150)
+        {
+          [self pass: @"list-selection-pill" detail: @"an accent pill at the selected row's leading edge"];
+        }
+      else
+        {
+          [self fail: @"list-selection-pill" detail: [NSString stringWithFormat:
+            @"the selected row's leading edge is %ld, its fill %ld (of 765): no accent pill", (long)pill, (long)fill]];
+        }
+    }
+
+  /* "Child", at level 1: its leftmost ink (the chevron) within the level's
+     indent and slot, then a gap before the title. */
+  rep = QuirkProbeRender(outline);
+  [self saveView: outline named: @"outline-nested-row"];
+  {
+    NSInteger rowIndex = [outline rowForItem: @"Child"];
+    NSRect cell = [outline frameOfCellAtColumn: 0 row: rowIndex];
+    CGFloat indent = [outline indentationPerLevel] * [outline levelForRow: rowIndex];
+    CGFloat midY = [outline isFlipped] ? NSMidY(cell) : NSHeight([outline bounds]) - NSMidY(cell);
+    NSInteger rowBackground = QuirkProbeBrightnessAt(rep, scale, NSMaxX(cell) - 10.0, midY);
+    NSInteger first = -1, firstEnd = -1, gap = 0, run = 0;
+
+    for (x = (NSInteger)(NSMinX(cell) * scale); x < (NSInteger)((NSMinX(cell) + 120) * scale); x++)
+      {
+        BOOL ink = NO;
+
+        for (y = (NSInteger)((midY - 6) * scale); y <= (NSInteger)((midY + 6) * scale); y++)
+          {
+            QuirkProbePixel(rep, x, y, &red, &green, &blue);
+            if (llabs((long long)(red + green + blue) - (long long)rowBackground) > 90)
+              {
+                ink = YES;
+              }
+          }
+        if (ink)
+          {
+            if (first < 0)
+              {
+                first = x;
+              }
+            else if (firstEnd >= 0 && gap == 0)
+              {
+                gap = run;
+              }
+            run = 0;
+          }
+        else if (first >= 0)
+          {
+            if (firstEnd < 0)
+              {
+                firstEnd = x;
+              }
+            run++;
+          }
+      }
+    if (rowIndex < 0 || first < 0)
+      {
+        [self fail: @"outline-chevron-before-title" detail: @"couldn't find the nested row's ink"];
+      }
+    else if (first <= (NSMinX(cell) + indent + 15.0) * scale && gap >= 3 * scale)
+      {
+        [self pass: @"outline-chevron-before-title" detail: [NSString stringWithFormat:
+          @"the chevron starts %.0fpt into the row's indent slot, %ld px clear of the title",
+          first / scale - NSMinX(cell) - indent, (long)gap]];
+      }
+    else
+      {
+        [self fail: @"outline-chevron-before-title" detail: [NSString stringWithFormat:
+          @"the row's first ink is %.0fpt past its indent (the slot is 15pt), %ld px before the next: "
+          @"the chevron is over the title", first / scale - NSMinX(cell) - indent, (long)gap]];
+      }
+  }
+  [window orderOut: nil];
+}
+
+/* WinUI's AutoSuggestBox (issue #9): an empty search field shows only
+   the magnifier, at its trailing edge, nothing before its text; with
+   text, the delete cross shows just before the magnifier. */
+- (void) checkSearchField
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(420, 780, 300, 80)
+                                     title: @"QuirkProbe Search"];
+  NSSearchField *search = AUTORELEASE([[NSSearchField alloc] initWithFrame: NSMakeRect(20, 24, 240, 32)]);
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale;
+  NSInteger width, height, fill;
+  NSUInteger leading, query, emptyDelete, delete;
+
+  [[search cell] setPlaceholderString: nil];
+  [search setStringValue: @""];
+  [[window contentView] addSubview: search];
+  [window makeKeyAndOrderFront: nil];
+  [window makeFirstResponder: window];
+  [window display];
+
+  rep = QuirkProbeRender(search);
+  scale = QuirkProbeScale(rep, search);
+  width = [rep pixelsWide];
+  height = [rep pixelsHigh];
+  [self saveView: search named: @"search-empty"];
+  fill = QuirkProbeBrightnessAt(rep, scale, NSWidth([search bounds]) / 2.0, NSHeight([search bounds]) / 2.0);
+  leading = QuirkProbeInkIn(rep, NSMakeRect(3 * scale, height * 0.25, 18 * scale, height * 0.5), fill, 150, NULL);
+  query = QuirkProbeInkIn(rep, NSMakeRect(width - 30 * scale, height * 0.25, 24 * scale, height * 0.5),
+                          fill, 150, NULL);
+  emptyDelete = QuirkProbeInkIn(rep, NSMakeRect(width - 60 * scale, height * 0.25, 26 * scale, height * 0.5),
+                                fill, 150, NULL);
+  if (leading == 0 && query >= 8)
+    {
+      [self pass: @"search-query-trailing" detail: @"the magnifier is inside the field, at its trailing edge"];
+    }
+  else
+    {
+      [self fail: @"search-query-trailing" detail: [NSString stringWithFormat:
+        @"%lu px of glyph before the text, %lu px at the trailing edge", (unsigned long)leading,
+        (unsigned long)query]];
+    }
+
+  [search setStringValue: @"q"];
+  [window display];
+  rep = QuirkProbeRender(search);
+  [self saveView: search named: @"search-text"];
+  delete = QuirkProbeInkIn(rep, NSMakeRect(width - 60 * scale, height * 0.25, 26 * scale, height * 0.5),
+                           fill, 150, NULL);
+  if (emptyDelete == 0 && delete >= 6)
+    {
+      [self pass: @"search-delete-with-text" detail: @"the delete cross shows before the magnifier only with text"];
+    }
+  else
+    {
+      [self fail: @"search-delete-with-text" detail: [NSString stringWithFormat:
+        @"before the magnifier: %lu px empty, %lu px with text", (unsigned long)emptyDelete,
+        (unsigned long)delete]];
+    }
+  [window orderOut: nil];
+}
+
 - (void) checkLateWindow: (NSTimer *)timer
 {
   NSMenu *mainMenu = [NSApp mainMenu];
@@ -2420,6 +3052,11 @@ QuirkProbeLastItemOfMenu(NSString *title)
   [self checkButtonChrome];
   [self checkMenuFlyout];
   [self checkOverlayScrollers];
+  [self checkFocusVisual];
+  [self checkTextBox];
+  [self checkComboBoxes];
+  [self checkListSelection];
+  [self checkSearchField];
   [self checkHorizontalOnlyScroller];
   [self checkPopUpClick];
   [self after: QuirkProbeSettleDelay perform: @selector(createLateWindow:)];

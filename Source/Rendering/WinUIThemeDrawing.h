@@ -43,6 +43,10 @@ CGFloat WinUIThemeOverlayCornerRadius(WinUITheme *theme);
 /* YES when scroll bars overlay the content and hide (WinUIThemeScrollers.m). */
 BOOL WinUIThemeUsesOverlayScrollers(void);
 
+/* YES while focus rings show: after a key press, until a pointer press
+   (WinUIThemeFocus.m). */
+BOOL WinUIThemeKeyboardFocusVisible(void);
+
 /* Pointer-over state (WinUIThemeHover.m). */
 void WinUIThemeTrackHover(NSView *view);
 BOOL WinUIThemeViewIsHovered(NSView *view);
@@ -120,6 +124,8 @@ void WinUIThemeDrawChevron(NSPoint center, BOOL pointingUp, NSColor *color);
 void WinUIThemeDrawCheckmark(NSRect rect, NSColor *color);
 void WinUIThemeDrawRadioDot(NSRect rect, NSColor *color);
 void WinUIThemeDrawSearchGlyph(NSRect rect, NSColor *color);
+NSRect WinUIThemeCenteredRect(NSRect frame, CGFloat width, CGFloat height);
+void WinUIThemeDrawCrossGlyph(NSRect rect, NSColor *color);
 void WinUIThemeDrawDismissGlyph(NSRect rect,
                                 NSColor *fillColor,
                                 NSColor *markColor);
@@ -132,6 +138,8 @@ void WinUIThemeDrawInputChrome(WinUITheme *theme,
                                BOOL focused,
                                BOOL roundedLeft,
                                BOOL roundedRight);
+NSColor *WinUIThemeTextBoxFillColor(WinUITheme *theme, BOOL enabled, BOOL hovered, BOOL focused);
+void WinUIThemeDrawTextBoxChrome(WinUITheme *theme, NSRect frame, NSView *view, BOOL enabled);
 void WinUIThemeDrawSegmentChrome(WinUITheme *theme,
                                  NSRect frame,
                                  BOOL enabled,
@@ -148,6 +156,11 @@ void WinUIThemeResolveEntryColors(WinUITheme *theme,
                                   NSColor **borderOut,
                                   CGFloat *lineWidthOut);
 
+/* The ComboBox chevron's centre, from the control's trailing edge. */
+#define WinUIThemeComboBoxGlyphInset 20.0
+void WinUIThemeDrawComboBoxGlyph(WinUITheme *theme, NSRect frame, BOOL enabled);
+NSColor *WinUIThemeDrawButtonChrome(WinUITheme *theme, NSRect frame, NSView *view, BOOL enabled,
+                                    BOOL defaultButton, BOOL pressed, BOOL hover);
 CGFloat WinUIThemeComboBoxButtonWidth(NSRect cellFrame);
 NSRect WinUIThemeComboBoxButtonRect(NSRect cellFrame);
 NSRect WinUIThemeComboBoxTextRect(NSComboBoxCell *cell, NSRect cellFrame);
