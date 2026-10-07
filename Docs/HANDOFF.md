@@ -29,7 +29,7 @@ in `Docs/IMPROVEMENTS.md`.
 
 ## Where things stand
 
-Phases A to F are merged into `main`:
+Phases A to G are merged into `main`:
 
 | PR | Branch | Issues |
 | --- | --- | --- |
@@ -40,10 +40,19 @@ Phases A to F are merged into `main`:
 | #61 | `adwaita-parity-phase-e` | #36, #37, #40, #8, #43, #51, #9 |
 | #63 | `adwaita-parity-phase-f` | #14, #44, #41, #42, #28, #46, #5 |
 | #65 | `fix-early-template-tint` | #64 |
+| #68 | `adwaita-parity-phase-g` | #62 (LGPL-2.1-or-later), #13, #57, #56, #58 |
+| #70 | `fix-missing-indicator-images` | buttons as radios without gui's images |
 
-Phase G, on `adwaita-parity-phase-g` from `main` (`0501cef`), isn't pushed
-yet: #62 (the LGPL-2.1-or-later license), #13, #57, #56 and #58. The issues
-close when their commits (`Fixes #N`) reach `main`.
+Phase H, on `adwaita-parity-phase-h` from `main` (`dfcf15d`): #26, #48, #49
+and #31. The issues close when their commits (`Fixes #N`) reach `main`.
+
+ScreenshotTool's Windows MSI (danjboyd/ScreenshotTool#120) bundles the theme
+at `c9dbf91` and was tested on a clean OCI Windows Server 2025 VM. Clean
+machines lack MSYS2's GNUstep tools and resources: an MSI must ship `gdnc`,
+`gpbs`, `make_services` and gnustep-gui's `Images`, `KeyBindings` and the
+rest, and its `GNUstep.conf` must name a library path holding the themes.
+danjboyd/gnustep-packager#4 makes the MSI smoke launch catch an app that
+can't start without the build toolchain.
 
 Other repositories:
 
@@ -62,25 +71,25 @@ in a CLANG64 shell; never install it into
 
 | Area | Issues |
 | --- | --- |
-| Fidelity | #27 NSBox/forms as cards; #26 colour well; #48 segmented control; #49 tab view; #22 tool tips (colours done in #39; padding and font remain); #30 popup window owner/tool-window style |
+| Fidelity | #27 NSBox/forms as cards; #22 tool tips (colours done in #39; padding and font remain); #30 popup window owner/tool-window style |
 | System | #45 high-contrast system colours; #47 Mica (investigate, upstream) |
-| Nib apps | #31 compact metrics for nib/Gorm apps; #32 Gorm palette; #33 document window titles |
+| Nib apps | #32 Gorm palette; #33 document window titles |
 | Testing | #17 ThemeDemo automation; #19 real-app backlog; #20 native dialogs at run time |
 
 **Suggested next five:**
 
-1. **#31 compact metrics for nib apps:** real apps (SystemPreferences) draw
-   22pt nib controls with 32-34pt metrics; now that #14 sizes controls from
-   the drawing, this is the biggest real-app gap.
-2. **#48 and #49 segmented control and tab view:** visible on every
-   settings-style window, and similar work.
-3. **#27 NSBox and forms as cards:** WinUI's settings surfaces, and the
+1. **#27 NSBox and forms as cards:** WinUI's settings surfaces, and the
    last unthemed group on ThemeDemo's More Surfaces page.
-4. **#45 high-contrast system colours:** high contrast skips the most probe
+2. **#45 high-contrast system colours:** high contrast skips the most probe
    checks, and #46 now refreshes colours live.
-5. **#17 ThemeDemo command automation:** the date picker flyout and the
-   browser were checked by hand in ThemeDemo; scripted pages would cover
-   them.
+3. **#17 ThemeDemo command automation:** the date picker flyout, the browser
+   and the tab views were checked by hand in ThemeDemo; scripted pages would
+   cover them.
+4. **#32 Gorm palette:** with compact metrics (#31) in, a palette of
+   WinUI-sized controls lets apps be laid out for WinUI's metrics instead.
+5. **Pasting images on Windows:** libs-back's `win32pbs.m` bridges only text
+   (`CF_UNICODETEXT`), so ScreenshotTool's "paste one from the clipboard"
+   can't work on Windows. An upstream libs-back patch (formal process).
 
 ### Known gaps in finished work
 
@@ -164,16 +173,16 @@ in a CLANG64 shell; never install it into
 `Tests/Scripts/Invoke-QuirkProbe.ps1` runs `Examples/QuirkProbe`.
 
 - **Configurations:** light, dark, high-contrast, light-150 (150% desktop
-  scale) and large-text (150% Windows text size). The exit code is the
-  number of failures.
+  scale), large-text (150% Windows text size) and compact (compact metrics,
+  #31). The exit code is the number of failures.
 - **Options:**
   - `-NoPointer` skips checks that move the real pointer;
   - `-Configuration light,dark` picks configurations;
   - `-Theme <path>` checks another build;
   - `-OutputDirectory <dir>` saves renders.
-- **Coverage:** 91 checks in light, dark and the 150% configurations, and 4
-  more that move the pointer. In high contrast some checks skip with a
-  reason.
+- **Coverage:** 99 checks in light, dark and the 150% configurations (101 in
+  the compact one), and 4 more that move the pointer. In high contrast some
+  checks skip with a reason.
 - **Desktop scale:** the theme scales metrics by `--scale`, the probe's
   drawing stays 1:1; `QuirkProbeDesktopScale()` gives the factor.
 
