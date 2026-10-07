@@ -14,6 +14,19 @@
            inFrame: (NSRect)cellFrame;
 @end
 
+/* A mutable copy of a cell's typing attributes, which the caller releases.
+   libs-gui's -_nonAutoreleasedTypingAttributes returns a retained
+   dictionary, so it's released here. */
+static NSMutableDictionary *
+WinUIThemeMutableTypingAttributes(NSCell *cell)
+{
+  NSDictionary *typing = [cell _nonAutoreleasedTypingAttributes];
+  NSMutableDictionary *attributes = [typing mutableCopy];
+
+  RELEASE(typing);
+  return attributes;
+}
+
 static inline WinUITheme *
 WinUIThemeActiveTheme(void)
 {
@@ -396,7 +409,7 @@ WinUIThemeSegmentedLabelAttributes(NSSegmentedCell *cell,
       return nil;
     }
 
-  attributes = [[cell _nonAutoreleasedTypingAttributes] mutableCopy];
+  attributes = WinUIThemeMutableTypingAttributes(cell);
   font = WinUIThemePreferredControlFont(theme,
                                         [attributes objectForKey: NSFontAttributeName],
                                         selected);
@@ -1663,7 +1676,7 @@ WinUIThemeSwitchColors(WinUITheme *theme,
       return;
     }
 
-  attributes = [[cell _nonAutoreleasedTypingAttributes] mutableCopy];
+  attributes = WinUIThemeMutableTypingAttributes(cell);
   font = WinUIThemePreferredControlFont(theme,
                                         [attributes objectForKey: NSFontAttributeName],
                                         NO);
@@ -1726,7 +1739,7 @@ WinUIThemeSwitchColors(WinUITheme *theme,
       return size;
     }
 
-  attributes = [[cell _nonAutoreleasedTypingAttributes] mutableCopy];
+  attributes = WinUIThemeMutableTypingAttributes(cell);
   font = WinUIThemePreferredControlFont(theme, [attributes objectForKey: NSFontAttributeName], NO);
   if (font != nil)
     {
@@ -1927,7 +1940,7 @@ static const CGFloat WinUIThemeSearchDeleteWidth = 28.0;
 
   if ([displayString length] > 0)
     {
-      attributes = [[cell _nonAutoreleasedTypingAttributes] mutableCopy];
+      attributes = WinUIThemeMutableTypingAttributes(cell);
       font = WinUIThemePreferredControlFont(theme,
                                             [attributes objectForKey: NSFontAttributeName],
                                             NO);
