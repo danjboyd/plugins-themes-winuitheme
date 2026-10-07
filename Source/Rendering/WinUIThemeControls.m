@@ -138,21 +138,6 @@ WinUIThemeDrawButtonChrome(WinUITheme *theme, NSRect frame, NSView *view, BOOL e
   return titleColor;
 }
 
-static NSColor *
-WinUIThemeAccentStrokeColor(WinUITheme *theme)
-{
-  NSColor *accent = WinUIThemeColorFromTheme(theme,
-                                             @"accentColor",
-                                             [NSColor selectedControlColor]);
-
-  if ([[theme settings] prefersDarkAppearance])
-    {
-      return WinUIThemeBlendColor(accent, [NSColor blackColor], 0.28);
-    }
-
-  return WinUIThemeBlendColor(accent, [NSColor blackColor], 0.16);
-}
-
 static BOOL
 WinUIThemeButtonImageLooksLikeSwitch(NSImage *image)
 {
@@ -188,10 +173,14 @@ WinUIThemeButtonImageLooksLikeRadio(NSImage *image)
 static const CGFloat WinUIThemeIndicatorLeading = 1.0;
 static const CGFloat WinUIThemeIndicatorLabelGap = 8.0;
 
+/* WinUI's 20px indicator, scaled with the desktop, or smaller in a frame
+   too short for it. */
 static CGFloat
-WinUIThemeIndicatorSizeForHeight(CGFloat height)
+WinUIThemeIndicatorSizeForHeight(WinUITheme *theme, CGFloat height)
 {
-  return MIN(18.0, MAX(14.0, floor(height - 2.0)));
+  CGFloat full = round(20.0 * MAX(1.0, [[theme settings] desktopScaleFactor]));
+
+  return MIN(full, MAX(12.0, floor(height - 2.0)));
 }
 
 /* How much narrower a cell's -drawingRectForBounds: is than its bounds. */
@@ -203,6 +192,18 @@ WinUIThemeCellHorizontalMargins(NSCell *cell)
   return NSWidth(bounds) - NSWidth([cell drawingRectForBounds: bounds]);
 }
 
+/* WinUI's CheckBox and RadioButton (#5): a 20px indicator (4pt corners on
+   a box), scaled with the desktop. Fluent's colours are white or black at
+   an opacity, blended over the window:
+   - unchecked: ControlAltFillColorSecondary, Tertiary under the pointer,
+     Quarternary pressed, inside a ControlStrongStrokeColorDefault border;
+   - checked or mixed: the accent, at 90% under the pointer and 80%
+     pressed, with a check or dash in TextOnAccentFillColorPrimary;
+   - a checked radio: the accent ring around a centre dot of 12px, 14px
+     under the pointer, 10px pressed;
+   - disabled: ControlStrongStrokeColorDisabled outlines and
+     AccentFillColorDisabled fills.
+   High contrast: the highlight for checked, the text colour for borders. */
 static void
 WinUIThemeDrawCheckboxOrRadioIndicator(WinUITheme *theme,
                                        NSButtonCell *cell,
@@ -211,104 +212,102 @@ WinUIThemeDrawCheckboxOrRadioIndicator(WinUITheme *theme,
                                        BOOL radio)
 {
   BOOL enabled = [cell isEnabled];
-  BOOL highlighted = [cell isHighlighted];
+  BOOL pressed = enabled && [cell isHighlighted];
+  BOOL hover = NO;
+  BOOL dark = [[theme settings] prefersDarkAppearance];
+  BOOL highContrast = [[theme settings] highContrastEnabled];
   NSInteger state = [cell state];
-  CGFloat indicatorSize = MIN(18.0,
-                              MAX(14.0, floor(MIN(indicatorFrame.size.width,
-                                                  indicatorFrame.size.height) - 1.0)));
+  BOOL on = (state == NSOnState || state == NSMixedState);
+  CGFloat scale = MAX(1.0, [[theme settings] desktopScaleFactor]);
+  CGFloat indicatorSize = WinUIThemeIndicatorSizeForHeight(theme, MIN(NSWidth(indicatorFrame),
+                                                                      NSHeight(indicatorFrame)) + 2.0);
   NSRect indicatorRect = NSMakeRect(floor(NSMidX(indicatorFrame) - (indicatorSize / 2.0)),
                                     floor(NSMidY(indicatorFrame) - (indicatorSize / 2.0)),
                                     indicatorSize,
                                     indicatorSize);
+  NSColor *window = WinUIThemeColorFromTheme(theme, @"windowBackgroundColor",
+                                             [NSColor windowBackgroundColor]);
+  NSColor *ink = dark ? [NSColor whiteColor] : [NSColor blackColor];
+  NSColor *accent = WinUIThemeColorFromTheme(theme, @"accentColor", [NSColor selectedControlColor]);
+  NSColor *onAccent = WinUIThemeColorFromTheme(theme, @"selectedControlTextColor",
+                                               [NSColor selectedControlTextColor]);
   NSColor *fillColor = nil;
   NSColor *borderColor = nil;
   NSColor *markColor = nil;
   NSBezierPath *path = nil;
 
-  if (state == NSOnState || state == NSMixedState)
+  if ([controlView isKindOfClass: [NSButton class]])
     {
-      fillColor = WinUIThemeColorFromTheme(theme,
-                                           @"accentColor",
-                                           [NSColor selectedControlColor]);
-      borderColor = WinUIThemeAccentStrokeColor(theme);
-      markColor = WinUIThemeColorFromTheme(theme,
-                                           @"selectedControlTextColor",
-                                           [NSColor selectedControlTextColor]);
+      WinUIThemeTrackHover(controlView);
+      hover = enabled && WinUIThemeViewIsHovered(controlView);
+    }
+
+  if (highContrast)
+    {
+      NSColor *text = WinUIThemeColorFromTheme(theme, @"labelColor", [NSColor controlTextColor]);
+      NSColor *disabled = WinUIThemeColorFromTheme(theme, @"disabledControlTextColor",
+                                                   [NSColor disabledControlTextColor]);
+
+      fillColor = (on && enabled) ? accent : window;
+      borderColor = enabled ? (on ? accent : text) : disabled;
+      markColor = enabled ? onAccent : disabled;
+    }
+  else if (on)
+    {
+      fillColor = enabled
+        ? (pressed ? WinUIThemeBlendColor(window, accent, 0.80)
+                   : (hover ? WinUIThemeBlendColor(window, accent, 0.90) : accent))
+        : WinUIThemeBlendColor(window, ink, dark ? 0.16 : 0.22);
+      borderColor = fillColor;
+      markColor = enabled ? onAccent
+        : (dark ? WinUIThemeBlendColor(fillColor, [NSColor whiteColor], 0.53) : [NSColor whiteColor]);
     }
   else
     {
-      NSColor *separator = WinUIThemeColorFromTheme(theme,
-                                                    @"separatorColor",
-                                                    [NSColor controlShadowColor]);
-      NSColor *labelColor = WinUIThemeColorFromTheme(theme,
-                                                     @"labelColor",
-                                                     [NSColor controlTextColor]);
+      CGFloat fill = pressed ? (dark ? 0.07 : 0.09) : (hover ? (dark ? 0.04 : 0.06) : (dark ? 0.0 : 0.024));
 
-      fillColor = WinUIThemeColorFromTheme(theme,
-                                           @"fieldBackgroundColor",
-                                           [NSColor textBackgroundColor]);
-      borderColor = WinUIThemeBlendColor(separator, labelColor, 0.12);
-      markColor = labelColor;
-    }
-
-  if (highlighted && enabled)
-    {
-      fillColor = WinUIThemeBlendColor(fillColor,
-                                       WinUIThemeColorFromTheme(theme,
-                                                                @"separatorColor",
-                                                                [NSColor controlShadowColor]),
-                                       0.12);
-    }
-  if (enabled == NO)
-    {
-      fillColor = WinUIThemeBlendColor(fillColor,
-                                       WinUIThemeColorFromTheme(theme,
-                                                                @"windowBackgroundColor",
-                                                                [NSColor windowBackgroundColor]),
-                                       0.35);
-      borderColor = WinUIThemeBlendColor(borderColor, fillColor, 0.30);
-      markColor = WinUIThemeColorFromTheme(theme,
-                                           @"disabledControlTextColor",
-                                           [NSColor disabledControlTextColor]);
+      /* Dark's ControlAltFillColorSecondary is black at 10%. */
+      fillColor = (dark && pressed == NO && hover == NO)
+        ? WinUIThemeBlendColor(window, [NSColor blackColor], 0.10)
+        : WinUIThemeBlendColor(window, ink, fill);
+      borderColor = enabled
+        ? WinUIThemeBlendColor(window, ink, dark ? 0.54 : 0.45)
+        : WinUIThemeBlendColor(window, ink, dark ? 0.16 : 0.22);
+      markColor = borderColor;
+      if (enabled == NO)
+        {
+          fillColor = window;
+        }
     }
 
-  if (radio)
-    {
-      path = [NSBezierPath bezierPathWithOvalInRect: NSInsetRect(indicatorRect, 0.5, 0.5)];
-    }
-  else
-    {
-      path = WinUIThemeRoundedPath(NSInsetRect(indicatorRect, 0.5, 0.5), 4.0);
-    }
-
+  path = radio
+    ? [NSBezierPath bezierPathWithOvalInRect: NSInsetRect(indicatorRect, 0.5, 0.5)]
+    : WinUIThemeRoundedPath(NSInsetRect(indicatorRect, 0.5, 0.5), round(4.0 * scale));
   [fillColor set];
   [path fill];
   [borderColor set];
   [path setLineWidth: 1.0];
   [path stroke];
 
-  if (state == NSOnState)
+  if (radio && (state == NSOnState || (pressed && state == NSOffState)))
     {
-      if (radio)
-        {
-          WinUIThemeDrawRadioDot(NSInsetRect(indicatorRect,
-                                             indicatorSize * 0.28,
-                                             indicatorSize * 0.28),
-                                 markColor);
-        }
-      else
-        {
-          WinUIThemeDrawCheckmark(indicatorRect, markColor);
-        }
-    }
-  else if (state == NSMixedState)
-    {
-      NSRect dashRect = NSMakeRect(NSMinX(indicatorRect) + indicatorSize * 0.22,
-                                   NSMidY(indicatorRect) - 1.5,
-                                   indicatorSize * 0.56,
-                                   3.0);
+      /* A checked radio's centre; pressed, an unchecked one shows it too,
+         in the border's colour. */
+      CGFloat dot = round((pressed ? 10.0 : (hover ? 14.0 : 12.0)) * scale);
 
-      WinUIThemeFillAndStrokeRoundedRect(dashRect, 1.5, markColor, nil, 0.0);
+      WinUIThemeDrawRadioDot(WinUIThemeCenteredRect(indicatorRect, dot, dot),
+                             state == NSOnState ? markColor : borderColor);
+    }
+  else if (radio == NO && state == NSOnState)
+    {
+      WinUIThemeDrawCheckmark(indicatorRect, markColor);
+    }
+  else if (radio == NO && state == NSMixedState)
+    {
+      NSRect dashRect = WinUIThemeCenteredRect(indicatorRect, round(8.0 * scale), MAX(1.5, round(1.5 * scale)));
+
+      [markColor set];
+      NSRectFill(NSIntegralRect(dashRect));
     }
 }
 
@@ -329,7 +328,7 @@ WinUIThemeDrawCheckboxOrRadioCell(NSButtonCell *cell,
   {
     BOOL enabled = [cell isEnabled];
     NSRect contentRect = [cell drawingRectForBounds: cellFrame];
-    CGFloat indicatorSize = WinUIThemeIndicatorSizeForHeight(contentRect.size.height);
+    CGFloat indicatorSize = WinUIThemeIndicatorSizeForHeight(theme, contentRect.size.height);
     NSRect indicatorRect = NSMakeRect(contentRect.origin.x + WinUIThemeIndicatorLeading,
                                       floor(NSMidY(contentRect) - (indicatorSize / 2.0)),
                                       indicatorSize,
@@ -2319,7 +2318,7 @@ static const CGFloat WinUIThemeSearchDeleteWidth = 28.0;
 
   if (WinUIThemeButtonCellIsCheckbox(cell) || WinUIThemeButtonCellIsRadio(cell))
     {
-      CGFloat indicatorSize = WinUIThemeIndicatorSizeForHeight(CGFLOAT_MAX);
+      CGFloat indicatorSize = WinUIThemeIndicatorSizeForHeight(theme, CGFLOAT_MAX);
       NSSize titleSize = ([cell imagePosition] == NSImageOnly) ? NSZeroSize
         : [[cell attributedTitle] size];
 

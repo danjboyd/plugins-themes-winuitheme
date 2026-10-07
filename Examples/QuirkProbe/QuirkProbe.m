@@ -303,6 +303,7 @@ QuirkProbeModuleOfAddress(void *address)
 - (void) checkProgress;
 - (void) checkTableDefaults;
 - (void) checkLiveSettings;
+- (void) checkIndicators;
 - (void) checkMenuFlyout;
 - (void) checkOverlayScrollers;
 - (void) checkFocusVisual;
@@ -2145,6 +2146,88 @@ QuirkProbeFindListener(HWND hwnd, LPARAM found)
 #endif
 }
 
+/* WinUI's CheckBox and RadioButton (issue #5): a 20px indicator, and a
+   checked radio's accent ring around a 12px centre dot. The theme drew
+   18px indicators and an 8px dot. */
+- (void) checkIndicators
+{
+  CGFloat desktop = QuirkProbeDesktopScale();
+  /* Frames with room for the indicator at the desktop's scale: a shorter
+     one gets a smaller indicator. */
+  NSWindow *window = [self windowWithFrame: NSMakeRect(440, 300, 220, 120)
+                                     title: @"QuirkProbe Indicators"];
+  NSButton *checkbox = AUTORELEASE([[NSButton alloc] initWithFrame:
+    NSMakeRect(20, 64, 160, 24 * desktop)]);
+  NSButton *radio = AUTORELEASE([[NSButton alloc] initWithFrame:
+    NSMakeRect(20, 16, 160, 24 * desktop)]);
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale;
+  QuirkProbeInk box, ring;
+  NSInteger centreY, x, dot = 0;
+
+  if (QuirkProbeHasArgument(@"--high-contrast", nil))
+    {
+      [self skip: @"checkbox-indicator-size" detail: @"high contrast's highlight may not be blue"];
+      [self skip: @"radio-centre-dot" detail: @"high contrast's highlight may not be blue"];
+      return;
+    }
+  [checkbox setButtonType: NSSwitchButton];
+  [checkbox setTitle: @"Checked"];
+  [checkbox setState: NSOnState];
+  [radio setButtonType: NSRadioButton];
+  [radio setTitle: @"Selected"];
+  [radio setState: NSOnState];
+  [[window contentView] addSubview: checkbox];
+  [[window contentView] addSubview: radio];
+  [window orderFront: nil];
+  [window display];
+
+  rep = QuirkProbeRender(checkbox);
+  scale = QuirkProbeScale(rep, checkbox);
+  [self saveView: checkbox named: @"checkbox-indicator"];
+  box = QuirkProbeMeasureIn(rep, QuirkProbeIsAccentBlue, NSMakeRect(0, 0, 40 * desktop * scale, [rep pixelsHigh]));
+  if (llabs((long long)box.width - (long long)round(20.0 * desktop * scale)) <= 1
+      && llabs((long long)box.height - (long long)round(20.0 * desktop * scale)) <= 1)
+    {
+      [self pass: @"checkbox-indicator-size" detail: [NSString stringWithFormat:
+        @"a %ldx%ld px accent box", (long)box.width, (long)box.height]];
+    }
+  else
+    {
+      [self fail: @"checkbox-indicator-size" detail: [NSString stringWithFormat:
+        @"the accent box is %ldx%ld px, expected %.0f", (long)box.width, (long)box.height,
+        round(20.0 * desktop * scale)]];
+    }
+
+  rep = QuirkProbeRender(radio);
+  [self saveView: radio named: @"radio-indicator"];
+  ring = QuirkProbeMeasureIn(rep, QuirkProbeIsAccentBlue, NSMakeRect(0, 0, 40 * desktop * scale, [rep pixelsHigh]));
+  centreY = ring.minY + ring.height / 2;
+  for (x = ring.minX; x < ring.minX + ring.width; x++)
+    {
+      NSUInteger red, green, blue;
+
+      if (QuirkProbePixel(rep, x, centreY, &red, &green, &blue)
+          && QuirkProbeIsAccentBlue(red, green, blue) == NO)
+        {
+          dot++;
+        }
+    }
+  if (llabs((long long)ring.width - (long long)round(20.0 * desktop * scale)) <= 1
+      && fabs(dot - 12.0 * desktop * scale) <= 2.0)
+    {
+      [self pass: @"radio-centre-dot" detail: [NSString stringWithFormat:
+        @"a %ld px ring around a %ld px dot", (long)ring.width, (long)dot]];
+    }
+  else
+    {
+      [self fail: @"radio-centre-dot" detail: [NSString stringWithFormat:
+        @"a %ld px ring around a %ld px dot; expected %.0f and %.0f", (long)ring.width, (long)dot,
+        round(20.0 * desktop * scale), 12.0 * desktop * scale]];
+    }
+  [window orderOut: nil];
+}
+
 /* WinUI's type ramp (issue #44): the interface font is Segoe UI Variable
    (Segoe UI without it, as on Windows 10) at Body's 14px, scaled by
    Windows' text size (-WinUIThemeTextScaleFactor stands in for it); bold
@@ -3612,6 +3695,7 @@ QuirkProbeLastItemOfMenu(NSString *title)
   [self checkProgress];
   [self checkTableDefaults];
   [self checkLiveSettings];
+  [self checkIndicators];
   [self checkMenuFlyout];
   [self checkOverlayScrollers];
   [self checkFocusVisual];
