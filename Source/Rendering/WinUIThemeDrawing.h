@@ -192,6 +192,12 @@ NSInteger WinUIThemeSegmentIndexAtPoint(NSSegmentedCell *cell,
                                         NSRect cellFrame,
                                         NSPoint point);
 NSRect WinUIThemeSwitchTrackRect(NSRect rect);
+/* Slider, progress and level colours (WinUIThemeControls.m): the track
+   (ControlStrongFill/Stroke), the accent value, the slider thumb and its
+   borders. Any argument may be NULL. */
+void WinUIThemeRangeColors(WinUITheme *theme, BOOL enabled,
+                           NSColor **trackOut, NSColor **valueOut,
+                           NSColor **thumbOut, NSColor **borderOut, NSColor **bottomOut);
 NSRect WinUIThemeSliderTrackRect(WinUITheme *theme, NSRect rect, BOOL horizontal);
 
 #endif

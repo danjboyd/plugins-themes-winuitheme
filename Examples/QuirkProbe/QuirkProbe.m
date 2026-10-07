@@ -323,6 +323,7 @@ QuirkProbeModuleOfAddress(void *address)
 - (void) checkTypography;
 - (void) checkSlider;
 - (void) checkProgress;
+- (void) checkLevelIndicator;
 - (void) checkTableDefaults;
 - (void) checkLiveSettings;
 - (void) checkIndicators;
@@ -2127,6 +2128,170 @@ QuirkProbeColumnCount(NSBitmapImageRep *rep, QuirkProbePixelTest test,
         (unsigned long)ringInk.count, (long)ringInk.width,
         (unsigned long)red, (unsigned long)green, (unsigned long)blue]];
     }
+  [window orderOut: nil];
+}
+
+/* SystemFillColorCritical in either palette, or libs-gui's pure red:
+   clearly redder than green and blue. */
+static BOOL
+QuirkProbeIsCriticalRed(NSUInteger red, NSUInteger green, NSUInteger blue)
+{
+  return red > 150 && red > green + 60 && red > blue + 50;
+}
+
+static NSLevelIndicator *
+QuirkProbeLevelIndicator(NSView *content, NSRect frame, NSLevelIndicatorStyle style,
+                         double maximum, double value, double warning, double critical)
+{
+  NSLevelIndicator *level = AUTORELEASE([[NSLevelIndicator alloc] initWithFrame: frame]);
+
+  [[level cell] setLevelIndicatorStyle: style];
+  [level setMinValue: 0.0];
+  [level setMaxValue: maximum];
+  [level setWarningValue: warning];
+  [level setCriticalValue: critical];
+  [level setDoubleValue: value];
+  [content addSubview: level];
+  return level;
+}
+
+/* NSLevelIndicator as WinUI's ProgressBar and RatingControl (issue #57).
+   libs-gui filled a square white well, and with the warning and critical
+   values left at 0 every level was critical: solid red. */
+- (void) checkLevelIndicator
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(420, 160, 260, 200)
+                                     title: @"QuirkProbe Level"];
+  NSView *content = [window contentView];
+  NSLevelIndicator *unset = QuirkProbeLevelIndicator(content, NSMakeRect(20, 160, 200, 20),
+    NSContinuousCapacityLevelIndicatorStyle, 10.0, 6.0, 0.0, 0.0);
+  NSLevelIndicator *critical = QuirkProbeLevelIndicator(content, NSMakeRect(20, 120, 200, 20),
+    NSContinuousCapacityLevelIndicatorStyle, 10.0, 6.0, 3.0, 5.0);
+  NSLevelIndicator *discrete = QuirkProbeLevelIndicator(content, NSMakeRect(20, 80, 200, 20),
+    NSDiscreteCapacityLevelIndicatorStyle, 10.0, 6.0, 0.0, 0.0);
+  NSLevelIndicator *rating = QuirkProbeLevelIndicator(content, NSMakeRect(20, 40, 200, 20),
+    NSRatingLevelIndicatorStyle, 5.0, 3.0, 0.0, 0.0);
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale;
+  QuirkProbeInk accent, red;
+
+  if (QuirkProbeHasArgument(@"--high-contrast", nil))
+    {
+      [self skip: @"level-unset-thresholds" detail: @"high contrast's highlight may not be blue"];
+      [self skip: @"level-critical" detail: @"high contrast keeps the highlight colour"];
+      [self skip: @"level-discrete-segments" detail: @"high contrast's highlight may not be blue"];
+      [self skip: @"level-rating" detail: @"high contrast's highlight may not be blue"];
+      return;
+    }
+  [window orderFront: nil];
+  [window display];
+
+  /* 6 of 10, thresholds unset: a 3px accent bar 60% along, no red. */
+  rep = QuirkProbeRender(unset);
+  scale = QuirkProbeScale(rep, unset);
+  [self saveView: unset named: @"level-unset"];
+  accent = QuirkProbeMeasureIn(rep, QuirkProbeIsAccentBlue, NSZeroRect);
+  red = QuirkProbeMeasureIn(rep, QuirkProbeIsCriticalRed, NSZeroRect);
+  if (red.count == 0 && accent.count > 0
+      && fabs((accent.minX + accent.width) / scale - 120.0) <= 3.0
+      && fabs(accent.height - 3.0 * scale) <= 1.0)
+    {
+      [self pass: @"level-unset-thresholds" detail: [NSString stringWithFormat:
+        @"a %ld px accent bar to %.0fpt of 200, no red",
+        (long)accent.height, (accent.minX + accent.width) / scale]];
+    }
+  else
+    {
+      [self fail: @"level-unset-thresholds" detail: [NSString stringWithFormat:
+        @"%lu red px; accent %ld px deep to %.0fpt (expected 3 px to 120pt)",
+        (unsigned long)red.count, (long)accent.height,
+        accent.count > 0 ? (accent.minX + accent.width) / scale : 0.0]];
+    }
+
+  /* 6 of 10 with the critical value at 5: the critical colour, as long. */
+  rep = QuirkProbeRender(critical);
+  [self saveView: critical named: @"level-critical"];
+  accent = QuirkProbeMeasureIn(rep, QuirkProbeIsAccentBlue, NSZeroRect);
+  red = QuirkProbeMeasureIn(rep, QuirkProbeIsCriticalRed, NSZeroRect);
+  if (accent.count == 0 && red.count > 0
+      && fabs((red.minX + red.width) / scale - 120.0) <= 3.0
+      && fabs(red.height - 3.0 * scale) <= 1.0)
+    {
+      [self pass: @"level-critical" detail: [NSString stringWithFormat:
+        @"past the critical value, a %ld px critical bar to %.0fpt",
+        (long)red.height, (red.minX + red.width) / scale]];
+    }
+  else
+    {
+      [self fail: @"level-critical" detail: [NSString stringWithFormat:
+        @"%lu accent px; critical %ld px deep to %.0fpt (expected 3 px to 120pt)",
+        (unsigned long)accent.count, (long)red.height,
+        red.count > 0 ? (red.minX + red.width) / scale : 0.0]];
+    }
+
+  /* Discrete, 6 of 10: six accent segments. */
+  rep = QuirkProbeRender(discrete);
+  [self saveView: discrete named: @"level-discrete"];
+  accent = QuirkProbeMeasureIn(rep, QuirkProbeIsAccentBlue, NSZeroRect);
+  {
+    NSInteger x, y = accent.minY + accent.height / 2;
+    NSUInteger runs = 0;
+    BOOL inRun = NO;
+
+    for (x = 0; accent.count > 0 && x < [rep pixelsWide]; x++)
+      {
+        NSUInteger r, g, b;
+        BOOL hit = QuirkProbePixel(rep, x, y, &r, &g, &b) && QuirkProbeIsAccentBlue(r, g, b);
+
+        if (hit && inRun == NO)
+          {
+            runs++;
+          }
+        inRun = hit;
+      }
+    if (runs == 6 && fabs(accent.height - 3.0 * scale) <= 1.0)
+      {
+        [self pass: @"level-discrete-segments" detail: @"6 of 10: six 3px accent segments"];
+      }
+    else
+      {
+        [self fail: @"level-discrete-segments" detail: [NSString stringWithFormat:
+          @"6 of 10 drew %lu accent segments, %ld px deep", (unsigned long)runs, (long)accent.height]];
+      }
+  }
+
+  /* Rating 3 of 5: accent stars up to the third, outlines after. */
+  rep = QuirkProbeRender(rating);
+  [self saveView: rating named: @"level-rating"];
+  accent = QuirkProbeMeasureIn(rep, QuirkProbeIsAccentBlue, NSZeroRect);
+  {
+    NSUInteger background = QuirkProbeInkBackground, r, g, b;
+    QuirkProbeInk outline;
+
+    QuirkProbePixel(rep, [rep pixelsWide] - 1, 0, &r, &g, &b);
+    QuirkProbeInkBackground = r + g + b;
+    outline = QuirkProbeMeasureIn(rep, QuirkProbeIsFaintInk,
+                                  NSMakeRect(accent.minX + accent.width + 2, 0,
+                                             [rep pixelsWide], [rep pixelsHigh]));
+    QuirkProbeInkBackground = background;
+    /* Three 16pt stars 8pt apart end at 64pt; two outlines follow. */
+    if (accent.count > 0 && fabs((accent.minX + accent.width) / scale - 64.0) <= 2.0
+        && accent.height >= 12.0 * scale && outline.count > 0
+        && fabs((outline.minX + outline.width) / scale - 112.0) <= 2.0)
+      {
+        [self pass: @"level-rating" detail: [NSString stringWithFormat:
+          @"accent stars to %.0fpt, outlines to %.0fpt",
+          (accent.minX + accent.width) / scale, (outline.minX + outline.width) / scale]];
+      }
+    else
+      {
+        [self fail: @"level-rating" detail: [NSString stringWithFormat:
+          @"accent %lu px to %.0fpt, %ld px high; outlines to %.0fpt (expected 64, 16 high, 112)",
+          (unsigned long)accent.count,
+          accent.count > 0 ? (accent.minX + accent.width) / scale : 0.0, (long)accent.height,
+          outline.count > 0 ? (outline.minX + outline.width) / scale : 0.0]];
+      }
+  }
   [window orderOut: nil];
 }
 
@@ -4061,6 +4226,7 @@ QuirkProbeLastItemOfMenu(NSString *title)
   [self checkTypography];
   [self checkSlider];
   [self checkProgress];
+  [self checkLevelIndicator];
   [self checkTableDefaults];
   [self checkLiveSettings];
   [self checkIndicators];

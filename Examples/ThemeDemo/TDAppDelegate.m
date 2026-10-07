@@ -1755,6 +1755,14 @@ TDAlertResultString(NSInteger result)
   [view addSubview: level];
   [view addSubview: TDLabel(@"Level indicator", NSMakeRect(400.0, 122.0, 140.0, 18.0),
                             [NSFont systemFontOfSize: 12.0], [NSColor secondaryLabelColor])];
+  level = [[[NSLevelIndicator alloc] initWithFrame: NSMakeRect(640.0, 90.0, 120.0, 20.0)] autorelease];
+  [[level cell] setLevelIndicatorStyle: NSRatingLevelIndicatorStyle];
+  [level setMinValue: 0.0];
+  [level setMaxValue: 5.0];
+  [level setDoubleValue: 3.0];
+  [view addSubview: level];
+  [view addSubview: TDLabel(@"Rating", NSMakeRect(640.0, 122.0, 120.0, 18.0),
+                            [NSFont systemFontOfSize: 12.0], [NSColor secondaryLabelColor])];
 
   [view addSubview: TDLabel(@"Groups And Forms", NSMakeRect(20.0, 168.0, 300.0, 20.0),
                             sectionFont, [NSColor controlTextColor])];

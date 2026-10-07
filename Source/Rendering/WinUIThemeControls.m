@@ -643,7 +643,7 @@ WinUIThemePopupDisplayString(NSPopUpButtonCell *cell)
      ControlStrokeColorDefault, darker (...Secondary) along its bottom.
    High contrast: text-colour track, highlight value, window-coloured
    thumb. Any argument may be NULL. */
-static void
+void
 WinUIThemeRangeColors(WinUITheme *theme, BOOL enabled,
                       NSColor **trackOut, NSColor **valueOut,
                       NSColor **thumbOut, NSColor **borderOut, NSColor **bottomOut)
