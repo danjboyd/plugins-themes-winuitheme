@@ -250,6 +250,19 @@ TDReadOnlyField(NSString *value, NSRect frame)
   return field;
 }
 
+/* A tab's pane: a read-only field near its top left. NSTabView stretches a
+   tab's view over the content area, so the field goes in a plain view. */
+static NSView *
+TDTabPane(NSString *value)
+{
+  NSView *pane = [[[NSView alloc] initWithFrame: NSMakeRect(0.0, 0.0, 400.0, 120.0)] autorelease];
+  NSTextField *field = TDReadOnlyField(value, NSMakeRect(16.0, 64.0, 280.0, 32.0));
+
+  [field setAutoresizingMask: NSViewMaxXMargin | NSViewMinYMargin];
+  [pane addSubview: field];
+  return pane;
+}
+
 static NSSearchField *
 TDSearchField(NSString *value, NSRect frame)
 {
@@ -1153,15 +1166,15 @@ TDMenuBarFixture(NSRect frame)
   tabView = [[[NSTabView alloc] initWithFrame: NSMakeRect(20.0, 396.0, 940.0, 240.0)] autorelease];
   tabItem = [[[NSTabViewItem alloc] initWithIdentifier: @"write"] autorelease];
   [tabItem setLabel: @"Write"];
-  [tabItem setView: TDReadOnlyField(@"Markdown authoring surface", NSMakeRect(26.0, 28.0, 280.0, 28.0))];
+  [tabItem setView: TDTabPane(@"Markdown authoring surface")];
   [tabView addTabViewItem: tabItem];
   tabItem = [[[NSTabViewItem alloc] initWithIdentifier: @"preview"] autorelease];
   [tabItem setLabel: @"Preview"];
-  [tabItem setView: TDReadOnlyField(@"Rendered preview surface", NSMakeRect(26.0, 28.0, 280.0, 28.0))];
+  [tabItem setView: TDTabPane(@"Rendered preview surface")];
   [tabView addTabViewItem: tabItem];
   tabItem = [[[NSTabViewItem alloc] initWithIdentifier: @"history"] autorelease];
   [tabItem setLabel: @"History"];
-  [tabItem setView: TDReadOnlyField(@"Revision timeline", NSMakeRect(26.0, 28.0, 280.0, 28.0))];
+  [tabItem setView: TDTabPane(@"Revision timeline")];
   [tabView addTabViewItem: tabItem];
   [view addSubview: tabView];
 

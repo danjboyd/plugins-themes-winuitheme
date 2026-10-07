@@ -35,6 +35,15 @@ static const NSTimeInterval QuirkProbeSettleDelay = 0.8;
 
 static BOOL QuirkProbeHasArgument(NSString *flag, NSString *value);
 
+/* YES when the probe runs with -WinUIThemeMetrics compact. */
+static BOOL
+QuirkProbeCompactMetrics(void)
+{
+  NSString *choice = [[NSUserDefaults standardUserDefaults] stringForKey: @"WinUIThemeMetrics"];
+
+  return choice != nil && [choice caseInsensitiveCompare: @"compact"] == NSOrderedSame;
+}
+
 /* Moves the pointer to `point` in GNUstep screen coordinates (origin at
    the bottom left). libs-back's Windows server doesn't implement
    -setMouseLocation:onScreen:. */
@@ -326,6 +335,10 @@ QuirkProbeModuleOfAddress(void *address)
 - (void) checkLevelIndicator;
 - (void) checkDatePicker;
 - (void) checkBrowser;
+- (void) checkColorWell;
+- (void) checkSegmentedControl;
+- (void) checkTabView;
+- (void) checkMetricsChoice;
 - (void) checkTableDefaults;
 - (void) checkLiveSettings;
 - (void) checkIndicators;
@@ -2910,6 +2923,476 @@ QuirkProbeBrowser(QuirkProbe *probe, NSView *content, NSRect frame, NSInteger le
   [window orderOut: nil];
 }
 
+static BOOL
+QuirkProbeIsSwatchRed(NSUInteger red, NSUInteger green, NSUInteger blue)
+{
+  return red > 200 && green < 60 && blue < 60;
+}
+
+/* NSColorWell as WinUI's colour button (issue #26): the theme's button
+   holding a rounded swatch 6pt in from its sides; checked (accent chrome)
+   while the colour panel is attached. libs-gui drew NeXT's bevelled well,
+   its swatch 2pt in, square. */
+- (void) checkColorWell
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(200, 200, 260, 120)
+                                     title: @"QuirkProbe Colour Well"];
+  NSColorWell *rest = AUTORELEASE([[NSColorWell alloc] initWithFrame: NSMakeRect(20, 60, 64, 32)]);
+  NSColorWell *active = AUTORELEASE([[NSColorWell alloc] initWithFrame: NSMakeRect(120, 60, 64, 32)]);
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale;
+  QuirkProbeInk swatch;
+  NSUInteger red, green, blue, corner;
+  BOOL highContrast = QuirkProbeHasArgument(@"--high-contrast", nil);
+
+  [rest setColor: [NSColor colorWithCalibratedRed: 1.0 green: 0.0 blue: 0.0 alpha: 1.0]];
+  [active setColor: [NSColor colorWithCalibratedRed: 1.0 green: 0.0 blue: 0.0 alpha: 1.0]];
+  [[window contentView] addSubview: rest];
+  [[window contentView] addSubview: active];
+  [window orderFront: nil];
+  [window display];
+
+  /* At rest: the swatch 6pt and 5pt in, its corners rounded (a point
+     more in high contrast, whose solid edge covers the swatch's rim). */
+  rep = QuirkProbeRender(rest);
+  scale = QuirkProbeScale(rep, rest);
+  [self saveView: rest named: @"colour-well"];
+  swatch = QuirkProbeMeasureIn(rep, QuirkProbeIsSwatchRed, NSZeroRect);
+  QuirkProbePixel(rep, swatch.minX, swatch.minY, &red, &green, &blue);
+  corner = (QuirkProbeIsSwatchRed(red, green, blue) ? 1 : 0);
+  if (swatch.count > 0 && fabs(swatch.minX / scale - 6.0) <= 1.5 && fabs(swatch.minY / scale - 5.0) <= 1.5
+      && fabs(swatch.width / scale - 52.0) <= 2.5 && corner == 0)
+    {
+      [self pass: @"colour-well-swatch" detail: [NSString stringWithFormat:
+        @"a %.0fx%.0fpt swatch %.0fpt in, its corners rounded",
+        swatch.width / scale, swatch.height / scale, swatch.minX / scale]];
+    }
+  else
+    {
+      [self fail: @"colour-well-swatch" detail: [NSString stringWithFormat:
+        @"the swatch is %.0fx%.0fpt, %.0fpt in from the left and %.0fpt from the top; its corner is %@",
+        swatch.width / scale, swatch.height / scale, swatch.minX / scale, swatch.minY / scale,
+        corner ? @"square" : @"rounded"]];
+    }
+
+  /* Active: the accent chrome round the swatch. */
+  if (highContrast)
+    {
+      [self skip: @"colour-well-active" detail: @"high contrast's highlight may not be blue"];
+    }
+  else
+    {
+      QuirkProbeInk accentInk;
+
+      [active activate: YES];
+      [window display];
+      rep = QuirkProbeRender(active);
+      [self saveView: active named: @"colour-well-active"];
+      accentInk = QuirkProbeMeasureIn(rep, QuirkProbeIsAccentBlue, NSZeroRect);
+      [active deactivate];
+      [[NSColorPanel sharedColorPanel] orderOut: nil];
+      if (accentInk.count >= (NSUInteger)(100 * scale * scale) && accentInk.width >= [rep pixelsWide] - 4)
+        {
+          [self pass: @"colour-well-active" detail: [NSString stringWithFormat:
+            @"with the colour panel attached, %lu px of accent chrome", (unsigned long)accentInk.count]];
+        }
+      else
+        {
+          [self fail: @"colour-well-active" detail: [NSString stringWithFormat:
+            @"with the colour panel attached, %lu accent px across %ld of %ld px",
+            (unsigned long)accentInk.count, (long)accentInk.width, (long)[rep pixelsWide]]];
+        }
+    }
+  [window orderOut: nil];
+}
+
+static NSSegmentedControl *
+QuirkProbeSegments(NSView *content, NSRect frame, NSInteger mode)
+{
+  NSSegmentedControl *control = AUTORELEASE([[NSSegmentedControl alloc] initWithFrame: frame]);
+  NSArray *labels = [NSArray arrayWithObjects: @"Write", @"Preview", @"Split", nil];
+  NSUInteger index;
+
+  [control setSegmentCount: 3];
+  [[control cell] setTrackingMode: mode];
+  for (index = 0; index < 3; index++)
+    {
+      [control setLabel: [labels objectAtIndex: index] forSegment: index];
+      [control setWidth: 100 forSegment: index];
+    }
+  [content addSubview: control];
+  return control;
+}
+
+/* Accent runs along one pixel row: their count and the first one's centre
+   and length in points. */
+static NSUInteger
+QuirkProbeAccentRuns(NSBitmapImageRep *rep, NSInteger y, CGFloat scale, CGFloat *firstCentre, CGFloat *firstLength)
+{
+  NSUInteger runs = 0;
+  NSInteger x, start = -1;
+  BOOL inRun = NO;
+
+  for (x = 0; x <= [rep pixelsWide]; x++)
+    {
+      NSUInteger r = 0, g = 0, b = 0;
+      BOOL hit = (x < [rep pixelsWide]) && QuirkProbePixel(rep, x, y, &r, &g, &b) && QuirkProbeIsAccentBlue(r, g, b);
+
+      if (hit && inRun == NO)
+        {
+          start = x;
+        }
+      if (hit == NO && inRun)
+        {
+          if (runs == 0)
+            {
+              *firstCentre = (start + x) / 2.0 / scale;
+              *firstLength = (x - start) / scale;
+            }
+          runs++;
+        }
+      inRun = hit;
+    }
+  return runs;
+}
+
+/* NSSegmentedControl as WinUI's Segmented control (issue #48): one rounded
+   container with no dividers; the selected segment raised, with a 3x16pt
+   accent pill under its label; in multiple selection, a pill under each
+   selected segment. The theme drew dividers between segments and tinted
+   the selected one. */
+- (void) checkSegmentedControl
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(220, 160, 360, 140)
+                                     title: @"QuirkProbe Segments"];
+  NSView *content = [window contentView];
+  NSSegmentedControl *one = QuirkProbeSegments(content, NSMakeRect(20, 90, 300, 32), NSSegmentSwitchTrackingSelectOne);
+  NSSegmentedControl *any = QuirkProbeSegments(content, NSMakeRect(20, 30, 300, 32), NSSegmentSwitchTrackingSelectAny);
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale, centre = 0.0, length = 0.0;
+  NSUInteger red, green, blue;
+  QuirkProbeInk pill;
+
+  if (QuirkProbeHasArgument(@"--high-contrast", nil))
+    {
+      [self skip: @"segmented-pill" detail: @"high contrast draws the selection as the highlight"];
+      [self skip: @"segmented-no-dividers" detail: @"high contrast draws the selection as the highlight"];
+      [self skip: @"segmented-multiple" detail: @"high contrast draws the selection as the highlight"];
+      return;
+    }
+  [one setSelectedSegment: 0];
+  [any setSelected: YES forSegment: 0];
+  [any setSelected: YES forSegment: 2];
+  [window orderFront: nil];
+  [window display];
+
+  rep = QuirkProbeRender(one);
+  scale = QuirkProbeScale(rep, one);
+  [self saveView: one named: @"segmented"];
+  pill = QuirkProbeMeasureIn(rep, QuirkProbeIsAccentBlue, NSZeroRect);
+  if (pill.count > 0 && fabs(pill.width / scale - 16.0) <= 1.5 && fabs(pill.height / scale - 3.0) <= 1.0
+      && fabs((pill.minX + pill.width / 2.0) / scale - 50.0) <= 2.0)
+    {
+      [self pass: @"segmented-pill" detail: [NSString stringWithFormat:
+        @"a %.0fx%.0fpt accent pill under the selected segment", pill.width / scale, pill.height / scale]];
+    }
+  else
+    {
+      [self fail: @"segmented-pill" detail: [NSString stringWithFormat:
+        @"accent %.0fx%.0fpt centred at %.0fpt (expected 16x3 at 50)",
+        pill.width / scale, pill.height / scale,
+        pill.count ? (pill.minX + pill.width / 2.0) / scale : -1.0]];
+    }
+
+  /* Between the two unselected segments, at mid-height: the container's
+     fill, as 10pt to either side. */
+  {
+    NSInteger y = [rep pixelsHigh] / 2;
+    NSUInteger at, left;
+    NSInteger x, worst = 0;
+
+    QuirkProbePixel(rep, (NSInteger)(190 * scale), y, &red, &green, &blue);
+    left = red + green + blue;
+    for (x = (NSInteger)(197 * scale); x <= (NSInteger)(203 * scale); x++)
+      {
+        QuirkProbePixel(rep, x, y, &red, &green, &blue);
+        at = red + green + blue;
+        worst = MAX(worst, (NSInteger)llabs((long long)at - (long long)left));
+      }
+    if (worst <= 12)
+      {
+        [self pass: @"segmented-no-dividers" detail: [NSString stringWithFormat:
+          @"no divider between unselected segments (%ld of 765 from the fill)", (long)worst]];
+      }
+    else
+      {
+        [self fail: @"segmented-no-dividers" detail: [NSString stringWithFormat:
+          @"a mark %ld of 765 from the fill between unselected segments", (long)worst]];
+      }
+  }
+
+  /* Multiple selection: a pill under the first and the last. */
+  rep = QuirkProbeRender(any);
+  [self saveView: any named: @"segmented-multiple"];
+  pill = QuirkProbeMeasureIn(rep, QuirkProbeIsAccentBlue, NSZeroRect);
+  {
+    NSUInteger runs = pill.count ? QuirkProbeAccentRuns(rep, pill.minY + pill.height / 2, scale, &centre, &length) : 0;
+
+    if (runs == 2 && fabs(centre - 50.0) <= 2.0)
+      {
+        [self pass: @"segmented-multiple" detail: @"two selected segments, two pills"];
+      }
+    else
+      {
+        [self fail: @"segmented-multiple" detail: [NSString stringWithFormat:
+          @"%lu accent runs, the first centred at %.0fpt", (unsigned long)runs, centre]];
+      }
+  }
+  [window orderOut: nil];
+}
+
+/* NSTabView's top tabs as WinUI's SelectorBar (issue #49): text items, the
+   selected one over a 3x16pt accent pill. A click on a tab has to find it:
+   the theme drew tabs without recording their rects, so
+   -tabViewItemAtPoint: found none. */
+- (void) checkTabView
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(240, 180, 420, 220)
+                                     title: @"QuirkProbe Tabs"];
+  NSTabView *tabView = AUTORELEASE([[NSTabView alloc] initWithFrame: NSMakeRect(20, 20, 380, 180)]);
+  NSArray *labels = [NSArray arrayWithObjects: @"Write", @"Preview", @"History", nil];
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale;
+  NSUInteger index, found = 0;
+  NSMutableString *misses = [NSMutableString string];
+
+  for (index = 0; index < [labels count]; index++)
+    {
+      NSTabViewItem *item = AUTORELEASE([[NSTabViewItem alloc] initWithIdentifier: [labels objectAtIndex: index]]);
+
+      [item setLabel: [labels objectAtIndex: index]];
+      [item setView: AUTORELEASE([[NSView alloc] initWithFrame: NSMakeRect(0, 0, 100, 100)])];
+      [tabView addTabViewItem: item];
+    }
+  [[window contentView] addSubview: tabView];
+  [tabView selectTabViewItemAtIndex: 0];
+  [window orderFront: nil];
+  [window display];
+
+  /* Each tab's label, found by its ink in the strip, finds its item. */
+  rep = QuirkProbeRender(tabView);
+  scale = QuirkProbeScale(rep, tabView);
+  [self saveView: tabView named: @"tab-view"];
+  {
+    NSInteger x, y = (NSInteger)(14 * scale);
+    NSUInteger r, g, b, background;
+    NSInteger starts[8], ends[8];
+    NSUInteger labelsSeen = 0;
+    BOOL inInk = NO;
+    NSInteger gap = 0;
+
+    QuirkProbePixel(rep, [rep pixelsWide] - 4, y, &r, &g, &b);
+    background = r + g + b;
+    for (x = 0; x < [rep pixelsWide] && labelsSeen < 8; x++)
+      {
+        NSInteger yy;
+        BOOL ink = NO;
+
+        for (yy = (NSInteger)(4 * scale); yy < (NSInteger)(24 * scale); yy++)
+          {
+            QuirkProbePixel(rep, x, yy, &r, &g, &b);
+            if (llabs((long long)(r + g + b) - (long long)background) > 120)
+              {
+                ink = YES;
+              }
+          }
+        if (ink)
+          {
+            if (inInk == NO && (labelsSeen == 0 || gap > 8 * scale))
+              {
+                starts[labelsSeen] = x;
+                labelsSeen++;
+              }
+            ends[labelsSeen - 1] = x;
+            inInk = YES;
+            gap = 0;
+          }
+        else
+          {
+            inInk = NO;
+            gap++;
+          }
+      }
+    for (index = 0; index < [labels count] && index < labelsSeen; index++)
+      {
+        CGFloat px = (starts[index] + ends[index]) / 2.0 / scale;
+        CGFloat py = 14.0;
+        NSPoint point = NSMakePoint(px, [tabView isFlipped] ? py : NSHeight([tabView bounds]) - py);
+        NSTabViewItem *hit = [tabView tabViewItemAtPoint: point];
+
+        if (hit == [tabView tabViewItemAtIndex: index])
+          {
+            found++;
+          }
+        else
+          {
+            [misses appendFormat: @" %@ at %.0f,%.0f found %@;", [labels objectAtIndex: index], point.x, point.y,
+                                  hit ? [hit label] : @"nothing"];
+          }
+      }
+    if (labelsSeen >= [labels count] && found == [labels count])
+      {
+        [self pass: @"tab-click-target" detail: @"a click on each tab's label finds that tab"];
+      }
+    else
+      {
+        [self fail: @"tab-click-target" detail: [NSString stringWithFormat:
+          @"%lu labels seen, %lu found by a click:%@", (unsigned long)labelsSeen, (unsigned long)found, misses]];
+      }
+  }
+
+  if (QuirkProbeHasArgument(@"--high-contrast", nil))
+    {
+      [self skip: @"tab-selected-pill" detail: @"high contrast's highlight may not be blue"];
+    }
+  else
+    {
+      QuirkProbeInk pill = QuirkProbeMeasureIn(rep, QuirkProbeIsAccentBlue, NSMakeRect(0, 0, [rep pixelsWide], 60 * scale));
+
+      if (pill.count > 0 && fabs(pill.width / scale - 16.0) <= 1.5 && fabs(pill.height / scale - 3.0) <= 1.0
+          && pill.minX / scale < 60.0)
+        {
+          [self pass: @"tab-selected-pill" detail: [NSString stringWithFormat:
+            @"a %.0fx%.0fpt accent pill under the selected tab", pill.width / scale, pill.height / scale]];
+        }
+      else
+        {
+          [self fail: @"tab-selected-pill" detail: [NSString stringWithFormat:
+            @"the selected tab's accent is %.0fx%.0fpt at %.0fpt (expected 16x3 under the first tab)",
+            pill.width / scale, pill.height / scale, pill.count ? pill.minX / scale : -1.0]];
+        }
+    }
+  [window orderOut: nil];
+}
+
+/* Compact metrics (issue #31): the probe builds its windows in code, so it
+   gets WinUI's metrics unless run with -WinUIThemeMetrics compact. WinUI's:
+   14pt text, 32pt tabs and WinUI's button margins; compact: GNUstep's 12pt,
+   no minimum tab height and GNUstep's button margins, so 22pt nib and Gorm
+   controls fit their titles. */
+- (void) checkMetricsChoice
+{
+  GSTheme *theme = [GSTheme theme];
+  BOOL compact = QuirkProbeCompactMetrics();
+  CGFloat textScale = [[NSUserDefaults standardUserDefaults] floatForKey: @"WinUIThemeTextScaleFactor"];
+  CGFloat expectedFont = round((compact ? 12.0 : 14.0) * ((textScale >= 100.0) ? textScale / 100.0 : 1.0));
+  CGFloat font = [[NSFont systemFontOfSize: 0.0] pointSize];
+  CGFloat tab = [theme tabHeightForType: NSTopTabsBezelBorder];
+  NSButtonCell *cell = AUTORELEASE([[NSButtonCell alloc] initTextCell: @"Miniaturize"]);
+  GSThemeMargins margins;
+  BOOL ok;
+
+  [cell setBezelStyle: NSRoundedBezelStyle];
+  margins = [theme buttonMarginsForCell: cell style: NSRoundedBezelStyle state: GSThemeNormalState];
+  if (compact)
+    {
+      ok = (fabs(font - expectedFont) < 0.5 && tab < 32.0 && margins.left < 8.0);
+    }
+  else
+    {
+      ok = (fabs(font - expectedFont) < 0.5 && tab >= 32.0 && margins.left >= 8.0);
+    }
+  if (ok)
+    {
+      [self pass: @"metrics-choice" detail: [NSString stringWithFormat:
+        @"%@ metrics: %.0fpt text, %.0fpt tabs, %.0fpt button margins",
+        compact ? @"compact" : @"WinUI", font, tab, margins.left]];
+    }
+  else
+    {
+      [self fail: @"metrics-choice" detail: [NSString stringWithFormat:
+        @"expected %@ metrics; got %.0fpt text (expected %.0f), %.0fpt tabs, %.0fpt button margins",
+        compact ? @"compact" : @"WinUI", font, expectedFont, tab, margins.left]];
+    }
+
+  /* A button laid out at GNUstep's metrics, as in a nib: "Miniaturize" in
+     72x22pt. Compact metrics show the whole title (Adwaita's showed
+     "Miniatur" before its compact metrics). */
+  if (compact == NO)
+    {
+      [self skip: @"compact-nib-button" detail: @"needs -WinUIThemeMetrics compact"];
+    }
+  else
+    {
+      NSWindow *window = [self windowWithFrame: NSMakeRect(260, 260, 160, 60)
+                                         title: @"QuirkProbe Compact"];
+      NSButton *button = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(20, 20, 72, 22)]);
+      NSBitmapImageRep *rep = nil;
+      CGFloat scale, titleWidth;
+      NSUInteger red, green, blue;
+      QuirkProbeInk ink;
+
+      [button setTitle: @"Miniaturize"];
+      [button setBezelStyle: NSRoundedBezelStyle];
+      [[window contentView] addSubview: button];
+      [window orderFront: nil];
+      [window display];
+      rep = QuirkProbeRender(button);
+      scale = QuirkProbeScale(rep, button);
+      [self saveView: button named: @"compact-nib-button"];
+      QuirkProbePixel(rep, [rep pixelsWide] / 2, 3 * scale, &red, &green, &blue);
+      QuirkProbeInkBackground = red + green + blue;
+      ink = QuirkProbeMeasureIn(rep, QuirkProbeIsInk,
+                                NSMakeRect(2 * scale, 3 * scale, [rep pixelsWide] - 4 * scale, [rep pixelsHigh] - 6 * scale));
+      titleWidth = [@"Miniaturize" sizeWithAttributes:
+        [NSDictionary dictionaryWithObject: [button font] forKey: NSFontAttributeName]].width;
+      if (ink.count > 0 && ink.width / scale >= titleWidth - 3.0)
+        {
+          [self pass: @"compact-nib-button" detail: [NSString stringWithFormat:
+            @"the whole title shows in a 72x22pt button (%.0fpt of ink, the title %.0fpt)",
+            ink.width / scale, titleWidth]];
+        }
+      else
+        {
+          [self fail: @"compact-nib-button" detail: [NSString stringWithFormat:
+            @"%.0fpt of title ink in a 72x22pt button; the title is %.0fpt", ink.width / scale, titleWidth]];
+        }
+      [window orderOut: nil];
+    }
+
+  /* A label laid out at GNUstep's 12pt, as in a nib: buttons give up their
+     padding before their title (#14), but a label can't, so at WinUI's 14pt
+     its text runs past the frame. 107pt is what GNUstep's own layout gives
+     "Miniaturize window": 103pt of Tahoma 12 (its default font on Windows)
+     and the cell's 4pt. */
+  if (compact == NO)
+    {
+      [self skip: @"compact-nib-label" detail: @"needs -WinUIThemeMetrics compact"];
+    }
+  else
+    {
+      NSTextField *label = AUTORELEASE([[NSTextField alloc] initWithFrame: NSMakeRect(0, 0, 107, 17)]);
+      NSSize needed;
+
+      [label setStringValue: @"Miniaturize window"];
+      [label setBezeled: NO];
+      [label setBordered: NO];
+      [label setEditable: NO];
+      [label setDrawsBackground: NO];
+      needed = [[label cell] cellSize];
+      if (needed.width <= 107.5)
+        {
+          [self pass: @"compact-nib-label" detail: [NSString stringWithFormat:
+            @"\"Miniaturize window\" needs %.0fpt of a 107pt nib label", needed.width]];
+        }
+      else
+        {
+          [self fail: @"compact-nib-label" detail: [NSString stringWithFormat:
+            @"\"Miniaturize window\" needs %.0fpt; a nib made at GNUstep's 12pt gives it 107", needed.width]];
+        }
+    }
+}
+
 /* A table built in code looks like a WinUI list (issue #28): libs-gui's
    16pt rows, grid and 5x2pt spacing become 32pt rows, no grid and none;
    the header shows column dividers only under the pointer; and a row under
@@ -3206,7 +3689,9 @@ QuirkProbeFindListener(HWND hwnd, LPARAM found)
   NSString *family = [[manager availableFontFamilies] containsObject: @"Segoe UI Variable"]
     ? @"Segoe UI Variable" : @"Segoe UI";
   CGFloat textScale = [[NSUserDefaults standardUserDefaults] floatForKey: @"WinUIThemeTextScaleFactor"];
-  CGFloat size = round(14.0 * ((textScale >= 100.0) ? textScale / 100.0 : 1.0));
+  /* Compact metrics (#31) use GNUstep's 12pt. */
+  CGFloat base = QuirkProbeCompactMetrics() ? 12.0 : 14.0;
+  CGFloat size = round(base * ((textScale >= 100.0) ? textScale / 100.0 : 1.0));
   NSString *detail = nil;
 
   detail = [NSString stringWithFormat: @"the system font is %@ (%@) at %.1f; expected %@ at %.0f",
@@ -4844,6 +5329,10 @@ QuirkProbeLastItemOfMenu(NSString *title)
   [self checkLevelIndicator];
   [self checkDatePicker];
   [self checkBrowser];
+  [self checkColorWell];
+  [self checkSegmentedControl];
+  [self checkTabView];
+  [self checkMetricsChoice];
   [self checkTableDefaults];
   [self checkLiveSettings];
   [self checkIndicators];

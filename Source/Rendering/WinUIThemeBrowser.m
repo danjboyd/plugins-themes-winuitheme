@@ -77,8 +77,8 @@ WinUIThemeBrowserCardColor(WinUITheme *theme)
 }
 
 /* CardStrokeColorDefault, made visible against a white page. */
-static NSColor *
-WinUIThemeBrowserCardStroke(WinUITheme *theme)
+NSColor *
+WinUIThemeCardStrokeColor(WinUITheme *theme)
 {
   BOOL dark = [[theme settings] prefersDarkAppearance];
 
@@ -104,7 +104,7 @@ WinUIThemeDrawBrowserColumnCard(WinUITheme *theme, NSRect frame)
   WinUIThemeFillAndStrokeRoundedRect(NSInsetRect(NSIntegralRect(frame), 0.5, 0.5),
                                      WinUIThemeControlCornerRadius(theme),
                                      WinUIThemeBrowserCardColor(theme),
-                                     WinUIThemeBrowserCardStroke(theme), 1.0);
+                                     WinUIThemeCardStrokeColor(theme), 1.0);
 }
 
 static NSScroller *

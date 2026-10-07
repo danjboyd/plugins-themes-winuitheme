@@ -45,6 +45,26 @@
   _tableRowHeight = MAX(30.0, ceil(32.0 * density));
   _controlCornerRadius = MAX(4.0, ceil(4.0 * density));
   _windowCornerRadius = MAX(8.0, ceil(8.0 * density));
+
+  /* WinUI's compact density (#31), for layouts made at GNUstep's sizes:
+     24px controls, no minimum tab height (GSTheme's own), and GNUstep's
+     button margins, so 22pt nib and Gorm controls fit their titles. */
+  _compact = [settings compactMetrics];
+  if (_compact)
+    {
+      _minimumTabHeight = 0.0;
+      _maximumTabHeight = 0.0;
+      _buttonHorizontalPadding = 0.0;
+      _buttonVerticalPadding = 0.0;
+      _controlHeight = MAX(24.0, ceil(24.0 * density));
+      _textFieldHeight = _controlHeight;
+      _popupControlHeight = _controlHeight;
+    }
+}
+
+- (BOOL) compact
+{
+  return _compact;
 }
 
 - (CGFloat) menuBarHeight

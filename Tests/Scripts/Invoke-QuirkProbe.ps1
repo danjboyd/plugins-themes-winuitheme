@@ -1,7 +1,7 @@
 param(
   [string]$Theme,
   [string]$OutputDirectory,
-  [string[]]$Configuration = @("light", "dark", "high-contrast", "light-150", "large-text"),
+  [string[]]$Configuration = @("light", "dark", "high-contrast", "light-150", "large-text", "compact"),
   [int]$TimeoutSeconds = 60,
   # Checks that click with the real pointer (popup-click-stays-open) move
   # it; pass -NoPointer to skip them while using the desktop.
@@ -39,6 +39,8 @@ $configurationArguments = @{
   "light-150"     = @("--mode", "light", "--scale", "1.5")
   # Windows' Text size at 150% (Accessibility).
   "large-text"    = @("--mode", "light", "-WinUIThemeTextScaleFactor", "150")
+  # Compact metrics (#31), as apps with a main nib or Gorm file get them.
+  "compact"       = @("--mode", "light", "-WinUIThemeMetrics", "compact")
 }
 
 $totalFailed = 0

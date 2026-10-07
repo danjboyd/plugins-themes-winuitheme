@@ -43,6 +43,11 @@ Regression checks live in `Examples/QuirkProbe`; run
 | A level indicator at 6 of 10 was a solid red bar in a square white well: with the warning and critical values left at 0, every level counted as critical (#57) | WinUI ProgressBar for capacity (in segments for discrete), a secondary bar for relevancy, RatingControl stars; thresholds at 0 are unset; QuirkProbe `level-*` | ThemeDemo |
 | A date picker drew "2026-10-05 19:00:00 -0500" as plain text, with no chrome and no way to edit it (#56) | WinUI DatePicker and TimePicker fields in Windows' date order, a picker flyout to edit them, CalendarView for the calendar style; QuirkProbe `date-picker-*`, `time-picker-field` | ThemeDemo |
 | A browser's columns were bezelled boxes with a saturated full-width selection, GNUstep's arrows, and a heavy horizontal scroller even when every column fit (#58) | WinUI ListView columns on cards: subtle selection with the accent pill, secondary chevrons, the scroller only when there are columns to scroll to; QuirkProbe `browser-*` | ThemeDemo |
+| Without gnustep-gui's images, every button and menu item drew as a radio button and the menu bar read "B B Bu B" | named-image checks require an image on both sides (#70) | ScreenshotTool's first MSI on a clean VM |
+| The colour well was NeXT's bevel, its swatch square (#26) | WinUI's colour button: the theme's button round a rounded swatch, accent chrome while the colour panel is attached; QuirkProbe `colour-well-*` | ScreenshotTool's toolbar on a clean VM |
+| Segmented controls had dividers, a tinted selection and a semibold label; in high contrast the selected label was black on black (#48) | WinUI's Segmented control: one container, a raised selected segment with an accent pill; QuirkProbe `segmented-*` | ThemeDemo |
+| Top tabs were pills on a grey strip, and a click on a tab selected nothing: the theme drew them without recording their rects (#49) | WinUI's SelectorBar over a content card, each tab's rect recorded; QuirkProbe `tab-*` | ThemeDemo |
+| Layouts made at GNUstep's 12pt didn't fit WinUI's 14px: a label sized for "Miniaturize window" needed 119pt of its 107 (#31) | compact metrics for apps with a main nib or Gorm file, and the `WinUIThemeMetrics` override; QuirkProbe `metrics-choice`, `compact-nib-*` and a `compact` configuration | the parity audit, SystemPreferences |
 
 ## Found in real apps
 
