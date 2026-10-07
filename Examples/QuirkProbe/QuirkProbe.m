@@ -841,8 +841,9 @@ objectValueForTableColumn: (NSTableColumn *)column
                                     titleSize.width * scale, titleSize.height * scale]];
     }
 
+  /* 12pt, and a point or two of the "N"'s side bearing. */
   inset = ink.minX / scale;
-  if (inset >= 10.0 && inset <= 16.0)
+  if (inset >= 11.0 && inset <= 14.5)
     {
       [self pass: @"table-header-title-inset" detail:
         [NSString stringWithFormat: @"title starts %.0fpt in", inset]];

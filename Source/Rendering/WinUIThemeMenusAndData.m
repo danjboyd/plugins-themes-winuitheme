@@ -1246,9 +1246,11 @@ WinUIThemePreparePopupMenuTypography(WinUITheme *theme, NSMenuView *menuView)
 }
 
 /* WinUI list headers start their text 12px in, lined up with the rows'. */
+/* Titles 12pt in, as WinUI's column headers: NSCell's -titleRectForBounds:
+   adds 3pt to this for a bezeled cell, which header cells are. */
 - (NSRect) tableHeaderCellDrawingRectForBounds: (NSRect)theRect
 {
-  return NSInsetRect(theRect, 12.0, 1.0);
+  return NSInsetRect(theRect, 9.0, 1.0);
 }
 
 - (void) drawTabViewBezelRect: (NSRect)aRect
