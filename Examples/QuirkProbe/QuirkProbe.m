@@ -13,6 +13,8 @@
 static NSString *QuirkProbeImageItem = @"ImageItem";
 static const NSTimeInterval QuirkProbeSettleDelay = 0.8;
 
+static BOOL QuirkProbeHasArgument(NSString *flag, NSString *value);
+
 /* Moves the pointer to `point` in GNUstep screen coordinates (origin at
    the bottom left). libs-back's Windows server doesn't implement
    -setMouseLocation:onScreen:. */
@@ -293,11 +295,36 @@ QuirkProbeModuleOfAddress(void *address)
 - (void) checkWindowsMenuConventions;
 - (void) checkAccentColor;
 - (void) checkAlertLayout;
+- (void) checkTemplateImages;
+- (void) checkButtonChrome;
+- (void) checkMenuFlyout;
+- (void) checkOverlayScrollers;
+- (void) checkHorizontalOnlyScroller;
 - (void) createLateWindow: (NSTimer *)timer;
 - (void) checkLateWindow: (NSTimer *)timer;
 - (void) checkMenuBarTitles: (NSWindow *)window;
 - (void) checkThemeSwitchRestoresMethods;
 - (void) finish;
+@end
+
+/* A document view in mid grey, 128 in each channel, for telling a scroll
+   bar from what's under it. */
+@interface QuirkProbeFillView : NSView
+@end
+
+@implementation QuirkProbeFillView
+
+- (void) drawRect: (NSRect)rect
+{
+  [[NSColor colorWithCalibratedRed: 128.0 / 255.0 green: 128.0 / 255.0 blue: 128.0 / 255.0 alpha: 1.0] set];
+  NSRectFill(rect);
+}
+
+- (BOOL) isOpaque
+{
+  return YES;
+}
+
 @end
 
 @implementation QuirkProbe
@@ -598,6 +625,49 @@ objectValueForTableColumn: (NSTableColumn *)column
       [self fail: @"toolbar-image-item" detail:
         [NSString stringWithFormat: @"the item drew %lu px of its image", (unsigned long)ink.count]];
     }
+
+  /* WinUI's CommandBar (issue #21): an icon-only toolbar is a 48pt row
+     (libs-gui's was about 40pt, 62pt with labels), and the line under it
+     is a faint divider, not libs-gui's dark grey. */
+  {
+    CGFloat height = NSHeight([toolbarView frame]);
+    NSBitmapImageRep *rep = QuirkProbeRender(toolbarView);
+    CGFloat scale = QuirkProbeScale(rep, toolbarView);
+    NSInteger x = [rep pixelsWide] - (NSInteger)(20 * scale);
+    NSUInteger red, green, blue, lineRed, lineGreen, lineBlue;
+    NSInteger lineY = [rep pixelsHigh] - 1;
+    NSInteger contrast;
+
+    if (fabs(height - 48.0) <= 1.0)
+      {
+        [self pass: @"toolbar-row-height" detail: @"an icon-only toolbar is 48pt, as CommandBar"];
+      }
+    else
+      {
+        [self fail: @"toolbar-row-height" detail:
+          [NSString stringWithFormat: @"an icon-only toolbar is %.0fpt, expected 48", height]];
+      }
+
+    QuirkProbePixel(rep, x, [rep pixelsHigh] / 2, &red, &green, &blue);
+    QuirkProbePixel(rep, x, lineY, &lineRed, &lineGreen, &lineBlue);
+    contrast = llabs((long long)(red + green + blue) - (long long)(lineRed + lineGreen + lineBlue));
+    if (QuirkProbeHasArgument(@"--high-contrast", nil))
+      {
+        [self skip: @"toolbar-bottom-line" detail: @"high contrast draws a full-strength line"];
+      }
+    else if (contrast <= 90)
+      {
+        [self pass: @"toolbar-bottom-line" detail:
+          [NSString stringWithFormat: @"the line under the toolbar is %ld from its background (of 765)",
+                                      (long)contrast]];
+      }
+    else
+      {
+        [self fail: @"toolbar-bottom-line" detail:
+          [NSString stringWithFormat: @"the line under the toolbar is %ld from its background (of 765)",
+                                      (long)contrast]];
+      }
+  }
 }
 
 /* Vertical scrollers sit on the trailing (right) edge (issue #4). */
@@ -622,7 +692,9 @@ objectValueForTableColumn: (NSTableColumn *)column
   content = [[scrollView contentView] frame];
   scroller = [[scrollView verticalScroller] frame];
   [self saveView: scrollView named: @"scroller-edge"];
-  if (NSMinX(scroller) >= NSMaxX(content) - 1.0)
+  /* Beside the content, or over its trailing edge where scroll bars
+     overlay it (#29). */
+  if (NSMaxX(scroller) >= NSMaxX(content) - 1.0 && NSMinX(scroller) > NSMidX(content))
     {
       [self pass: @"scroller-trailing-edge" detail:
         [NSString stringWithFormat: @"scroller at x=%.0f, content ends at %.0f",
@@ -1334,6 +1406,109 @@ QuirkProbeAlertPanel(NSAlert *alert)
     }
 }
 
+/* A 20x20 black square named "...Template", as Cocoa apps ship
+   template icons. */
+static NSImage *
+QuirkProbeTemplateSquare(void)
+{
+  NSImage *image = [NSImage imageNamed: @"ProbeSquareTemplate"];
+
+  if (image != nil)
+    {
+      return image;
+    }
+  image = AUTORELEASE([[NSImage alloc] initWithSize: NSMakeSize(20, 20)]);
+  [image lockFocus];
+  [[NSColor blackColor] set];
+  NSRectFill(NSMakeRect(0, 0, 20, 20));
+  [image unlockFocus];
+  [image setName: @"ProbeSquareTemplate"];
+  return image;
+}
+
+/* Whether the pixel at the centre of `view`'s render is within `slack`
+   (summed over the channels, 0-765) of `color`. */
+static BOOL
+QuirkProbeCentreIs(NSView *view, NSColor *color, NSUInteger slack, NSString **seen)
+{
+  NSBitmapImageRep *rep = QuirkProbeRender(view);
+  NSColor *rgb = [color colorUsingColorSpaceName: NSCalibratedRGBColorSpace];
+  NSUInteger red, green, blue;
+  NSInteger difference;
+
+  if (QuirkProbePixel(rep, [rep pixelsWide] / 2, [rep pixelsHigh] / 2, &red, &green, &blue) == NO
+      || rgb == nil)
+    {
+      return NO;
+    }
+  *seen = [NSString stringWithFormat: @"#%02lX%02lX%02lX",
+                                      (unsigned long)red, (unsigned long)green, (unsigned long)blue];
+  difference = llabs((long long)red - (NSInteger)round([rgb redComponent] * 255))
+    + llabs((long long)green - (NSInteger)round([rgb greenComponent] * 255))
+    + llabs((long long)blue - (NSInteger)round([rgb blueComponent] * 255));
+  return difference <= (NSInteger)slack;
+}
+
+/* Template images follow the text colour around them (issue #25): a black
+   "...Template" image draws in the text colour in a button and a segment,
+   and in the text-on-accent colour on a default button, in every palette. */
+- (void) checkTemplateImages
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(780, 700, 300, 80)
+                                     title: @"QuirkProbe Template Images"];
+  NSColorList *colors = [[GSTheme theme] colors];
+  NSColor *text = [colors colorWithKey: @"labelColor"];
+  NSColor *onAccent = [colors colorWithKey: @"selectedControlTextColor"];
+  NSButton *plain = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(10, 20, 60, 40)]);
+  NSButton *primary = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(80, 20, 60, 40)]);
+  NSSegmentedControl *segments = AUTORELEASE([[NSSegmentedControl alloc]
+                                               initWithFrame: NSMakeRect(150, 20, 120, 40)]);
+  NSMutableArray *wrong = [NSMutableArray array];
+  NSString *seen = nil;
+  NSView *segmentView = nil;
+
+  [plain setBezelStyle: NSRoundedBezelStyle];
+  [plain setImage: QuirkProbeTemplateSquare()];
+  [plain setImagePosition: NSImageOnly];
+  [primary setBezelStyle: NSRoundedBezelStyle];
+  [primary setImage: QuirkProbeTemplateSquare()];
+  [primary setImagePosition: NSImageOnly];
+  [primary setKeyEquivalent: @"\r"];
+  [segments setSegmentCount: 1];
+  [segments setImage: QuirkProbeTemplateSquare() forSegment: 0];
+  [segments setWidth: 118 forSegment: 0];
+  [[window contentView] addSubview: plain];
+  [[window contentView] addSubview: primary];
+  [[window contentView] addSubview: segments];
+  [window orderFront: nil];
+  [window display];
+  segmentView = segments;
+
+  if (QuirkProbeCentreIs(plain, text, 60, &seen) == NO)
+    {
+      [wrong addObject: [NSString stringWithFormat: @"button %@ (text is %@)", seen, QuirkProbeHex(text)]];
+    }
+  if (QuirkProbeCentreIs(primary, onAccent, 60, &seen) == NO)
+    {
+      [wrong addObject: [NSString stringWithFormat: @"default button %@ (text on accent is %@)",
+                                                    seen, QuirkProbeHex(onAccent)]];
+    }
+  if (QuirkProbeCentreIs(segmentView, text, 60, &seen) == NO)
+    {
+      [wrong addObject: [NSString stringWithFormat: @"segment %@ (text is %@)", seen, QuirkProbeHex(text)]];
+    }
+
+  [self saveView: [window contentView] named: @"template-images"];
+  if ([wrong count] == 0)
+    {
+      [self pass: @"template-images" detail: @"template images take the text colour around them"];
+    }
+  else
+    {
+      [self fail: @"template-images" detail: [wrong componentsJoinedByString: @"; "]];
+    }
+}
+
 /* A window created after launch gets the main menu (issue #1). libs-gui
    only attaches the Windows 95 style menu to windows that exist when it
    first updates the menu. */
@@ -1346,6 +1521,602 @@ QuirkProbeAlertPanel(NSAlert *alert)
      window is GNUstep's own state either way. */
   [_lateWindow makeMainWindow];
   [self after: QuirkProbeSettleDelay perform: @selector(checkLateWindow:)];
+}
+
+/* Handles the events that arrive in the next `seconds`, as the app's
+   run loop would: the probe runs inside one event. */
+static void
+QuirkProbeDispatchEvents(NSTimeInterval seconds)
+{
+  NSDate *until = [NSDate dateWithTimeIntervalSinceNow: seconds];
+  NSEvent *event = nil;
+
+  while ((event = [NSApp nextEventMatchingMask: NSAnyEventMask
+                                     untilDate: until
+                                        inMode: NSDefaultRunLoopMode
+                                       dequeue: YES]) != nil)
+    {
+      [NSApp sendEvent: event];
+    }
+}
+
+/* The sum of red, green and blue at (x, y) points from the top left. */
+static NSInteger
+QuirkProbeBrightnessAt(NSBitmapImageRep *rep, CGFloat scale, CGFloat x, CGFloat y)
+{
+  NSUInteger red, green, blue;
+
+  QuirkProbePixel(rep, (NSInteger)(x * scale), (NSInteger)(y * scale), &red, &green, &blue);
+  return (NSInteger)(red + green + blue);
+}
+
+/* WinUI's Button (issues #38, #10, #35): a flat fill, without the gloss
+   over its top half; 4pt corners; a title that doesn't move when pressed;
+   and a lighter fill under the pointer (only with -ProbeMovesPointer YES). */
+- (void) checkButtonChrome
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(420, 460, 300, 80)
+                                     title: @"QuirkProbe Button Chrome"];
+  NSButton *button = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(20, 20, 120, 32)]);
+  NSButton *other = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(160, 20, 120, 32)]);
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale;
+  NSInteger height, top, bottom, fill, corner;
+  QuirkProbeInk resting, pressed;
+  BOOL highContrast = QuirkProbeHasArgument(@"--high-contrast", nil);
+
+  [button setButtonType: NSMomentaryPushInButton];
+  [button setBezelStyle: NSRoundedBezelStyle];
+  [button setTitle: @"Button"];
+  [other setButtonType: NSMomentaryPushInButton];
+  [other setBezelStyle: NSRoundedBezelStyle];
+  [other setTitle: @"Other"];
+  [[window contentView] addSubview: button];
+  [[window contentView] addSubview: other];
+  [window makeKeyAndOrderFront: nil];
+  /* Without a focus ring, which is #36's. */
+  [window makeFirstResponder: window];
+  [window display];
+
+  rep = QuirkProbeRender(button);
+  scale = QuirkProbeScale(rep, button);
+  height = NSHeight([button bounds]);
+  [self saveView: button named: @"button-chrome"];
+
+  /* The fill left of the title, a third of the way down and up. */
+  top = QuirkProbeBrightnessAt(rep, scale, 7, height * 0.3);
+  bottom = QuirkProbeBrightnessAt(rep, scale, 7, height * 0.7);
+  if (llabs((long long)(top - bottom)) <= 6)
+    {
+      [self pass: @"button-no-gloss" detail: [NSString stringWithFormat:
+        @"the fill is even: %ld at the top, %ld at the bottom (of 765)", (long)top, (long)bottom]];
+    }
+  else
+    {
+      [self fail: @"button-no-gloss" detail: [NSString stringWithFormat:
+        @"the top is %ld, the bottom %ld (of 765): a gloss", (long)top, (long)bottom]];
+    }
+
+  /* 2.5 effective pixels in from the top corner is inside a 4px corner's
+     stroke, on a 7px one's or outside it. The theme scales its corners
+     with the desktop (--scale here), not the drawing. */
+  {
+    NSArray *arguments = [[NSProcessInfo processInfo] arguments];
+    NSUInteger index = [arguments indexOfObject: @"--scale"];
+    CGFloat desktop = 1.0;
+
+    if (index != NSNotFound && index + 1 < [arguments count])
+      {
+        desktop = MAX(1.0, [[arguments objectAtIndex: index + 1] doubleValue]);
+      }
+    fill = QuirkProbeBrightnessAt(rep, scale, 7, height / 2.0);
+    corner = QuirkProbeBrightnessAt(rep, scale, 2.5 * desktop, 2.5 * desktop);
+  }
+  if (llabs((long long)(fill - corner)) <= 12)
+    {
+      [self pass: @"button-corner-radius" detail: @"the fill reaches 2.5pt from the corner: 4pt corners"];
+    }
+  else
+    {
+      [self fail: @"button-corner-radius" detail: [NSString stringWithFormat:
+        @"2.5pt from the corner is %ld, the fill %ld (of 765): corners wider than 4pt",
+        (long)corner, (long)fill]];
+    }
+
+  /* The title's ink, resting and pressed. */
+  QuirkProbeInkBackground = fill;
+  resting = QuirkProbeMeasureIn(rep, QuirkProbeIsInk,
+                                NSMakeRect(10 * scale, 4 * scale,
+                                           [rep pixelsWide] - 20 * scale, [rep pixelsHigh] - 8 * scale));
+  [button highlight: YES];
+  /* -highlight: doesn't redraw, and renders come from the window. */
+  [button display];
+  rep = QuirkProbeRender(button);
+  [self saveView: button named: @"button-chrome-pressed"];
+  QuirkProbeInkBackground = QuirkProbeBrightnessAt(rep, scale, 7, height / 2.0);
+  pressed = QuirkProbeMeasureIn(rep, QuirkProbeIsInk,
+                                NSMakeRect(10 * scale, 4 * scale,
+                                           [rep pixelsWide] - 20 * scale, [rep pixelsHigh] - 8 * scale));
+  [button highlight: NO];
+  [button display];
+  if (resting.count < 20 || pressed.count < 20)
+    {
+      [self fail: @"button-pressed-title-still" detail: [NSString stringWithFormat:
+        @"couldn't find the title: %lu px resting, %lu pressed",
+        (unsigned long)resting.count, (unsigned long)pressed.count]];
+    }
+  else
+    {
+      /* By its ink's centre: a pressed title's lighter colour can trim a
+         pixel of antialiasing from each side. */
+      CGFloat dx = (pressed.minX + pressed.width / 2.0) - (resting.minX + resting.width / 2.0);
+      CGFloat dy = (pressed.minY + pressed.height / 2.0) - (resting.minY + resting.height / 2.0);
+
+      if (fabs(dx) < 1.0 && fabs(dy) < 1.0)
+        {
+          [self pass: @"button-pressed-title-still" detail: @"the title stays put when pressed"];
+        }
+      else
+        {
+          [self fail: @"button-pressed-title-still" detail: [NSString stringWithFormat:
+            @"the title moves (%.1f, %.1f) px when pressed", dx, dy]];
+        }
+    }
+
+  if ([[NSUserDefaults standardUserDefaults] boolForKey: @"ProbeMovesPointer"] == NO)
+    {
+      [self skip: @"button-hover" detail: @"moves the pointer: needs -ProbeMovesPointer YES"];
+    }
+  else if (highContrast)
+    {
+      [self skip: @"button-hover" detail: @"high contrast has no pointer-over fill"];
+    }
+  else
+    {
+      NSRect frame = [button convertRect: [button bounds] toView: nil];
+      NSRect away = [other convertRect: [other bounds] toView: nil];
+      NSInteger over;
+
+      QuirkProbeSetPointer([window convertBaseToScreen:
+        NSMakePoint(NSMinX(away) + 6, NSMidY(away))]);
+      QuirkProbeDispatchEvents(0.3);
+      QuirkProbeSetPointer([window convertBaseToScreen:
+        NSMakePoint(NSMinX(frame) + 6, NSMidY(frame))]);
+      QuirkProbeDispatchEvents(0.3);
+      rep = QuirkProbeRender(button);
+      over = QuirkProbeBrightnessAt(rep, scale, 7, height * 0.3);
+      QuirkProbeSetPointer([window convertBaseToScreen:
+        NSMakePoint(NSMinX(away) + 6, NSMidY(away))]);
+      QuirkProbeDispatchEvents(0.3);
+      if (over != top)
+        {
+          [self pass: @"button-hover" detail: [NSString stringWithFormat:
+            @"the fill is %ld under the pointer, %ld at rest (of 765)", (long)over, (long)top]];
+        }
+      else
+        {
+          [self fail: @"button-hover" detail: @"the fill doesn't change under the pointer"];
+        }
+    }
+  [window orderOut: nil];
+}
+
+/* The top and bottom pixel rows of item `index` in a render of `view`. */
+static void
+QuirkProbeMenuRows(NSMenuView *view, NSBitmapImageRep *rep, NSInteger index,
+                   NSInteger *top, NSInteger *bottom)
+{
+  NSRect rect = [view rectOfItemAtIndex: index];
+  CGFloat scale = QuirkProbeScale(rep, view);
+  CGFloat height = NSHeight([view bounds]);
+  CGFloat minY = [view isFlipped] ? NSMinY(rect) : height - NSMaxY(rect);
+
+  *top = (NSInteger)ceil(minY * scale);
+  *bottom = (NSInteger)floor((minY + NSHeight(rect)) * scale) - 1;
+}
+
+/* WinUI's MenuFlyout (issue #39): an item under the pointer has a neutral
+   SubtleFill, not a blue selection; a shortcut sits 24pt clear of the
+   longest title, in the secondary text colour; separators run the
+   flyout's width. */
+- (void) checkMenuFlyout
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(780, 300, 360, 200)
+                                     title: @"QuirkProbe Menu"];
+  NSMenu *menu = AUTORELEASE([[NSMenu alloc] initWithTitle: @"Probe"]);
+  NSMenuView *view = nil;
+  NSBitmapImageRep *rep = nil;
+  NSInteger width, top, bottom, x, y, middle;
+  NSUInteger background, red, green, blue;
+  NSInteger firstInk = -1, lastInk = -1, gap = 0, run = 0, titleEnd = -1, keyStart = -1;
+  NSUInteger titleDarkest = 765, keyDarkest = 765;
+  BOOL highContrast = QuirkProbeHasArgument(@"--high-contrast", nil);
+  CGFloat scale;
+
+  [menu setAutoenablesItems: NO];
+  [menu addItemWithTitle: @"Find in Document" action: @selector(terminate:) keyEquivalent: @"f"];
+  [menu addItem: [NSMenuItem separatorItem]];
+  [menu addItemWithTitle: @"Open" action: @selector(terminate:) keyEquivalent: @"o"];
+  view = AUTORELEASE([[NSMenuView alloc] initWithFrame: NSMakeRect(20, 20, 100, 100)]);
+  [view setMenu: menu];
+  [view sizeToFit];
+  [view setFrameOrigin: NSMakePoint(20, 20)];
+  [[window contentView] addSubview: view];
+  [window orderFront: nil];
+  [view setHighlightedItemIndex: 2];
+  [window display];
+
+  rep = QuirkProbeRender(view);
+  scale = QuirkProbeScale(rep, view);
+  width = [rep pixelsWide];
+  [self saveView: view named: @"menu-flyout"];
+
+  /* The background, from the separator's row away from its line. */
+  QuirkProbeMenuRows(view, rep, 1, &top, &bottom);
+  QuirkProbePixel(rep, width / 2, top, &red, &green, &blue);
+  background = red + green + blue;
+
+  /* The separator runs from edge to edge, inside the border. */
+  middle = -1;
+  for (y = top; y <= bottom && middle < 0; y++)
+    {
+      QuirkProbePixel(rep, width / 2, y, &red, &green, &blue);
+      if (llabs((long long)(red + green + blue) - (long long)background) >= 9)
+        {
+          middle = y;
+        }
+    }
+  if (middle < 0)
+    {
+      [self fail: @"menu-separator-width" detail: @"couldn't find the separator"];
+    }
+  else
+    {
+      NSInteger left = 0, right = 0;
+
+      while (left < width / 2)
+        {
+          QuirkProbePixel(rep, left, middle, &red, &green, &blue);
+          if (llabs((long long)(red + green + blue) - (long long)background) >= 9 && left >= 1)
+            {
+              break;
+            }
+          left++;
+        }
+      while (right < width / 2)
+        {
+          QuirkProbePixel(rep, width - 1 - right, middle, &red, &green, &blue);
+          if (llabs((long long)(red + green + blue) - (long long)background) >= 9 && right >= 1)
+            {
+              break;
+            }
+          right++;
+        }
+      if (left <= 2 * scale && right <= 2 * scale)
+        {
+          [self pass: @"menu-separator-width" detail: @"the separator runs the flyout's width"];
+        }
+      else
+        {
+          [self fail: @"menu-separator-width" detail: [NSString stringWithFormat:
+            @"the separator stops %ld px from the left and %ld from the right", (long)left, (long)right]];
+        }
+    }
+
+  /* The highlighted item's fill, inside its left end. */
+  QuirkProbeMenuRows(view, rep, 2, &top, &bottom);
+  QuirkProbePixel(rep, (NSInteger)(6 * scale), (top + bottom) / 2, &red, &green, &blue);
+  if (highContrast)
+    {
+      [self skip: @"menu-hover-fill" detail: @"high contrast keeps the system highlight"];
+    }
+  else if (llabs((long long)blue - (long long)red) <= 6
+           && llabs((long long)(red + green + blue) - (long long)background) >= 6)
+    {
+      [self pass: @"menu-hover-fill" detail: [NSString stringWithFormat:
+        @"the item under the pointer is a neutral %lu,%lu,%lu", (unsigned long)red,
+        (unsigned long)green, (unsigned long)blue]];
+    }
+  else
+    {
+      [self fail: @"menu-hover-fill" detail: [NSString stringWithFormat:
+        @"the item under the pointer is %lu,%lu,%lu over %lu: not WinUI's subtle fill",
+        (unsigned long)red, (unsigned long)green, (unsigned long)blue, (unsigned long)background]];
+    }
+
+  /* The first row: its title, a gap, its shortcut. A column has ink if any
+     pixel in the row's middle half differs from the background. */
+  QuirkProbeMenuRows(view, rep, 0, &top, &bottom);
+  for (x = (NSInteger)(2 * scale); x < width - (NSInteger)(2 * scale); x++)
+    {
+      BOOL ink = NO;
+      for (y = top + (bottom - top) / 4; y <= bottom - (bottom - top) / 4; y++)
+        {
+          NSUInteger sum;
+
+          QuirkProbePixel(rep, x, y, &red, &green, &blue);
+          sum = red + green + blue;
+          if (llabs((long long)sum - (long long)background) > 90)
+            {
+              ink = YES;
+            }
+        }
+      if (ink)
+        {
+          if (firstInk < 0)
+            {
+              firstInk = x;
+            }
+          if (run > gap && firstInk >= 0 && x - run > firstInk)
+            {
+              gap = run;
+              titleEnd = x - run;
+              keyStart = x;
+            }
+          run = 0;
+          lastInk = x;
+        }
+      else if (firstInk >= 0)
+        {
+          run++;
+        }
+    }
+  if (titleEnd < 0 || keyStart < 0)
+    {
+      [self fail: @"menu-shortcut-gap" detail: @"couldn't find the title and shortcut"];
+      [self fail: @"menu-shortcut-colour" detail: @"couldn't find the title and shortcut"];
+    }
+  else
+    {
+      if (gap >= 20 * scale)
+        {
+          [self pass: @"menu-shortcut-gap" detail: [NSString stringWithFormat:
+            @"%ld px between the longest title and its shortcut", (long)gap]];
+        }
+      else
+        {
+          [self fail: @"menu-shortcut-gap" detail: [NSString stringWithFormat:
+            @"%ld px between the longest title and its shortcut, WinUI has 24pt", (long)gap]];
+        }
+
+      /* The strongest ink of each: secondary text is fainter. */
+      for (x = firstInk; x <= lastInk; x++)
+        {
+          for (y = top; y <= bottom; y++)
+            {
+              NSUInteger sum, contrast;
+
+              QuirkProbePixel(rep, x, y, &red, &green, &blue);
+              sum = red + green + blue;
+              contrast = (NSUInteger)llabs((long long)sum - (long long)background);
+              if (x < titleEnd)
+                {
+                  titleDarkest = (titleDarkest == 765) ? contrast : MAX(titleDarkest, contrast);
+                }
+              else if (x >= keyStart)
+                {
+                  keyDarkest = (keyDarkest == 765) ? contrast : MAX(keyDarkest, contrast);
+                }
+            }
+        }
+      if (highContrast)
+        {
+          [self skip: @"menu-shortcut-colour" detail: @"high contrast has one text colour"];
+        }
+      else if (keyDarkest + 60 <= titleDarkest)
+        {
+          [self pass: @"menu-shortcut-colour" detail: [NSString stringWithFormat:
+            @"the shortcut's contrast is %lu, the title's %lu (of 765)",
+            (unsigned long)keyDarkest, (unsigned long)titleDarkest]];
+        }
+      else
+        {
+          [self fail: @"menu-shortcut-colour" detail: [NSString stringWithFormat:
+            @"the shortcut's contrast is %lu, the title's %lu (of 765): not secondary text",
+            (unsigned long)keyDarkest, (unsigned long)titleDarkest]];
+        }
+    }
+  /* The view doesn't retain its menu: let both go together. */
+  [view removeFromSuperview];
+  [window orderOut: nil];
+}
+
+/* The sum of red, green and blue down the middle of a scroll view's
+   vertical scroller strip, `inset` px in from its trailing edge, that
+   differ from `fill` by more than 30: how much of the scroll bar shows. */
+static NSUInteger
+QuirkProbeStripInk(NSScrollView *scrollView, NSUInteger fill, CGFloat inset)
+{
+  NSBitmapImageRep *rep = QuirkProbeRender(scrollView);
+  CGFloat scale = QuirkProbeScale(rep, scrollView);
+  NSRect strip = [[scrollView verticalScroller] frame];
+  NSInteger x = (NSInteger)((NSMaxX(strip) - inset) * scale);
+  NSInteger y;
+  NSUInteger ink = 0;
+
+  for (y = [rep pixelsHigh] / 4; y < 3 * [rep pixelsHigh] / 4; y++)
+    {
+      NSUInteger red, green, blue;
+
+      QuirkProbePixel(rep, x, y, &red, &green, &blue);
+      if (llabs((long long)(red + green + blue) - (long long)fill) > 30)
+        {
+          ink++;
+        }
+    }
+  return ink;
+}
+
+/* A scroll view with only a horizontal scroller keeps it above the
+   content, which overlay scroll bars run under (issue #29). Re-raised
+   "below the vertical scroller" when there was none, it went under the
+   clip view, unseen and unclickable. It's re-raised once something else
+   is above it, as here. */
+- (void) checkHorizontalOnlyScroller
+{
+  NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+  NSWindow *window = [self windowWithFrame: NSMakeRect(80, 360, 260, 200)
+                                     title: @"QuirkProbe Horizontal Scroller"];
+  NSScrollView *scrollView = AUTORELEASE([[NSScrollView alloc] initWithFrame: NSMakeRect(20, 20, 200, 150)]);
+  NSView *document = AUTORELEASE([[NSView alloc] initWithFrame: NSMakeRect(0, 0, 600, 140)]);
+  NSView *above = AUTORELEASE([[NSView alloc] initWithFrame: NSMakeRect(0, 0, 10, 10)]);
+  NSArray *subviews = nil;
+  NSUInteger clip, scroller;
+
+  if (QuirkProbeHasArgument(@"--high-contrast", nil))
+    {
+      [self skip: @"scroller-horizontal-only-above" detail: @"high contrast keeps classic scroll bars"];
+      return;
+    }
+  /* Whatever the Windows setting here. */
+  [defaults setBool: YES forKey: @"WinUIThemeOverlayScrollbars"];
+  [scrollView setHasHorizontalScroller: YES];
+  [scrollView setHasVerticalScroller: NO];
+  [scrollView setDocumentView: document];
+  [[window contentView] addSubview: scrollView];
+  [window orderFront: nil];
+  [scrollView tile];
+  [scrollView addSubview: above];
+  [scrollView tile];
+  subviews = [scrollView subviews];
+  [defaults removeObjectForKey: @"WinUIThemeOverlayScrollbars"];
+  clip = [subviews indexOfObjectIdenticalTo: [scrollView contentView]];
+  scroller = [subviews indexOfObjectIdenticalTo: [scrollView horizontalScroller]];
+  if (scroller != NSNotFound && clip != NSNotFound && scroller > clip)
+    {
+      [self pass: @"scroller-horizontal-only-above" detail: @"a lone horizontal scroller sits above the content"];
+    }
+  else
+    {
+      [self fail: @"scroller-horizontal-only-above" detail: [NSString stringWithFormat:
+        @"the horizontal scroller is subview %ld, the clip view %ld: under the content",
+        (long)scroller, (long)clip]];
+    }
+  [window orderOut: nil];
+}
+
+/* WinUI's ScrollBar (issue #29): the content runs under the scroll bar,
+   which shows nothing at rest, a thin indicator while the content
+   scrolls, then fades; WinUIThemeOverlayScrollbars NO keeps a classic
+   strip; and freeing a scroll view while its indicator fades is safe. */
+- (void) checkOverlayScrollers
+{
+  NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+  NSWindow *window = nil;
+  NSScrollView *scrollView = nil;
+  QuirkProbeFillView *document = nil;
+  NSRect clip, strip;
+  NSUInteger fill = 3 * 128;
+  NSUInteger ink;
+
+  if (QuirkProbeHasArgument(@"--high-contrast", nil))
+    {
+      [self skip: @"scroller-content-under" detail: @"high contrast keeps classic scroll bars"];
+      [self skip: @"scroller-hidden-at-rest" detail: @"high contrast keeps classic scroll bars"];
+      [self skip: @"scroller-indicator-fades" detail: @"high contrast keeps classic scroll bars"];
+      [self skip: @"scroller-classic-setting" detail: @"high contrast keeps classic scroll bars"];
+      [self skip: @"scroller-freed-mid-fade" detail: @"high contrast keeps classic scroll bars"];
+      return;
+    }
+
+  /* Whatever the Windows setting here. */
+  [defaults setBool: YES forKey: @"WinUIThemeOverlayScrollbars"];
+  window = [self windowWithFrame: NSMakeRect(80, 360, 260, 200) title: @"QuirkProbe Scrollers"];
+  scrollView = AUTORELEASE([[NSScrollView alloc] initWithFrame: NSMakeRect(20, 20, 200, 150)]);
+  /* As wide as the scroll view, as a table or text view tracks it. */
+  document = AUTORELEASE([[QuirkProbeFillView alloc] initWithFrame: NSMakeRect(0, 0, 200, 600)]);
+  [document setAutoresizingMask: NSViewWidthSizable];
+  [scrollView setBorderType: NSBezelBorder];
+  [scrollView setHasVerticalScroller: YES];
+  [scrollView setDocumentView: document];
+  [[window contentView] addSubview: scrollView];
+  [window orderFront: nil];
+  [scrollView tile];
+  [window display];
+
+  clip = [[scrollView contentView] frame];
+  strip = [[scrollView verticalScroller] frame];
+  if (NSMaxX(clip) > NSMidX(strip))
+    {
+      [self pass: @"scroller-content-under" detail: @"the content runs under the scroll bar"];
+    }
+  else
+    {
+      [self fail: @"scroller-content-under" detail: [NSString stringWithFormat:
+        @"the content stops at %.0f, the scroll bar at %.0f", NSMaxX(clip), NSMaxX(strip)]];
+    }
+
+  [self saveView: scrollView named: @"scroller-rest"];
+  ink = QuirkProbeStripInk(scrollView, fill, 3.0) + QuirkProbeStripInk(scrollView, fill, NSWidth(strip) / 2.0);
+  if (ink == 0)
+    {
+      [self pass: @"scroller-hidden-at-rest" detail: @"nothing over the content at rest"];
+    }
+  else
+    {
+      [self fail: @"scroller-hidden-at-rest" detail: [NSString stringWithFormat:
+        @"%lu px of scroll bar over the content at rest", (unsigned long)ink]];
+    }
+
+  [document scrollPoint: NSMakePoint(0, 200)];
+  [window display];
+  [self saveView: scrollView named: @"scroller-scrolled"];
+  ink = QuirkProbeStripInk(scrollView, fill, 4.0);
+  QuirkProbeDispatchEvents(1.6);
+  [window display];
+  [self saveView: scrollView named: @"scroller-faded"];
+  if (ink > 0 && QuirkProbeStripInk(scrollView, fill, 4.0) == 0)
+    {
+      [self pass: @"scroller-indicator-fades" detail: [NSString stringWithFormat:
+        @"scrolling shows %lu px of indicator, gone 1.6s later", (unsigned long)ink]];
+    }
+  else
+    {
+      [self fail: @"scroller-indicator-fades" detail: [NSString stringWithFormat:
+        @"%lu px of indicator while scrolling, %lu px 1.6s later",
+        (unsigned long)ink, (unsigned long)QuirkProbeStripInk(scrollView, fill, 4.0)]];
+    }
+
+  /* Classic: the content stops at the strip, which is always drawn. */
+  [defaults setBool: NO forKey: @"WinUIThemeOverlayScrollbars"];
+  [scrollView tile];
+  [window display];
+  clip = [[scrollView contentView] frame];
+  strip = [[scrollView verticalScroller] frame];
+  ink = QuirkProbeStripInk(scrollView, fill, NSWidth(strip) / 2.0);
+  if (NSMaxX(clip) <= NSMinX(strip) + 0.5 && ink > 0)
+    {
+      [self pass: @"scroller-classic-setting" detail: @"WinUIThemeOverlayScrollbars NO keeps the strip"];
+    }
+  else
+    {
+      [self fail: @"scroller-classic-setting" detail: [NSString stringWithFormat:
+        @"with WinUIThemeOverlayScrollbars NO the content stops at %.0f, the strip starts at %.0f, %lu px drawn",
+        NSMaxX(clip), NSMinX(strip), (unsigned long)ink]];
+    }
+  [defaults setBool: YES forKey: @"WinUIThemeOverlayScrollbars"];
+  [scrollView removeFromSuperview];
+
+  /* Freed while its indicator fades: the fade timer mustn't touch it. */
+  {
+    CREATE_AUTORELEASE_POOL(pool);
+    NSScrollView *doomed = AUTORELEASE([[NSScrollView alloc] initWithFrame: NSMakeRect(20, 20, 200, 150)]);
+    QuirkProbeFillView *content = AUTORELEASE([[QuirkProbeFillView alloc] initWithFrame: NSMakeRect(0, 0, 180, 600)]);
+
+    [doomed setHasVerticalScroller: YES];
+    [doomed setDocumentView: content];
+    [[window contentView] addSubview: doomed];
+    [doomed tile];
+    [window display];
+    [content scrollPoint: NSMakePoint(0, 200)];
+    [doomed removeFromSuperview];
+    RELEASE(pool);
+  }
+  QuirkProbeDispatchEvents(1.6);
+  [self pass: @"scroller-freed-mid-fade" detail: @"a scroll view freed while its indicator faded"];
+
+  [defaults removeObjectForKey: @"WinUIThemeOverlayScrollbars"];
+  [window orderOut: nil];
 }
 
 - (void) checkLateWindow: (NSTimer *)timer
@@ -1645,6 +2416,11 @@ QuirkProbeLastItemOfMenu(NSString *title)
   [self checkStepper];
   [self checkDefaultButtons];
   [self checkAlertLayout];
+  [self checkTemplateImages];
+  [self checkButtonChrome];
+  [self checkMenuFlyout];
+  [self checkOverlayScrollers];
+  [self checkHorizontalOnlyScroller];
   [self checkPopUpClick];
   [self after: QuirkProbeSettleDelay perform: @selector(createLateWindow:)];
 }

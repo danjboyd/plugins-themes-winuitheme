@@ -1,4 +1,5 @@
 #import "WinUIThemeDrawing.h"
+#import "../Native/WinUIThemeWindowIntegration.h"
 
 #import "../Settings/WinUIThemeMetrics.h"
 #import "../Settings/WinUIThemeSettings.h"
@@ -81,6 +82,9 @@ typedef enum
    NSMenuView already puts there (its _horizontalEdgePad). */
 static const CGFloat WinUIThemeMenuBarTitleInset = 8.0;
 static const CGFloat WinUIThemeMenuViewHorizontalEdgePad = 4.0;
+/* A flyout item's space between its text and accelerator, and after it. */
+static const CGFloat WinUIThemeMenuKeyEquivalentGap = 24.0;
+static const CGFloat WinUIThemeMenuKeyEquivalentTrailing = 8.0;
 
 static CGFloat
 WinUIThemeMinimumMenuFontSize(BOOL horizontal)
@@ -338,7 +342,8 @@ WinUIThemeMenuCornerRadius(WinUITheme *theme, BOOL horizontal)
 {
   CGFloat baseRadius = [[theme metrics] controlCornerRadius];
 
-  return horizontal ? MAX(7.0, baseRadius + 1.0) : MAX(10.0, baseRadius + 4.0);
+  (void)baseRadius;
+  return horizontal ? WinUIThemeControlCornerRadius(theme) : WinUIThemeOverlayCornerRadius(theme);
 }
 
 static CGFloat
@@ -357,6 +362,21 @@ WinUIThemeEffectiveMenuCornerRadius(WinUITheme *theme,
 #endif
 
   return WinUIThemeMenuCornerRadius(theme, horizontal);
+}
+
+/* SubtleFillColorSecondary over the flyout or menu bar: black at 3.7% in
+   light mode, white at 6% in dark. */
+static NSColor *
+WinUIThemeMenuItemHoverColor(WinUITheme *theme, BOOL menuBar)
+{
+  BOOL dark = [[theme settings] prefersDarkAppearance];
+  NSColor *background = WinUIThemeColorFromTheme(theme,
+                                                 menuBar ? @"menuBarBackgroundColor" : @"menuBackgroundColor",
+                                                 [NSColor controlBackgroundColor]);
+
+  return WinUIThemeBlendColor(background,
+                              dark ? [NSColor whiteColor] : [NSColor blackColor],
+                              dark ? 0.06 : 0.037);
 }
 
 static BOOL
@@ -774,7 +794,6 @@ WinUIThemePreparePopupMenuTypography(WinUITheme *theme, NSMenuView *menuView)
                                                  NSStringFromRect(bounds),
                                                  NSStringFromRect(dirtyRect),
                                                  menuView]);
-  BOOL dark = [[self settings] prefersDarkAppearance];
   BOOL popupOwned = (horizontal == NO && WinUIThemeMenuViewOwnedByPopup(menuView));
   NSColor *background = WinUIThemeColorFromTheme(self,
                                                  horizontal ? @"menuBarBackgroundColor" : @"menuBackgroundColor",
@@ -782,9 +801,6 @@ WinUIThemePreparePopupMenuTypography(WinUITheme *theme, NSMenuView *menuView)
   NSColor *borderColor = WinUIThemeColorFromTheme(self,
                                                   horizontal ? @"menuBarBorderColor" : @"menuBorderColor",
                                                   [NSColor controlShadowColor]);
-  NSColor *surface = WinUIThemeColorFromTheme(self,
-                                              @"surfaceColor",
-                                              [NSColor controlBackgroundColor]);
   NSRect drawRect = horizontal ? NSIntegralRect(bounds) : NSInsetRect(NSIntegralRect(bounds), 0.5, 0.5);
 
   if (horizontal && NSIsEmptyRect(NSIntersectionRect(bounds, dirtyRect)) == NO)
@@ -805,53 +821,25 @@ WinUIThemePreparePopupMenuTypography(WinUITheme *theme, NSMenuView *menuView)
       return;
     }
 
-  if (popupOwned)
-    {
-      NSRect fillRect = NSIntegralRect(bounds);
-      NSRect panelRect = fillRect;
-      NSRect fillDirtyRect = NSIntersectionRect(fillRect, dirtyRect);
-      CGFloat radius = WinUIThemeEffectiveMenuCornerRadius(self, NO, YES);
-
-      if (NSIsEmptyRect(fillDirtyRect) == NO)
-        {
-          NSBezierPath *panelPath = WinUIThemeRoundedPath(panelRect, radius);
-
-          [background set];
-          [panelPath fill];
-        }
-
-      if (NSIsEmptyRect(panelRect) == NO)
-        {
-          NSBezierPath *panelPath = WinUIThemeRoundedPath(NSInsetRect(panelRect, 0.5, 0.5),
-                                                          radius);
-
-          [borderColor set];
-          [panelPath setLineWidth: 1.0];
-          [panelPath stroke];
-        }
-
-      return;
-    }
-
+  /* WinUI's MenuFlyout (#39): a flat panel, without the Win32-classic
+     icon gutter. On Windows DWM rounds the window to 8pt and shadows it
+     where it can (Windows 11 with a GPU); a rounded fill would leave the
+     opaque window's corners showing. */
   if (NSIsEmptyRect(NSIntersectionRect(bounds, dirtyRect)) == NO)
     {
-      CGFloat radius = WinUIThemeEffectiveMenuCornerRadius(self, NO, NO);
-      NSBezierPath *panelPath = WinUIThemeRoundedPath(drawRect,
-                                                      radius);
-      NSRect gutterRect = NSMakeRect(drawRect.origin.x + 8.0,
-                                     drawRect.origin.y + 8.0,
-                                     MIN(22.0, MAX(0.0, drawRect.size.width - 16.0)),
-                                     MAX(0.0, drawRect.size.height - 16.0));
-      NSColor *gutterColor = WinUIThemeBlendColor(background,
-                                                  surface,
-                                                  dark ? 0.18 : 0.08);
+      CGFloat radius = WinUIThemeEffectiveMenuCornerRadius(self, NO, popupOwned);
+      NSBezierPath *panelPath = WinUIThemeRoundedPath(drawRect, radius);
 
+      WinUIThemeWindowIntegrationRoundPopupWindow([menuView window], NO, borderColor);
       [background set];
-      [panelPath fill];
-
-      [gutterColor set];
-      [WinUIThemeRoundedPath(gutterRect, 7.0) fill];
-
+      if (radius > 0.0)
+        {
+          [panelPath fill];
+        }
+      else
+        {
+          NSRectFill(NSIntersectionRect(bounds, dirtyRect));
+        }
       [borderColor set];
       [panelPath setLineWidth: 1.0];
       [panelPath stroke];
@@ -937,6 +925,28 @@ WinUIThemePreparePopupMenuTypography(WinUITheme *theme, NSMenuView *menuView)
       return;
     }
 
+  /* A MenuFlyoutItem under the pointer (#39): SubtleFillColorSecondary,
+     4pt corners, 4pt in from the flyout's sides and 2pt from its
+     neighbours. An open MenuBarItem has the same fill. High contrast keeps
+     the system highlight. */
+  if (isHorizontal && [[self settings] highContrastEnabled] == NO)
+    {
+      [WinUIThemeMenuItemHoverColor(self, YES) set];
+      [WinUIThemeRoundedPath(drawRect, radius) fill];
+      return;
+    }
+  if (isHorizontal == NO && popupOwned == NO && [[self settings] highContrastEnabled] == NO)
+    {
+      NSRect itemRect = NSMakeRect(NSMinX(cellFrame) + 3.0,
+                                   NSMinY(cellFrame) + 2.0,
+                                   MAX(0.0, NSWidth(cellFrame) - 6.0),
+                                   MAX(0.0, NSHeight(cellFrame) - 4.0));
+
+      [WinUIThemeMenuItemHoverColor(self, NO) set];
+      [WinUIThemeRoundedPath(itemRect, WinUIThemeControlCornerRadius(self)) fill];
+      return;
+    }
+
   if (enabled == NO)
     {
       selection = WinUIThemeBlendColor(selection,
@@ -1005,10 +1015,12 @@ WinUIThemePreparePopupMenuTypography(WinUITheme *theme, NSMenuView *menuView)
     }
   else if (highlighted)
     {
+      BOOL systemHighlight = (popupOwned == NO && [[self settings] highContrastEnabled]);
+
       textColor = WinUIThemeColorFromTheme(self,
-                                           popupOwned ? @"controlTextColor" : @"selectedMenuItemTextColor",
-                                           popupOwned ? [NSColor controlTextColor]
-                                                      : [NSColor selectedMenuItemTextColor]);
+                                           systemHighlight ? @"selectedMenuItemTextColor" : @"controlTextColor",
+                                           systemHighlight ? [NSColor selectedMenuItemTextColor]
+                                                           : [NSColor controlTextColor]);
     }
   else
     {
@@ -1069,7 +1081,7 @@ WinUIThemePreparePopupMenuTypography(WinUITheme *theme, NSMenuView *menuView)
       [attributedTitle drawAtPoint: titleRect.origin];
 
       [laneColor set];
-      [[NSBezierPath bezierPathWithRoundedRect: laneRect xRadius: 7.0 yRadius: 7.0] fill];
+      [WinUIThemeRoundedPath(laneRect, WinUIThemeControlCornerRadius(self)) fill];
       [WinUIThemeColorWithAlpha(separator, popupOpen ? (dark ? 0.58 : 0.78) : (dark ? 0.72 : 0.92)) set];
       NSRectFill(NSMakeRect(dividerX,
                             drawRect.origin.y + 7.0,
@@ -1127,8 +1139,8 @@ WinUIThemePreparePopupMenuTypography(WinUITheme *theme, NSMenuView *menuView)
   NSColor *separator = WinUIThemeColorFromTheme(self,
                                                 @"menuSeparatorColor",
                                                 [self menuSeparatorColor]);
-  CGFloat leftInset = isHorizontal ? 10.0 : [self menuSeparatorInset];
-  CGFloat rightInset = 12.0;
+  CGFloat leftInset = isHorizontal ? 10.0 : 0.0;
+  CGFloat rightInset = isHorizontal ? 12.0 : 0.0;
   CGFloat y = floor(NSMidY(cellFrame)) + 0.5;
 
   (void)cell;
@@ -1265,7 +1277,7 @@ WinUIThemePreparePopupMenuTypography(WinUITheme *theme, NSMenuView *menuView)
                                                 @"separatorColor",
                                                 [NSColor controlShadowColor]);
   NSRect drawRect = NSInsetRect(NSIntegralRect(aRect), 0.5, 0.5);
-  CGFloat radius = MAX(10.0, [[self metrics] windowCornerRadius] + 2.0);
+  CGFloat radius = WinUIThemeOverlayCornerRadius(self);
   NSBezierPath *path = nil;
 
   if (type != NSTopTabsBezelBorder && type != NSNoTabsBezelBorder)
@@ -1347,7 +1359,8 @@ WinUIThemePreparePopupMenuTypography(WinUITheme *theme, NSMenuView *menuView)
 
       if (selected)
         {
-          NSBezierPath *path = WinUIThemeRoundedPath(NSInsetRect(tabRect, 0.5, 0.5), 10.0);
+          NSBezierPath *path = WinUIThemeRoundedPath(NSInsetRect(tabRect, 0.5, 0.5),
+                                                     WinUIThemeOverlayCornerRadius(self));
 
           [surface set];
           [path fill];
@@ -1379,13 +1392,10 @@ WinUIThemePreparePopupMenuTypography(WinUITheme *theme, NSMenuView *menuView)
   NSColor *surface = WinUIThemeColorFromTheme(self,
                                               @"surfaceColor",
                                               [NSColor controlBackgroundColor]);
-  NSColor *separator = WinUIThemeColorFromTheme(self,
-                                                @"gridColor",
-                                                [NSColor gridColor]);
   NSColor *borderColor = WinUIThemeDataViewBorderColor(self);
   NSColor *railColor = WinUIThemeDataViewRailColor(self);
   NSRect bounds = NSInsetRect(NSIntegralRect([view bounds]), 0.5, 0.5);
-  CGFloat radius = MAX(8.0, [[self metrics] controlCornerRadius] + 4.0);
+  CGFloat radius = WinUIThemeOverlayCornerRadius(self);
   NSBezierPath *path = nil;
   NSScroller *verticalScroller = [scrollView verticalScroller];
   NSScroller *horizontalScroller = [scrollView horizontalScroller];
@@ -1405,156 +1415,21 @@ WinUIThemePreparePopupMenuTypography(WinUITheme *theme, NSMenuView *menuView)
   [path setLineWidth: 1.0];
   [path stroke];
 
+  /* Scroll bars over the content have no rail (#29); always shown, they
+     sit on one, as WinUI's do, without a dividing line. */
+  if (WinUIThemeUsesOverlayScrollers())
+    {
+      return;
+    }
   if ([scrollView hasVerticalScroller] && verticalScroller != nil)
     {
-      NSRect scrollerFrame = [verticalScroller frame];
-      CGFloat x = scrollerFrame.origin.x - 1.0;
-
       [railColor set];
-      NSRectFill(scrollerFrame);
-      [separator set];
-      NSRectFill(NSMakeRect(x,
-                            scrollerFrame.origin.y,
-                            1.0,
-                            scrollerFrame.size.height));
+      NSRectFill([verticalScroller frame]);
     }
   if ([scrollView hasHorizontalScroller] && horizontalScroller != nil)
     {
-      NSRect scrollerFrame = [horizontalScroller frame];
-      CGFloat y = [scrollView isFlipped] ? scrollerFrame.origin.y - 1.0 : NSMaxY(scrollerFrame);
-
       [railColor set];
-      NSRectFill(scrollerFrame);
-      [separator set];
-      NSRectFill(NSMakeRect(scrollerFrame.origin.x,
-                            y,
-                            scrollerFrame.size.width,
-                            1.0));
-    }
-}
-
-- (void) drawScrollerRect: (NSRect)rect
-                   inView: (NSView *)view
-                  hitPart: (NSScrollerPart)hitPart
-             isHorizontal: (BOOL)isHorizontal
-{
-  NSScroller *scroller = (NSScroller *)view;
-  BOOL dark = [[self settings] prefersDarkAppearance];
-  BOOL enabled = [scroller isEnabled];
-  NSRect slotRect = [scroller rectForPart: NSScrollerKnobSlot];
-  NSRect knobRect = [scroller rectForPart: NSScrollerKnob];
-  NSRect decrementRect = [scroller rectForPart: NSScrollerDecrementLine];
-  NSRect incrementRect = [scroller rectForPart: NSScrollerIncrementLine];
-  NSColor *surface = WinUIThemeColorFromTheme(self,
-                                              @"surfaceColor",
-                                              [NSColor controlBackgroundColor]);
-  NSColor *separator = WinUIThemeColorFromTheme(self,
-                                                @"separatorColor",
-                                                [NSColor controlShadowColor]);
-  NSColor *gridColor = WinUIThemeColorFromTheme(self,
-                                                @"gridColor",
-                                                [NSColor gridColor]);
-  NSColor *accent = WinUIThemeColorFromTheme(self,
-                                             @"accentColor",
-                                             [NSColor selectedControlColor]);
-  NSColor *labelColor = WinUIThemeColorFromTheme(self,
-                                                 @"secondaryLabelColor",
-                                                 [NSColor controlTextColor]);
-  NSColor *railColor = WinUIThemeDataViewRailColor(self);
-  NSColor *trackColor = WinUIThemeBlendColor(railColor, surface, dark ? 0.20 : 0.24);
-  NSColor *knobColor = enabled
-    ? WinUIThemeBlendColor(labelColor, surface, dark ? 0.24 : 0.42)
-    : WinUIThemeBlendColor(separator, surface, dark ? 0.34 : 0.54);
-  NSColor *knobBorder = WinUIThemeColorWithAlpha(WinUIThemeDataViewBorderColor(self),
-                                                 dark ? 0.70 : 0.85);
-  NSColor *buttonColor = railColor;
-
-  [railColor set];
-  NSRectFill(rect);
-
-  if (NSIsEmptyRect(slotRect) == NO)
-    {
-      NSRect slotDrawRect = NSInsetRect(slotRect, isHorizontal ? 3.0 : 4.0, isHorizontal ? 4.0 : 3.0);
-      NSBezierPath *slotPath = WinUIThemeRoundedPath(slotDrawRect,
-                                                     MIN(slotDrawRect.size.width,
-                                                         slotDrawRect.size.height) / 2.0);
-
-      [trackColor set];
-      [slotPath fill];
-    }
-
-  if (NSIsEmptyRect(knobRect) == NO)
-    {
-      NSRect knobDrawRect = NSInsetRect(knobRect, 3.0, 3.0);
-      NSBezierPath *knobPath = WinUIThemeRoundedPath(knobDrawRect,
-                                                     MIN(knobDrawRect.size.width,
-                                                         knobDrawRect.size.height) / 2.0);
-
-      if (hitPart == NSScrollerKnob || hitPart == NSScrollerKnobSlot)
-        {
-          knobColor = WinUIThemeBlendColor(knobColor, accent, dark ? 0.12 : 0.08);
-        }
-
-      [knobColor set];
-      [knobPath fill];
-
-      [WinUIThemeColorWithAlpha(knobBorder, 0.65) set];
-      [knobPath setLineWidth: 1.0];
-      [knobPath stroke];
-    }
-
-  if (NSIsEmptyRect(decrementRect) == NO)
-    {
-      NSColor *fillColor = hitPart == NSScrollerDecrementLine
-        ? WinUIThemeBlendColor(buttonColor, accent, dark ? 0.14 : 0.08)
-        : buttonColor;
-
-      WinUIThemeDrawSelectionFill(NSInsetRect(decrementRect, 1.0, 1.0), 7.0, fillColor, nil);
-      [gridColor set];
-      if (isHorizontal)
-        {
-          NSRectFill(NSMakeRect(NSMaxX(decrementRect) - 1.0,
-                                decrementRect.origin.y + 2.0,
-                                1.0,
-                                MAX(0.0, decrementRect.size.height - 4.0)));
-        }
-      else
-        {
-          NSRectFill(NSMakeRect(decrementRect.origin.x + 2.0,
-                                decrementRect.origin.y,
-                                MAX(0.0, decrementRect.size.width - 4.0),
-                                1.0));
-        }
-      WinUIThemeDrawMenuChevron(NSInsetRect(decrementRect, 2.0, 2.0),
-                                isHorizontal ? WinUIThemeMenuChevronLeft : WinUIThemeMenuChevronUp,
-                                enabled ? labelColor : WinUIThemeColorWithAlpha(labelColor, 0.45));
-    }
-
-  if (NSIsEmptyRect(incrementRect) == NO)
-    {
-      NSColor *fillColor = hitPart == NSScrollerIncrementLine
-        ? WinUIThemeBlendColor(buttonColor, accent, dark ? 0.14 : 0.08)
-        : buttonColor;
-
-      WinUIThemeDrawSelectionFill(NSInsetRect(incrementRect, 1.0, 1.0), 7.0, fillColor, nil);
-      [gridColor set];
-      if (isHorizontal)
-        {
-          NSRectFill(NSMakeRect(incrementRect.origin.x,
-                                incrementRect.origin.y + 2.0,
-                                1.0,
-                                MAX(0.0, incrementRect.size.height - 4.0)));
-        }
-      else
-        {
-          NSRectFill(NSMakeRect(incrementRect.origin.x + 2.0,
-                                NSMaxY(incrementRect) - 1.0,
-                                MAX(0.0, incrementRect.size.width - 4.0),
-                                1.0));
-        }
-      WinUIThemeDrawMenuChevron(NSInsetRect(incrementRect, 2.0, 2.0),
-                                isHorizontal ? WinUIThemeMenuChevronRight : WinUIThemeMenuChevronDown,
-                                enabled ? labelColor : WinUIThemeColorWithAlpha(labelColor, 0.45));
+      NSRectFill([horizontalScroller frame]);
     }
 }
 
@@ -1723,7 +1598,7 @@ WinUIThemePreparePopupMenuTypography(WinUITheme *theme, NSMenuView *menuView)
         {
           WinUIThemeDrawSelectionFill(selectionRect,
                                       (selectingColumns
-                                       ? MAX(7.0, [[self metrics] controlCornerRadius] + 3.0)
+                                       ? WinUIThemeControlCornerRadius(self)
                                        : (outline ? 8.0 : 0.0)),
                                       fillColor,
                                       WinUIThemeSelectionBorderColor(self,
@@ -1802,6 +1677,50 @@ WinUIThemePreparePopupMenuTypography(WinUITheme *theme, NSMenuView *menuView)
 
 @implementation WinUITheme (MenusAndDataOverrides)
 
+/* Tool tips (#39): WinUI's ToolTip, the flyout's colours and border with
+   4pt corners from DWM where it gives them (Windows 11), in place of
+   libs-gui's black box around text in the system tool-tip colours. */
+- (void) _overrideGSTTViewMethod_drawRect: (NSRect)dirtyRect
+{
+  typedef void (*DrawRectIMP)(id, SEL, NSRect);
+  DrawRectIMP originalIMP = (DrawRectIMP)WinUIThemeOriginalMethod(_cmd, self, NSClassFromString(@"GSTTView"));
+  NSView *view = (NSView *)self;
+  GSTheme *current = [GSTheme theme];
+  WinUITheme *theme = [current isKindOfClass: [WinUITheme class]] ? (WinUITheme *)current : nil;
+  NSAttributedString *text = nil;
+  NSMutableAttributedString *colored = nil;
+  NSColor *background = nil;
+  NSColor *border = nil;
+  NSRect bounds = [view bounds];
+
+  if (theme == nil)
+    {
+      if (originalIMP != NULL)
+        {
+          originalIMP(self, _cmd, dirtyRect);
+        }
+      return;
+    }
+
+  background = WinUIThemeColorFromTheme(theme, @"menuBackgroundColor", [NSColor controlBackgroundColor]);
+  border = WinUIThemeColorFromTheme(theme, @"menuBorderColor", [NSColor controlShadowColor]);
+  WinUIThemeWindowIntegrationRoundPopupWindow([view window], YES, border);
+  [background set];
+  NSRectFill(bounds);
+  [border set];
+  NSFrameRect(bounds);
+
+  text = [view valueForKey: @"text"];
+  if ([text length] > 0)
+    {
+      colored = AUTORELEASE([text mutableCopy]);
+      [colored addAttribute: NSForegroundColorAttributeName
+                      value: WinUIThemeColorFromTheme(theme, @"labelColor", [NSColor controlTextColor])
+                      range: NSMakeRange(0, [colored length])];
+      [colored drawInRect: NSInsetRect(bounds, 2.0, 2.0)];
+    }
+}
+
 /* Items of a pop-up button's menu are laid out by the theme (title and
    check mark only), so they report no image, key equivalent or state image
    and draw none; other menu items keep libs-gui's layout. */
@@ -1877,12 +1796,21 @@ WinUIThemePreparePopupMenuTypography(WinUITheme *theme, NSMenuView *menuView)
   KeyEquivalentWidthIMP originalIMP = (KeyEquivalentWidthIMP)WinUIThemeOriginalMethod(_cmd, self, [NSMenuItemCell class]);
   NSMenuItemCell *cell = (NSMenuItemCell *)self;
 
+  CGFloat width = 0.0;
+
   if (WinUIThemeUsesPopupButtonCellLayout(cell))
     {
       return 0.0;
     }
 
-  return (originalIMP != NULL) ? originalIMP(self, _cmd) : 0.0;
+  width = (originalIMP != NULL) ? originalIMP(self, _cmd) : 0.0;
+  if ([[cell menuView] isHorizontal] == NO && (width > 0.0 || [[cell menuItem] hasSubmenu]))
+    {
+      /* MenuFlyoutItem: 24pt between the text and the accelerator, and
+         padding after it. */
+      width = MAX(width, 12.0) + WinUIThemeMenuKeyEquivalentGap + WinUIThemeMenuKeyEquivalentTrailing;
+    }
+  return width;
 }
 
 - (NSRect) _overrideNSMenuItemCellMethod_stateImageRectForBounds: (NSRect)cellFrame
@@ -1906,14 +1834,56 @@ WinUIThemePreparePopupMenuTypography(WinUITheme *theme, NSMenuView *menuView)
   DrawKeyEquivalentIMP originalIMP = (DrawKeyEquivalentIMP)WinUIThemeOriginalMethod(_cmd, self, [NSMenuItemCell class]);
   NSMenuItemCell *cell = (NSMenuItemCell *)self;
 
+  GSTheme *current = [GSTheme theme];
+  WinUITheme *theme = [current isKindOfClass: [WinUITheme class]] ? (WinUITheme *)current : nil;
+  NSRect keyRect;
+  NSColor *color = nil;
+
   if (WinUIThemeUsesPopupButtonCellLayout(cell))
     {
       return;
     }
-
-  if (originalIMP != NULL)
+  if (theme == nil || [[cell menuView] isHorizontal])
     {
-      originalIMP(self, _cmd, cellFrame, controlView);
+      if (originalIMP != NULL)
+        {
+          originalIMP(self, _cmd, cellFrame, controlView);
+        }
+      return;
+    }
+
+  keyRect = [cell keyEquivalentRectForBounds: cellFrame];
+  keyRect.size.width = MAX(0.0, NSWidth(keyRect) - WinUIThemeMenuKeyEquivalentTrailing);
+  color = [cell isEnabled]
+    ? WinUIThemeColorFromTheme(theme, @"secondaryLabelColor", [NSColor controlTextColor])
+    : WinUIThemeColorFromTheme(theme, @"disabledControlTextColor", [NSColor disabledControlTextColor]);
+  if ([cell isHighlighted] && [[theme settings] highContrastEnabled])
+    {
+      color = WinUIThemeColorFromTheme(theme, @"selectedMenuItemTextColor", [NSColor selectedMenuItemTextColor]);
+    }
+
+  if ([[cell menuItem] hasSubmenu])
+    {
+      WinUIThemeDrawMenuChevron(NSMakeRect(NSMaxX(keyRect) - 12.0, NSMidY(keyRect) - 6.0, 12.0, 12.0),
+                                WinUIThemeMenuChevronRight,
+                                color);
+    }
+  else
+    {
+      NSString *key = [cell _keyEquivalentString];
+
+      if ([key length] > 0)
+        {
+          NSFont *font = [cell font] != nil ? [cell font] : [NSFont menuFontOfSize: 0.0];
+          NSDictionary *attributes = WinUIThemeMenuTextAttributes(font, color, NSRightTextAlignment);
+          NSSize size = [key sizeWithAttributes: attributes];
+          NSRect textRect = NSMakeRect(NSMinX(keyRect),
+                                       floor(NSMidY(keyRect) - size.height / 2.0),
+                                       NSWidth(keyRect),
+                                       ceil(size.height));
+
+          [key drawInRect: textRect withAttributes: attributes];
+        }
     }
 }
 

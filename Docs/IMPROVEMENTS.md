@@ -22,6 +22,11 @@ Regression checks live in `Examples/QuirkProbe`; run
 | Category overrides replaced AppKit's menu item and segment methods for the whole process (#12) | GSTheme `_override` hooks; QuirkProbe `theme-switch-restores-methods` | the audit (compiler warnings) |
 | Switches were nearly invisible, On looked like Off, and switches made in code were disabled (#6) | WinUI ToggleSwitch drawing; new switches enabled (gui 0.32 left them disabled); QuirkProbe `switch-*` | ThemeDemo |
 | Stepper chevrons pointed the wrong way (#7) | chevrons follow the view's orientation; QuirkProbe `stepper-chevrons-point-out` | ThemeDemo |
+| Monochrome toolbar icons nearly disappeared in the dark palette (#25) | template images are tinted with the text colour around them; QuirkProbe `template-images` | ScreenshotTool |
+| A dark line under the toolbar; the "Zoom" view item's label unreadable in the dark palette (#21) | WinUI CommandBar layout, hover and colours; QuirkProbe `toolbar-row-height`, `toolbar-bottom-line` | ScreenshotTool |
+| Buttons had a Windows 7-style gloss, 7-10pt corners, no pointer-over state, and bold default titles that moved when pressed (#38, #10, #35) | WinUI Button and AccentButton; 4pt control and 8pt overlay corners; QuirkProbe `button-no-gloss`, `button-corner-radius`, `button-pressed-title-still`, `button-hover` | the parity audit |
+| Menus had a Win32-classic gutter, a blue selection and cramped shortcuts; tool tips were a black box (#39) | WinUI MenuFlyout and ToolTip, rounded by DWM on Windows 11; QuirkProbe `menu-hover-fill`, `menu-shortcut-gap`, `menu-shortcut-colour`, `menu-separator-width` | the parity audit |
+| Scroll bars were always-shown classic strips (#29) | WinUI ScrollBar over the content, hidden at rest; Windows' "Automatically hide scroll bars" and `WinUIThemeOverlayScrollbars NO` keep them shown; QuirkProbe `scroller-*` | the parity audit |
 
 ## Found in real apps
 
@@ -32,8 +37,6 @@ Run on 2026-10-06 with gnustep-gui 0.32 (MSYS2 clang64), branch
 | --- | --- | --- |
 | An alert's OK button is an empty white button in the light palette (the window's default button cell gets white text but no accent fill) | ScreenshotTool | #53 |
 | Pop-up buttons and menus close when the click that opened them is released (libs-gui 0.32; also under the default theme) | ThemeDemo | #54 |
-| A dark line under the toolbar (light); the "Zoom" view item's label is unreadable (dark) | ScreenshotTool | #21 |
-| Monochrome toolbar icons nearly disappear in the dark palette | ScreenshotTool | #25 |
 | An alert is a borderless band as wide as its parent window, with GNUstep's layout | ScreenshotTool | #23 |
 | A nib-based app's 22pt controls drawn with the theme's 32-34pt metrics | SystemPreferences | #31 |
 | The application menu (app name, Hide, Services) in a Windows menu bar | ScreenshotTool, SystemPreferences, ThemeDemo | #24 |

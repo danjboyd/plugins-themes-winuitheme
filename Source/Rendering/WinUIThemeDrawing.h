@@ -37,6 +37,16 @@
 - (NSImage *) _currentArrowImage;
 @end
 
+CGFloat WinUIThemeControlCornerRadius(WinUITheme *theme);
+CGFloat WinUIThemeOverlayCornerRadius(WinUITheme *theme);
+
+/* YES when scroll bars overlay the content and hide (WinUIThemeScrollers.m). */
+BOOL WinUIThemeUsesOverlayScrollers(void);
+
+/* Pointer-over state (WinUIThemeHover.m). */
+void WinUIThemeTrackHover(NSView *view);
+BOOL WinUIThemeViewIsHovered(NSView *view);
+
 CGFloat WinUIThemeClamp(CGFloat value, CGFloat minimum, CGFloat maximum);
 NSColor *WinUIThemeColorFromTheme(WinUITheme *theme, NSString *key, NSColor *fallback);
 NSColor *WinUIThemeColorWithAlpha(NSColor *color, CGFloat alpha);
@@ -56,8 +66,7 @@ void WinUIThemeDrawRoundedSegment(NSRect frame,
                                   BOOL roundedLeft,
                                   BOOL roundedRight,
                                   NSColor *fillColor,
-                                  NSColor *borderColor,
-                                  NSColor *topHighlight);
+                                  NSColor *borderColor);
 
 BOOL WinUIThemeStateIsHighlighted(GSThemeControlState state);
 BOOL WinUIThemeStateHasFocus(GSThemeControlState state);
@@ -72,6 +81,11 @@ BOOL WinUIThemeButtonCellIsRadio(NSButtonCell *cell);
 BOOL WinUIThemeButtonCellUsesLegacyReturnImage(NSButtonCell *cell);
 BOOL WinUIThemeButtonCellUsesSearchImage(NSButtonCell *cell);
 BOOL WinUIThemeButtonCellUsesCancelImage(NSButtonCell *cell);
+
+/* Template images (WinUIThemeTemplateImages.m). */
+BOOL WinUIThemeImageIsTemplate(NSImage *image);
+NSImage *WinUIThemeTintedImage(NSImage *image, NSColor *color);
+NSColor *WinUIThemeTemplateImageColor(WinUITheme *theme, NSButtonCell *cell, NSView *controlView);
 
 NSFont *WinUIThemePreferredControlFont(WinUITheme *theme,
                                        NSFont *font,
