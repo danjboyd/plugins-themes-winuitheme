@@ -77,6 +77,11 @@ typedef enum
   WinUIThemeMenuChevronRight
 } WinUIThemeMenuChevronDirection;
 
+/* Space between a menu bar title and its item's edges, and the pad
+   NSMenuView already puts there (its _horizontalEdgePad). */
+static const CGFloat WinUIThemeMenuBarTitleInset = 8.0;
+static const CGFloat WinUIThemeMenuViewHorizontalEdgePad = 4.0;
+
 static CGFloat
 WinUIThemeMinimumMenuFontSize(BOOL horizontal)
 {
@@ -727,134 +732,6 @@ WinUIThemePreparePopupMenuTypography(WinUITheme *theme, NSMenuView *menuView)
     }
 }
 
-static id
-WinUIThemeScrollViewValueForKey(NSScrollView *scrollView, NSString *key)
-{
-  id value = nil;
-
-  if (scrollView == nil || [key length] == 0)
-    {
-      return nil;
-    }
-
-  @try
-    {
-      value = [scrollView valueForKey: key];
-    }
-  @catch (id exception)
-    {
-      value = nil;
-    }
-
-  return value;
-}
-
-static BOOL
-WinUIThemeScrollViewNeedsTrailingVerticalScrollerFix(NSScrollView *scrollView,
-                                                     NSRect *contentFrameOut,
-                                                     NSRect *verticalFrameOut,
-                                                     NSRect *horizontalFrameOut,
-                                                     CGFloat *leadingContentXOut,
-                                                     CGFloat *trailingEdgeOut)
-{
-#ifdef _WIN32
-  NSClipView *contentView = nil;
-  NSScroller *verticalScroller = nil;
-  NSScroller *horizontalScroller = nil;
-  NSRect contentFrame = NSZeroRect;
-  NSRect verticalFrame = NSZeroRect;
-  NSRect horizontalFrame = NSZeroRect;
-  BOOL hasHorizontalScroller = NO;
-  CGFloat leadingContentX = 0.0;
-  CGFloat trailingEdge = 0.0;
-
-  if (scrollView == nil
-      || [scrollView hasVerticalScroller] == NO)
-    {
-      return NO;
-    }
-
-  contentView = [scrollView contentView];
-  verticalScroller = [scrollView verticalScroller];
-  horizontalScroller = [scrollView horizontalScroller];
-  if (contentView == nil || verticalScroller == nil)
-    {
-      return NO;
-    }
-
-  contentFrame = [contentView frame];
-  verticalFrame = [verticalScroller frame];
-  hasHorizontalScroller = ([scrollView hasHorizontalScroller]
-                           && horizontalScroller != nil);
-  if (hasHorizontalScroller)
-    {
-      horizontalFrame = [horizontalScroller frame];
-      if (NSIsEmptyRect(horizontalFrame))
-        {
-          hasHorizontalScroller = NO;
-        }
-    }
-
-  if (NSIsEmptyRect(contentFrame) || NSIsEmptyRect(verticalFrame))
-    {
-      return NO;
-    }
-
-  leadingContentX = NSMinX(contentFrame);
-  if (hasHorizontalScroller)
-    {
-      leadingContentX = MIN(leadingContentX, NSMinX(horizontalFrame));
-    }
-
-  if (NSMaxX(verticalFrame) > leadingContentX + 0.5)
-    {
-      return NO;
-    }
-
-  trailingEdge = NSMaxX(contentFrame);
-  if (hasHorizontalScroller)
-    {
-      trailingEdge = MAX(trailingEdge, NSMaxX(horizontalFrame));
-    }
-
-  if ((trailingEdge - NSWidth(verticalFrame)) <= NSMinX(verticalFrame) + 0.5)
-    {
-      return NO;
-    }
-
-  if (contentFrameOut != NULL)
-    {
-      *contentFrameOut = contentFrame;
-    }
-  if (verticalFrameOut != NULL)
-    {
-      *verticalFrameOut = verticalFrame;
-    }
-  if (horizontalFrameOut != NULL)
-    {
-      *horizontalFrameOut = horizontalFrame;
-    }
-  if (leadingContentXOut != NULL)
-    {
-      *leadingContentXOut = leadingContentX;
-    }
-  if (trailingEdgeOut != NULL)
-    {
-      *trailingEdgeOut = trailingEdge;
-    }
-
-  return YES;
-#else
-  (void)scrollView;
-  (void)contentFrameOut;
-  (void)verticalFrameOut;
-  (void)horizontalFrameOut;
-  (void)leadingContentXOut;
-  (void)trailingEdgeOut;
-  return NO;
-#endif
-}
-
 @implementation WinUITheme (MenusAndData)
 
 - (void) displayPopUpMenu: (NSMenuView *)menuView
@@ -1211,7 +1088,7 @@ WinUIThemeScrollViewNeedsTrailingVerticalScrollerFix(NSScrollView *scrollView,
     }
   else if (isHorizontal)
     {
-      titleRect = NSInsetRect(NSIntegralRect(cellFrame), 8.0, 0.0);
+      titleRect = NSInsetRect(NSIntegralRect(cellFrame), WinUIThemeMenuBarTitleInset, 0.0);
       titleRect.origin.y = floor(NSMidY(cellFrame) - (titleSize.height / 2.0));
       titleRect.size.height = ceil(titleSize.height) + 1.0;
       [attributedTitle drawInRect: titleRect];
@@ -1223,6 +1100,22 @@ WinUIThemeScrollViewNeedsTrailingVerticalScrollerFix(NSScrollView *scrollView,
                              - (popupOwned ? 1.0 : 0.0));
   titleRect.size.height = ceil(titleSize.height);
   [attributedTitle drawInRect: titleRect];
+}
+
+/* Menu bar items: NSMenuView makes each item its title's width plus a 4pt
+   edge pad on each side, but -drawTitleForMenuItemCell:... draws the title
+   WinUIThemeMenuBarTitleInset in from each edge, which clipped every title
+   ("Fil", "Ed"). Widen the title by the difference. */
+- (CGFloat) proposedTitleWidth: (CGFloat)proposedWidth
+                   forMenuView: (NSMenuView *)aMenuView
+{
+  if ([aMenuView isHorizontal] == NO)
+    {
+      return proposedWidth;
+    }
+
+  return ceil(proposedWidth)
+    + 2.0 * (WinUIThemeMenuBarTitleInset - WinUIThemeMenuViewHorizontalEdgePad);
 }
 
 - (void) drawSeparatorItemForMenuItemCell: (NSMenuItemCell *)cell
@@ -1302,14 +1195,16 @@ WinUIThemeScrollViewNeedsTrailingVerticalScrollerFix(NSScrollView *scrollView,
                         1.0));
 }
 
+/* The header's background and dividers only: NSTableHeaderCell draws its
+   title afterwards with -drawInteriorWithFrame:inView:, in the colour
+   -tableHeaderTextColorForState: gives it, inside
+   -tableHeaderCellDrawingRectForBounds:. */
 - (void) drawTableHeaderCell: (NSTableHeaderCell *)cell
                    withFrame: (NSRect)cellFrame
                       inView: (NSView *)controlView
                        state: (GSThemeControlState)state
 {
-  NSString *title = [cell stringValue];
   NSRect drawRect = NSIntegralRect(cellFrame);
-  NSRect textRect = [self tableHeaderCellDrawingRectForBounds: drawRect];
   BOOL dark = [[self settings] prefersDarkAppearance];
   NSColor *background = WinUIThemeColorFromTheme(self,
                                                  @"headerBackgroundColor",
@@ -1323,14 +1218,13 @@ WinUIThemeScrollViewNeedsTrailingVerticalScrollerFix(NSScrollView *scrollView,
   NSColor *accent = WinUIThemeColorFromTheme(self,
                                              @"accentColor",
                                              [NSColor selectedControlColor]);
-  NSDictionary *attributes = nil;
-  NSFont *font = [cell font];
-  NSSize titleSize = NSZeroSize;
   CGFloat dividerY = [controlView isFlipped] ? NSMaxY(drawRect) - 1.0 : drawRect.origin.y;
 
-  if (font == nil)
+  /* GNUstep centres header titles by default; WinUI (and Cocoa) start them
+     at the leading edge. Titles an app aligned left or right keep that. */
+  if ([cell alignment] == NSCenterTextAlignment)
     {
-      font = [NSFont systemFontOfSize: 9.0];
+      [cell setAlignment: NSLeftTextAlignment];
     }
 
   background = WinUIThemeBlendColor(background, surface, dark ? 0.12 : 0.18);
@@ -1348,23 +1242,12 @@ WinUIThemeScrollViewNeedsTrailingVerticalScrollerFix(NSScrollView *scrollView,
                         drawRect.origin.y + 4.0,
                         1.0,
                         MAX(0.0, drawRect.size.height - 8.0)));
-
-  if ([title length] == 0)
-    {
-      return;
-    }
-
-  attributes = WinUIThemeMenuTextAttributes(font,
-                                            [self tableHeaderTextColorForState: state],
-                                            NSLeftTextAlignment);
-  titleSize = [title sizeWithAttributes: attributes];
-  textRect.origin.y = floor(NSMidY(textRect) - (titleSize.height / 2.0));
-  [title drawInRect: textRect withAttributes: attributes];
 }
 
+/* WinUI list headers start their text 12px in, lined up with the rows'. */
 - (NSRect) tableHeaderCellDrawingRectForBounds: (NSRect)theRect
 {
-  return NSInsetRect(theRect, 10.0, 8.0);
+  return NSInsetRect(theRect, 12.0, 1.0);
 }
 
 - (void) drawTabViewBezelRect: (NSRect)aRect
@@ -1919,102 +1802,10 @@ WinUIThemeScrollViewNeedsTrailingVerticalScrollerFix(NSScrollView *scrollView,
 
 @implementation WinUITheme (MenusAndDataOverrides)
 
-- (void) _overrideNSScrollViewMethod_tile
-{
-  typedef void (*TileIMP)(id, SEL);
-  TileIMP originalIMP = (TileIMP)[[GSTheme theme] overriddenMethod: _cmd for: self];
-
-  if (originalIMP != NULL)
-    {
-      originalIMP(self, _cmd);
-    }
-
-#ifdef _WIN32
-  {
-    NSScrollView *scrollView = (NSScrollView *)self;
-    NSClipView *contentView = [scrollView contentView];
-    NSScroller *verticalScroller = [scrollView verticalScroller];
-    NSScroller *horizontalScroller = [scrollView horizontalScroller];
-    NSView *headerClipView = nil;
-    NSView *cornerView = nil;
-    NSView *horizontalRulerView = nil;
-    NSRect contentFrame = NSZeroRect;
-    NSRect verticalFrame = NSZeroRect;
-    NSRect horizontalFrame = NSZeroRect;
-    NSRect frame = NSZeroRect;
-    CGFloat leadingContentX = 0.0;
-    CGFloat trailingEdge = 0.0;
-    CGFloat shift = 0.0;
-
-    if (WinUIThemeScrollViewNeedsTrailingVerticalScrollerFix(scrollView,
-                                                             &contentFrame,
-                                                             &verticalFrame,
-                                                             &horizontalFrame,
-                                                             &leadingContentX,
-                                                             &trailingEdge) == NO)
-      {
-        return;
-      }
-
-    shift = leadingContentX - NSMinX(verticalFrame);
-    if (shift <= 0.0)
-      {
-        return;
-      }
-
-    contentFrame.origin.x -= shift;
-    [contentView setFrame: contentFrame];
-
-    if ([scrollView hasHorizontalScroller] && horizontalScroller != nil)
-      {
-        horizontalFrame.origin.x -= shift;
-        [horizontalScroller setFrame: horizontalFrame];
-      }
-
-    horizontalRulerView = [scrollView horizontalRulerView];
-    if (horizontalRulerView != nil)
-      {
-        frame = [horizontalRulerView frame];
-        if (NSMinX(frame) >= leadingContentX - 0.5)
-          {
-            frame.origin.x -= shift;
-            [horizontalRulerView setFrame: frame];
-          }
-      }
-
-    headerClipView = WinUIThemeScrollViewValueForKey(scrollView, @"_headerClipView");
-    if (headerClipView != nil)
-      {
-        frame = [headerClipView frame];
-        if (NSMinX(frame) >= leadingContentX - 0.5)
-          {
-            frame.origin.x -= shift;
-            [headerClipView setFrame: frame];
-          }
-      }
-
-    verticalFrame.origin.x = trailingEdge - NSWidth(verticalFrame);
-    [verticalScroller setFrame: verticalFrame];
-
-    cornerView = WinUIThemeScrollViewValueForKey(scrollView, @"_cornerView");
-    if (cornerView != nil)
-      {
-        frame = [cornerView frame];
-        frame.origin.x = verticalFrame.origin.x;
-        [cornerView setFrame: frame];
-      }
-
-    [scrollView reflectScrolledClipView: contentView];
-    [scrollView setNeedsDisplay: YES];
-  }
-#endif
-}
-
 - (CGFloat) _overrideNSMenuItemCellMethod_stateImageWidth
 {
   typedef CGFloat (*StateImageWidthIMP)(id, SEL);
-  StateImageWidthIMP originalIMP = (StateImageWidthIMP)[[GSTheme theme] overriddenMethod: _cmd
-                                                                                      for: self];
+  StateImageWidthIMP originalIMP = (StateImageWidthIMP)WinUIThemeOriginalMethod(_cmd, self, [NSMenuItemCell class]);
   NSMenuItemCell *cell = (NSMenuItemCell *)self;
 
   if (WinUIThemeUsesPopupButtonCellLayout(cell))
@@ -2028,8 +1819,7 @@ WinUIThemeScrollViewNeedsTrailingVerticalScrollerFix(NSScrollView *scrollView,
 - (CGFloat) _overrideNSMenuItemCellMethod_keyEquivalentWidth
 {
   typedef CGFloat (*KeyEquivalentWidthIMP)(id, SEL);
-  KeyEquivalentWidthIMP originalIMP = (KeyEquivalentWidthIMP)[[GSTheme theme] overriddenMethod: _cmd
-                                                                                            for: self];
+  KeyEquivalentWidthIMP originalIMP = (KeyEquivalentWidthIMP)WinUIThemeOriginalMethod(_cmd, self, [NSMenuItemCell class]);
   NSMenuItemCell *cell = (NSMenuItemCell *)self;
 
   if (WinUIThemeUsesPopupButtonCellLayout(cell))
@@ -2043,7 +1833,7 @@ WinUIThemeScrollViewNeedsTrailingVerticalScrollerFix(NSScrollView *scrollView,
 - (NSRect) _overrideNSMenuItemCellMethod_stateImageRectForBounds: (NSRect)cellFrame
 {
   typedef NSRect (*StateRectIMP)(id, SEL, NSRect);
-  StateRectIMP originalIMP = (StateRectIMP)[[GSTheme theme] overriddenMethod: _cmd for: self];
+  StateRectIMP originalIMP = (StateRectIMP)WinUIThemeOriginalMethod(_cmd, self, [NSMenuItemCell class]);
   NSMenuItemCell *cell = (NSMenuItemCell *)self;
 
   if (WinUIThemeUsesPopupButtonCellLayout(cell))
@@ -2058,8 +1848,7 @@ WinUIThemeScrollViewNeedsTrailingVerticalScrollerFix(NSScrollView *scrollView,
                                                            inView: (NSView *)controlView
 {
   typedef void (*DrawKeyEquivalentIMP)(id, SEL, NSRect, NSView *);
-  DrawKeyEquivalentIMP originalIMP = (DrawKeyEquivalentIMP)[[GSTheme theme] overriddenMethod: _cmd
-                                                                                           for: self];
+  DrawKeyEquivalentIMP originalIMP = (DrawKeyEquivalentIMP)WinUIThemeOriginalMethod(_cmd, self, [NSMenuItemCell class]);
   NSMenuItemCell *cell = (NSMenuItemCell *)self;
 
   if (WinUIThemeUsesPopupButtonCellLayout(cell))
@@ -2077,8 +1866,7 @@ WinUIThemeScrollViewNeedsTrailingVerticalScrollerFix(NSScrollView *scrollView,
                                                         inView: (NSView *)controlView
 {
   typedef void (*DrawStateImageIMP)(id, SEL, NSRect, NSView *);
-  DrawStateImageIMP originalIMP = (DrawStateImageIMP)[[GSTheme theme] overriddenMethod: _cmd
-                                                                                    for: self];
+  DrawStateImageIMP originalIMP = (DrawStateImageIMP)WinUIThemeOriginalMethod(_cmd, self, [NSMenuItemCell class]);
   NSMenuItemCell *cell = (NSMenuItemCell *)self;
 
   if (WinUIThemeUsesPopupButtonCellLayout(cell))
@@ -2096,7 +1884,7 @@ WinUIThemeScrollViewNeedsTrailingVerticalScrollerFix(NSScrollView *scrollView,
                                                     inView: (NSView *)controlView
 {
   typedef void (*DrawImageIMP)(id, SEL, NSRect, NSView *);
-  DrawImageIMP originalIMP = (DrawImageIMP)[[GSTheme theme] overriddenMethod: _cmd for: self];
+  DrawImageIMP originalIMP = (DrawImageIMP)WinUIThemeOriginalMethod(_cmd, self, [NSMenuItemCell class]);
   NSMenuItemCell *cell = (NSMenuItemCell *)self;
 
   if (WinUIThemeUsesPopupButtonCellLayout(cell))

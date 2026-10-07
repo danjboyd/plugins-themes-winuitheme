@@ -3,6 +3,19 @@
 This repository now supports the full local build, install, and review loop on
 the current machine.
 
+## Requirements
+
+- MSYS2 with the `clang64` GNUstep packages: gnustep-make 2.9.3, gnustep-base
+  1.31.1, gnustep-gui 0.32.0 and gnustep-back 0.32.0 or later. Update the whole
+  `clang64` environment together (MSYS2 doesn't support partial upgrades; gui
+  0.32 needs ICU 78 and libxml2 2.15).
+- **gnustep-gui 0.31 is not supported.** Its theme loader misparses the
+  theme's `_override<Class>Method_<selector>` methods (fixed upstream in
+  libs-gui `a8018d6c8`, first released in 0.32.0): none of the theme's
+  overrides are installed, and it overruns a stack buffer while trying, so
+  symptoms change from build to build. `Tests/Scripts/Invoke-QuirkProbe.ps1`
+  fails `overrides-installed` on such a system.
+
 Repo-root helper scripts:
 
 - `powershell -ExecutionPolicy Bypass -File Scripts/Build-ThemeDemo.ps1`
@@ -15,6 +28,11 @@ Repo-root helper scripts:
 - `powershell -ExecutionPolicy Bypass -File Tests/Scripts/validate-page-contract.ps1`
 - `powershell -ExecutionPolicy Bypass -File Tests/Scripts/Invoke-ThemeAcceptanceMatrix.ps1`
 - `powershell -ExecutionPolicy Bypass -File Tests/Scripts/Invoke-ObjcMarkdownValidation.ps1`
+- `powershell -ExecutionPolicy Bypass -File Tests/Scripts/Invoke-QuirkProbe.ps1`
+
+The build scripts call `Scripts/Invoke-GNUstepMake.ps1`, which uses the
+`gnustep` CLI when it is on `PATH` and otherwise runs GNUstep Make in MSYS2's
+`clang64` environment.
 
 ## Theme Bundle
 
@@ -68,10 +86,10 @@ powershell -ExecutionPolicy Bypass -File Scripts/Run-ThemeDemo.ps1 -Theme WinUIT
 Current status:
 
 - `ThemeDemo` builds successfully with the repo helper script.
-- `ThemeDemo` is forced to link against `/clang64/lib` so it imports
-  `gnustep-base-1_30.dll`, matching the installed `gnustep-gui-0.dll` on this
-  machine. Linking against the system `1_31` base DLL caused Windows startup
-  failure `0xc0000142`.
+- `ThemeDemo` links against `/clang64/lib`, so it imports the `clang64`
+  `gnustep-base-1_31.dll` that matches the `clang64` `gnustep-gui-0.dll`.
+  Mixing in another GNUstep install's base DLL caused Windows startup failure
+  `0xc0000142`.
 - On this machine, `ThemeDemo.exe` also needs `GNUSTEP_PATHLIST` pointed at
   `C:\msys64\clang64` so GNUstep loads the matching `clang64` backend bundle
   instead of the incompatible `/usr/GNUstep/System` backend.
@@ -113,3 +131,22 @@ Smoke launch:
 ```powershell
 powershell -ExecutionPolicy Bypass -File Scripts/Run-ObjcMarkdownValidation.ps1
 ```
+
+## Regression Probe
+
+`Examples/QuirkProbe` checks theme behaviour by rendering controls and
+measuring the pixels, after the Adwaita theme's probe. Build it and run it
+against the theme built in this checkout:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File Scripts/Build-ThemeBundle.ps1
+powershell -ExecutionPolicy Bypass -File Scripts/Invoke-GNUstepMake.ps1 -Directory Examples/QuirkProbe
+powershell -ExecutionPolicy Bypass -File Tests/Scripts/Invoke-QuirkProbe.ps1
+```
+
+It runs the probe in the `light`, `dark`, `high-contrast` and `light-150`
+configurations (`-Configuration` picks some; `light-150` scales the theme's
+metrics with `--scale 1.5`, not the backing store), prints one
+PASS/FAIL/KNOWN/SKIP line per check, and exits with the number of failures.
+`-Theme PATH` checks another build, and `-OutputDirectory DIR` saves a PNG of
+each rendered check. Add a check with each fix.

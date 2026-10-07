@@ -16,8 +16,11 @@ VERSION = 0.1.0-phase9
 
 WinUITheme_PRINCIPAL_CLASS = WinUITheme
 WinUITheme_INSTALL_DIR = $(GNUSTEP_LIBRARY)/Themes
+# WinUIThemeInfo.plist (the theme's GSThemeDomain, images and details) is
+# merged into the bundle's generated Info-gnustep.plist by gnustep-make. Listed
+# as a resource instead, it raced the generated file: a clean build shipped a
+# plist without GSThemeDomain.
 WinUITheme_RESOURCE_FILES = \
-	Resources/Info-gnustep.plist \
 	Resources/ThemeImages \
 	Resources/ThemeTiles
 

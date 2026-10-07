@@ -17,10 +17,41 @@ static NSString *WinUIThemeRuntimeDefaultsDomain = @"WinUIThemeRuntimeDomain";
 - (void) refreshRuntimeDefaultsIfNeeded;
 - (NSDictionary *) runtimeDefaultsDictionary;
 - (BOOL) shouldUseWindowIntegration;
+- (void) windowNeedsMainMenu: (NSNotification *)notification;
 - (void) addFont: (NSFont *)font
           forKey: (NSString *)key
      toDictionary: (NSMutableDictionary *)dictionary;
 @end
+
+IMP
+WinUIThemeOriginalMethod(SEL selector, id receiver, Class baseClass)
+{
+  static NSMapTable *prototypes = nil;
+  GSTheme *theme = [GSTheme theme];
+  IMP imp = [theme overriddenMethod: selector for: receiver];
+  id prototype;
+
+  if (imp != NULL || baseClass == Nil)
+    {
+      return imp;
+    }
+  /* An instance of exactly `baseClass`, used only as a lookup key: it is never
+     initialised, messaged, or freed. */
+  if (prototypes == nil)
+    {
+      prototypes = [[NSMapTable alloc]
+        initWithKeyOptions: NSPointerFunctionsOpaqueMemory | NSPointerFunctionsOpaquePersonality
+              valueOptions: NSPointerFunctionsOpaqueMemory | NSPointerFunctionsOpaquePersonality
+                  capacity: 16];
+    }
+  prototype = (id)NSMapGet(prototypes, (void *)baseClass);
+  if (prototype == nil)
+    {
+      prototype = class_createInstance(baseClass, 0);
+      NSMapInsert(prototypes, (void *)baseClass, (void *)prototype);
+    }
+  return [theme overriddenMethod: selector for: prototype];
+}
 
 @implementation WinUITheme
 
@@ -82,6 +113,14 @@ static NSString *WinUIThemeRuntimeDefaultsDomain = @"WinUIThemeRuntimeDomain";
   [self applyRuntimeDefaults];
   _runtimeDefaultsApplied = YES;
   [super activate];
+  [[NSNotificationCenter defaultCenter] addObserver: self
+                                           selector: @selector(windowNeedsMainMenu:)
+                                               name: NSWindowDidBecomeKeyNotification
+                                             object: nil];
+  [[NSNotificationCenter defaultCenter] addObserver: self
+                                           selector: @selector(windowNeedsMainMenu:)
+                                               name: NSWindowDidBecomeMainNotification
+                                             object: nil];
   if ([self shouldUseWindowIntegration])
     {
       WinUIThemeWindowIntegrationActivate(self);
@@ -94,10 +133,40 @@ static NSString *WinUIThemeRuntimeDefaultsDomain = @"WinUIThemeRuntimeDomain";
 
 - (void) deactivate
 {
+  NSNotificationCenter *center = [NSNotificationCenter defaultCenter];
+
+  [center removeObserver: self name: NSWindowDidBecomeKeyNotification object: nil];
+  [center removeObserver: self name: NSWindowDidBecomeMainNotification object: nil];
   WinUIThemeWindowIntegrationDeactivate();
   [self removeRuntimeDefaults];
   _runtimeDefaultsApplied = NO;
   [super deactivate];
+}
+
+/* With NSWindows95InterfaceStyle, GNUstep puts the main menu only into the
+   windows that exist when the menu is first updated (-[NSMenu update] calls
+   -updateAllWindowsWithMenu: once), so a window created after launch has no
+   menu bar. Attach it when such a window becomes key or main. Windows given a
+   menu of their own, and windows that can't become main (panels, menus), are
+   left alone. */
+- (void) windowNeedsMainMenu: (NSNotification *)notification
+{
+  NSWindow *window = [notification object];
+  NSMenu *mainMenu = [NSApp mainMenu];
+
+  if (mainMenu == nil || [window isKindOfClass: [NSWindow class]] == NO)
+    {
+      return;
+    }
+  if (NSInterfaceStyleForKey(@"NSMenuInterfaceStyle", nil) != NSWindows95InterfaceStyle)
+    {
+      return;
+    }
+  if ([window canBecomeMainWindow] == NO || [window menu] != nil)
+    {
+      return;
+    }
+  [self updateMenu: mainMenu forWindow: window];
 }
 
 - (NSColorList *) colors
