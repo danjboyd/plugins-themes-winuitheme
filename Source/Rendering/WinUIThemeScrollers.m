@@ -441,13 +441,28 @@ WinUIThemeUpdateOverlayTracking(NSScrollView *scrollView, WinUIThemeOverlayState
       [scrollView addSubview: vertical];
       RELEASE(vertical);
     }
-  if (horizontal != nil && [horizontal superview] == scrollView && [[scrollView subviews] lastObject] != horizontal
-      && [[scrollView subviews] lastObject] != vertical)
+  /* The horizontal one just below the vertical one, or on top without
+     it. Without a vertical scroller in the view (nil, or kept after
+     -setHasVerticalScroller: NO), "below" it meant below everything,
+     under the clip view, which hid the horizontal scroller. */
+  if (horizontal != nil && [horizontal superview] == scrollView && [[scrollView subviews] lastObject] != horizontal)
     {
-      RETAIN(horizontal);
-      [horizontal removeFromSuperviewWithoutNeedingDisplay];
-      [scrollView addSubview: horizontal positioned: NSWindowBelow relativeTo: vertical];
-      RELEASE(horizontal);
+      BOOL besideVertical = (vertical != nil && [vertical superview] == scrollView);
+
+      if (besideVertical == NO || [[scrollView subviews] lastObject] != vertical)
+        {
+          RETAIN(horizontal);
+          [horizontal removeFromSuperviewWithoutNeedingDisplay];
+          if (besideVertical)
+            {
+              [scrollView addSubview: horizontal positioned: NSWindowBelow relativeTo: vertical];
+            }
+          else
+            {
+              [scrollView addSubview: horizontal];
+            }
+          RELEASE(horizontal);
+        }
     }
   state->adjusting = NO;
   WinUIThemeUpdateOverlayTracking(scrollView, state);
