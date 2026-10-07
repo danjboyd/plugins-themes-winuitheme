@@ -39,10 +39,9 @@ order:
 | #59 | `adwaita-parity-phase-c` | phase B | #54, #53, #24, #23, #34, #18 |
 | #60 | `adwaita-parity-phase-d` | phase C | #25, #21, #38, #10, #35, #39, #29 |
 | #61 | `adwaita-parity-phase-e` | phase D | #36, #37, #40, #8, #43, #51, #9 |
-| (none yet) | `adwaita-parity-phase-f` | phase E | #14, #44, #41, #42, #28, #46, #5 |
+| #63 | `adwaita-parity-phase-f` | phase E | #14, #44, #41, #42, #28, #46, #5 |
 
-None are merged, and phase F is local: it waits for the owner to push it
-and open its PR. The issues close when their commits (`Fixes #N`) reach
+None are merged. The issues close when their commits (`Fixes #N`) reach
 `main`. If a base branch is deleted when its PR merges, retarget the next PR
 by hand.
 
