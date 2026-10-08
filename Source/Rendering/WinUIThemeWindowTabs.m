@@ -58,7 +58,30 @@
    - the "+" (AddTabButton): 32x24, 3px after the last tab;
    - high contrast: ButtonFace strip, Window for the selected tab with a
      Hilight outline and Hilight text, Hilight with HilightText under the
-     pointer, WindowText separators. */
+     pointer, WindowText separators.
+
+   Phase 2 of the shared code (dragging and scrolling):
+   - the dragged tab (GSWindowTabDragged) is lifted off the strip, as
+     WinUI lifts a dragged TabViewItem: the selected tab's colour with all
+     its corners rounded, 2px above the strip's foot (whose line shows
+     under it), over a soft shadow; high contrast has no shadow, only the
+     Hilight outline;
+   - tabs that don't fit scroll. WinUI's TabView shows chevron scroll
+     buttons at the ends instead, but the shared bar has no buttons there
+     (a click at an end selects the tab under it), so drawing chevrons
+     would promise a click that does nothing. The ends fade into the strip
+     instead (24px, the strip's colour opaque at the edge), with the line
+     along the foot faded the same way; high contrast has a solid 8px
+     ButtonFace band with a WindowText divider on its inner side, as
+     contrast themes have no blended colours;
+   - a gap opened for a tab dragged from another window is a slot like a
+     tab's, and the "+" follows it. */
+
+/* The shared tab bar's drop gap (gnustep-window-tabbing's
+   GSWindowTabBarView, a private class; there is no theme method). */
+@interface NSView (WinUIThemeWindowTabBar)
+- (NSInteger) dropGapSlot;
+@end
 
 static CGFloat
 WinUIThemeTabsDensity(WinUITheme *theme)
@@ -285,6 +308,66 @@ WinUIThemeTabsDrawSelected(WinUITheme *theme, NSRect body)
   [outline stroke];
 }
 
+/* The dragged tab, lifted off the strip: the selected tab's colour and
+   outline, every corner rounded, 2px above the foot, over a shadow of
+   stacked translucent rings (a little heavier below), as WinUI's drag
+   visual floats over a shadow. High contrast draws no shadow. */
+static void
+WinUIThemeTabsDrawDragged(WinUITheme *theme, NSRect body)
+{
+  CGFloat d = WinUIThemeTabsDensity(theme);
+  CGFloat lift = round(2.0 * d);
+  CGFloat radius = MIN(WinUIThemeOverlayCornerRadius(theme), NSWidth(body) / 2.0);
+  NSRect card = NSMakeRect(NSMinX(body), NSMinY(body) + lift,
+                           NSWidth(body), NSHeight(body) - lift);
+  NSBezierPath *outline;
+
+  if (WinUIThemeTabsHighContrast(theme) == NO)
+    {
+      NSInteger rings = (NSInteger)round(6.0 * d);
+      NSColor *shade = [NSColor colorWithCalibratedWhite: 0.0
+                                                   alpha: WinUIThemeTabsDark(theme) ? 0.06 : 0.022];
+      NSInteger i;
+
+      [shade set];
+      for (i = rings; i >= 1; i--)
+        {
+          NSRect ring = NSOffsetRect(NSInsetRect(card, -(CGFloat)i, -(CGFloat)i), 0.0, -1.0);
+
+          [WinUIThemeRoundedPath(ring, radius + i) fill];
+        }
+    }
+  [WinUIThemeTabsSelectedColor(theme) set];
+  [WinUIThemeRoundedPath(card, radius) fill];
+  outline = WinUIThemeRoundedPath(NSInsetRect(card, 0.5, 0.5), MAX(0.0, radius - 0.5));
+  [outline setLineWidth: 1.0];
+  [WinUIThemeTabsBorderColor(theme) set];
+  [outline stroke];
+}
+
+/* A colour NSGradient can draw: GNUstep's draws nothing from a named
+   colour. */
+static NSColor *
+WinUIThemeTabsGradientColor(NSColor *color)
+{
+  NSColor *rgb = [color colorUsingColorSpaceName: NSCalibratedRGBColorSpace];
+
+  return (rgb != nil) ? rgb : color;
+}
+
+/* `color` opaque at `edge` of `rect`, clear inwards. */
+static void
+WinUIThemeTabsFillFade(NSColor *color, NSRect rect, NSRectEdge edge)
+{
+  NSColor *opaque = WinUIThemeTabsGradientColor(color);
+  NSGradient *gradient = [[NSGradient alloc]
+    initWithStartingColor: opaque
+              endingColor: [opaque colorWithAlphaComponent: 0.0]];
+
+  [gradient drawInRect: rect angle: (edge == NSMinXEdge) ? 0.0 : 180.0];
+  RELEASE(gradient);
+}
+
 /* Where `tab` is in the bar's group, and where the selected tab is. */
 static void
 WinUIThemeTabsIndexes(NSWindowTab *tab, NSWindow *window,
@@ -379,7 +462,9 @@ static BOOL WinUIThemeTabsLastTitleShowsEdited = NO;
    what is left, so the button's width is what the tabs leave: the rect
    then starts where the tabs end, and the button is drawn at its start.
    Tabs share the width as GSWindowTabWidth() does (floor of the share,
-   between the limits). */
+   between the limits). A gap opened for a tab from another window is one
+   more slot, so the tabs keep their width and the "+" moves along.
+   Tabs that don't fit leave nothing: the "+" is at the bar's end. */
 - (CGFloat) windowTabNewTabButtonWidthForWindow: (NSWindow *)window
 {
   CGFloat d = WinUIThemeTabsDensity(self);
@@ -392,6 +477,10 @@ static BOOL WinUIThemeTabsLastTitleShowsEdited = NO;
   CGFloat each;
   CGFloat rest;
 
+  if ([bar respondsToSelector: @selector(dropGapSlot)] && [bar dropGapSlot] >= 0)
+    {
+      count++;
+    }
   if (bar == nil || count == 0 || width <= button)
     {
       return button;
@@ -423,6 +512,49 @@ static BOOL WinUIThemeTabsLastTitleShowsEdited = NO;
   NSRectFill(NSMakeRect(NSMinX(rect), NSMinY(rect), NSWidth(rect), 1.0));
 }
 
+/* 24px; 8px in high contrast, whose band is solid and would otherwise
+   hide the close button of a tab at the end. */
+- (CGFloat) windowTabBarScrollFadeWidthForWindow: (NSWindow *)window
+{
+  CGFloat width = WinUIThemeTabsHighContrast(self) ? 8.0 : 24.0;
+
+  return round(width * WinUIThemeTabsDensity(self));
+}
+
+/* The strip fading in towards an end where tabs are scrolled out of
+   sight, over the tabs, with the line along the foot (which the selected
+   tab covers) faded in the same way, so the strip reads as continuing.
+   High contrast: solid ButtonFace and the foot's line, a WindowText
+   divider along the inner side down the tabs' height. */
+- (void) drawWindowTabBarScrollFadeInRect: (NSRect)rect
+                                     edge: (NSRectEdge)edge
+                                   window: (NSWindow *)window
+{
+  NSColor *strip = WinUIThemeTabsStripColor(self);
+  NSColor *border = WinUIThemeTabsBorderColor(self);
+  NSRect foot = NSMakeRect(NSMinX(rect), NSMinY(rect), NSWidth(rect), 1.0);
+
+  if (NSIsEmptyRect(rect))
+    {
+      return;
+    }
+  if (WinUIThemeTabsHighContrast(self))
+    {
+      NSRect body = WinUIThemeTabsBody(self, rect);
+      CGFloat x = (edge == NSMinXEdge) ? NSMaxX(rect) - 1.0 : NSMinX(rect);
+
+      [strip set];
+      NSRectFill(rect);
+      [border set];
+      NSRectFill(foot);
+      [WinUIThemeTabsContrast(self, @"WindowText", WinUIThemeTabsTextColor(self)) set];
+      NSRectFill(NSMakeRect(x, NSMinY(body) + 1.0, 1.0, NSHeight(body) - 1.0));
+      return;
+    }
+  WinUIThemeTabsFillFade(strip, rect, edge);
+  WinUIThemeTabsFillFade(border, foot, edge);
+}
+
 - (void) drawWindowTab: (NSWindowTab *)tab
                 inRect: (NSRect)rect
                  state: (GSWindowTabState)state
@@ -445,7 +577,11 @@ static BOOL WinUIThemeTabsLastTitleShowsEdited = NO;
   WinUIThemeTabsIndexes(tab, window, &index, &selectedIndex, &count);
   WinUIThemeTabsLastTitleShowsEdited = WinUIThemeTabsTitleShowsEdited(title);
 
-  if (selected)
+  if (state & GSWindowTabDragged)
+    {
+      WinUIThemeTabsDrawDragged(self, body);
+    }
+  else if (selected)
     {
       WinUIThemeTabsDrawSelected(self, body);
     }

@@ -349,7 +349,18 @@ WinUIThemeTabResignedKey(NSWindow *window)
    was maximized filled the screen without being maximized, so the caption
    button and double-click didn't restore it, and a tab maximized before
    came back maximized in a restored group. When key moves from one tab
-   of a group to another, the new tab takes the old one's placement. */
+   of a group to another, the new tab takes the old one's placement.
+
+   The shared code (since eefb03e) carries the maximized state itself:
+   it sets the new tab's frame to the old one's and then calls
+   ShowWindow(SW_MAXIMIZE). That maximizes it, but its size to restore to
+   is then the maximized frame, so restoring it left it filling the screen
+   (QuirkProbe window-tab-takes-placement: 2384x1302 for a 496x259
+   group). SetWindowPlacement here gives it the old tab's restore rect as
+   well. It runs when the new tab becomes key; the shared code's
+   ShowWindow only acts when IsZoomed differs, so in either order the tab
+   ends up maximized with the old tab's restore rect. A tab shown without
+   becoming key (its group not key) gets only the shared code's step. */
 static void
 WinUIThemeTabTakeOverPlacement(NSWindow *window)
 {
@@ -906,11 +917,26 @@ WinUIThemeApplyWindowIdentity(NSWindow *window,
 #endif
 }
 
+/* Window tabs (#72): the shared tab bar shows its "+" only while
+   something answers -newWindowForTab: from the key window's responder
+   chain, and passes the key state to the theme (GSWindowTabWindowKey),
+   but doesn't redraw when its window becomes or stops being key. A newly
+   selected tab draws its bar before it becomes key, so it stayed drawn
+   without the "+" and with the tabs laid out wider than the bar
+   hit-tests them once the window is key: a click on a close button could
+   miss (MarkdownViewer). QuirkProbe window-tab-bar-redraws-on-key. */
+static void
+WinUIThemeRedrawTabBar(NSWindow *window)
+{
+  [GSWindowTabBarViewForWindow(window) setNeedsDisplay: YES];
+}
+
 - (void) windowBecameKey: (NSNotification *)notification
 {
 #ifdef _WIN32
   WinUIThemeTabTakeOverPlacement([notification object]);
 #endif
+  WinUIThemeRedrawTabBar([notification object]);
   [self _refreshThemeIfSystemStateChanged];
   [self synchronizeWindow: [notification object] forceRedraw: NO];
 }
@@ -920,6 +946,7 @@ WinUIThemeApplyWindowIdentity(NSWindow *window,
 #ifdef _WIN32
   WinUIThemeTabResignedKey([notification object]);
 #endif
+  WinUIThemeRedrawTabBar([notification object]);
   [self _refreshThemeIfSystemStateChanged];
   [self synchronizeWindow: [notification object] forceRedraw: NO];
 }
@@ -964,25 +991,10 @@ WinUIThemeApplyWindowIdentity(NSWindow *window,
    grows the frame by the bar). The theme gives a window made after launch
    the main menu's bar when it becomes key or main (#1), and libs-gui may
    add it to every window when the menu changes; a tab (#72) has by then
-   taken its group's frame, so each new tab grew the group by a menu bar.
-   A window tabbed with others keeps its frame, and its content gives up
-   the row. The shared tabbing code (4cb1b63) gives a selected tab its
-   group's frame but doesn't see a menu bar added later, so this stays
-   (QuirkProbe window-tab-keeps-group-frame fails without it). */
-@interface GSWindowDecorationView (WinUIThemeMenuView)
-- (void) addMenuView: (NSMenuView *)menuView;
-@end
-
-static void
-WinUIThemeKeepTabFrame(NSWindow *window, NSRect frame)
-{
-  if ([window respondsToSelector: @selector(tabbedWindows)]
-      && [[window tabbedWindows] count] > 1
-      && NSEqualRects([window frame], frame) == NO)
-    {
-      [window setFrame: frame display: YES];
-    }
-}
+   taken its group's frame. The shared tabbing code (since ed47a49) wraps
+   -changeWindowHeight:, which -addMenuView: goes through, so a window
+   tabbed with others keeps its frame and its content gives up the row
+   (QuirkProbe window-tab-keeps-group-frame). */
 
 @implementation WinUIThemeBackendWindowDecorationView
 
@@ -1004,14 +1016,6 @@ WinUIThemeKeepTabFrame(NSWindow *window, NSRect frame)
 {
   [super setInputState: state];
   WinUIThemeWindowIntegrationSynchronizeWindow(window);
-}
-
-- (void) addMenuView: (NSMenuView *)menuView
-{
-  NSRect frame = [window frame];
-
-  [super addMenuView: menuView];
-  WinUIThemeKeepTabFrame(window, frame);
 }
 
 @end
@@ -1036,14 +1040,6 @@ WinUIThemeKeepTabFrame(NSWindow *window, NSRect frame)
 {
   [super setInputState: state];
   WinUIThemeWindowIntegrationSynchronizeWindow(window);
-}
-
-- (void) addMenuView: (NSMenuView *)menuView
-{
-  NSRect frame = [window frame];
-
-  [super addMenuView: menuView];
-  WinUIThemeKeepTabFrame(window, frame);
 }
 
 @end

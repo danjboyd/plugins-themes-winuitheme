@@ -356,6 +356,7 @@ QuirkProbeModuleOfAddress(void *address)
 - (void) addTabbedWindow: (NSWindow *)window ordered: (NSWindowOrderingMode)ordered;
 - (NSArray *) tabbedWindows;
 - (void) selectNextTab: (id)sender;
+- (void) setTabbingIdentifier: (NSString *)identifier;
 @end
 
 @interface NSView (QuirkProbeTabBar)
@@ -363,6 +364,56 @@ QuirkProbeModuleOfAddress(void *address)
 - (NSRect) rectForTabAtIndex: (NSUInteger)index;
 - (NSRect) closeButtonRectForTabAtIndex: (NSUInteger)index;
 - (NSRect) newTabButtonRect;
+/* Phase 2 (ed47a49): scrolling, dragging and the drop gap. */
+- (NSRect) tabsRect;
+- (CGFloat) tabWidth;
+- (CGFloat) scrollOffset;
+- (CGFloat) maximumScrollOffset;
+- (BOOL) isDraggingTab;
+- (NSUInteger) draggedTabIndex;
+- (void) setDropGapSlot: (NSInteger)slot;
+@end
+
+/* Renders a tab bar while one of its tabs is being dragged: the bar's
+   tracking loop waits for the next event (in the tracking run loop mode,
+   where this timer fires), so the capture happens mid-drag; then it posts
+   the release. */
+@interface QuirkProbeDragCapture : NSObject
+{
+@public
+  NSView *_bar;
+  NSView *_view;
+  NSEvent *_release;
+  BOOL _captured;
+  BOOL _dragging;
+  NSUInteger _draggedIndex;
+  NSRect _draggedRect;
+  NSBitmapImageRep *_rep;
+}
+- (void) capture: (NSTimer *)timer;
+@end
+
+@implementation QuirkProbeDragCapture
+- (void) capture: (NSTimer *)timer
+{
+  _captured = YES;
+  _dragging = [_bar respondsToSelector: @selector(isDraggingTab)] && [_bar isDraggingTab];
+  if (_dragging)
+    {
+      _draggedIndex = [_bar draggedTabIndex];
+      _draggedRect = [_bar rectForTabAtIndex: _draggedIndex];
+    }
+  [[_bar window] display];
+  ASSIGN(_rep, QuirkProbeRender(_view));
+  [NSApp postEvent: _release atStart: NO];
+}
+
+- (void) dealloc
+{
+  RELEASE(_rep);
+  RELEASE(_release);
+  [super dealloc];
+}
 @end
 
 /* Notes whether a window was on screen when another one began to close. */
@@ -523,6 +574,12 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkSearchField;
 - (void) checkHorizontalOnlyScroller;
 - (void) checkWindowTabs;
+- (NSArray *) makeTabbedWindows: (NSUInteger)count frame: (NSRect)frame identifier: (NSString *)identifier;
+- (void) closeTabbedWindows: (NSArray *)windows;
+- (void) checkWindowTabScrolling;
+- (void) checkWindowTabDragging;
+- (void) checkWindowTabDropGap;
+- (void) checkWindowTabKeyRedraw;
 - (void) checkFileDialogFilters;
 - (void) createLateWindow: (NSTimer *)timer;
 - (void) checkLateWindow: (NSTimer *)timer;
@@ -5640,16 +5697,22 @@ QuirkProbeTabKey(NSWindow *window, NSString *characters, NSUInteger modifiers)
      was maximized took the group's frame but wasn't maximized (the caption
      button and a double-click didn't restore it), and one maximized
      before came back maximized in a restored group. The selected tab now
-     takes the previous one's placement. */
+     takes the previous one's placement, and so the size to restore to:
+     a tab maximized only once selected restored to the maximized frame,
+     filling the screen without being maximized. */
 #ifdef _WIN32
   {
     HWND firstHandle = (HWND)(intptr_t)[first windowNumber];
     HWND secondHandle = (HWND)(intptr_t)[second windowNumber];
     BOOL tookMaximized;
+    BOOL restoredSize;
     BOOL tookRestored;
+    NSRect normal;
+    NSRect restored;
 
     [second makeKeyAndOrderFront: nil];
     QuirkProbeDispatchEvents(0.2);
+    normal = [second frame];
     ShowWindow(secondHandle, SW_MAXIMIZE);
     QuirkProbeDispatchEvents(0.4);
     [second selectNextTab: nil];
@@ -5657,19 +5720,24 @@ QuirkProbeTabKey(NSWindow *window, NSString *characters, NSUInteger modifiers)
     tookMaximized = [first isVisible] && IsZoomed(firstHandle);
     ShowWindow(firstHandle, SW_RESTORE);
     QuirkProbeDispatchEvents(0.4);
+    restored = [first frame];
+    restoredSize = fabs(NSWidth(restored) - NSWidth(normal)) < 1.0
+      && fabs(NSHeight(restored) - NSHeight(normal)) < 1.0;
     [first selectNextTab: nil];
     QuirkProbeDispatchEvents(0.4);
     tookRestored = [second isVisible] && IsZoomed(secondHandle) == 0;
-    if (tookMaximized && tookRestored)
+    if (tookMaximized && restoredSize && tookRestored)
       {
         [self pass: @"window-tab-takes-placement" detail:
-          @"a tab selected in a maximized group is maximized, and one maximized before is restored in a restored group"];
+          [NSString stringWithFormat: @"a tab selected in a maximized group is maximized and restores to %@, and one maximized before is restored in a restored group",
+                    NSStringFromSize(restored.size)]];
       }
     else
       {
         [self fail: @"window-tab-takes-placement" detail:
-          [NSString stringWithFormat: @"selected in a maximized group: maximized %d; selected in a restored group: restored %d",
-                    (int)tookMaximized, (int)tookRestored]];
+          [NSString stringWithFormat: @"selected in a maximized group: maximized %d, restored to %@ (the group's %@); selected in a restored group: restored %d",
+                    (int)tookMaximized, NSStringFromSize(restored.size), NSStringFromSize(normal.size),
+                    (int)tookRestored]];
       }
     /* Only the tab on screen: restoring a hidden one would show it. */
     if ([second isVisible] == NO)
@@ -5747,6 +5815,531 @@ QuirkProbeTabKey(NSWindow *window, NSString *characters, NSUInteger modifiers)
     RELEASE(watcher);
   }
   [first close];
+}
+
+/* Window tabs, phase 2 of the shared code (ed47a49, #72): tabs that don't
+   fit at their minimum width scroll with the wheel and fade at an end
+   where more are out of sight; a dragged tab is lifted off the strip and
+   takes the slot it is dropped in, or becomes a window of its own when
+   pulled out of the bar; a gap opened for a tab from another window
+   keeps the tabs' width and moves the "+" along. Driven by synthetic
+   events, sent through NSApp or queued for the bar's tracking loop, not
+   the real pointer. Before (db97911), the bar neither scrolled nor
+   dragged, and the theme drew neither state. */
+
+static NSEvent *
+QuirkProbeTabMouse(NSEventType type, NSWindow *window, NSPoint point)
+{
+  return [NSEvent mouseEventWithType: type location: point modifierFlags: 0
+                           timestamp: 0 windowNumber: [window windowNumber] context: nil
+                         eventNumber: 0 clickCount: 1 pressure: 1.0];
+}
+
+static NSEvent *
+QuirkProbeTabWheel(NSWindow *window, NSPoint point, CGFloat deltaY)
+{
+  return [NSEvent mouseEventWithType: NSScrollWheel location: point modifierFlags: 0
+                           timestamp: 0 windowNumber: [window windowNumber] context: nil
+                         eventNumber: 0 clickCount: 1 pressure: 1.0
+                        buttonNumber: 0 deltaX: 0.0 deltaY: deltaY deltaZ: 0.0];
+}
+
+/* Drops queued mouse events, such as a drag a bar didn't track. */
+static void
+QuirkProbeDrainTabEvents(void)
+{
+  while ([NSApp nextEventMatchingMask: NSLeftMouseDraggedMask | NSLeftMouseUpMask | NSPeriodicMask
+                            untilDate: [NSDate distantPast]
+                               inMode: NSEventTrackingRunLoopMode
+                              dequeue: YES] != nil)
+    {
+    }
+}
+
+/* Presses `bar` at `start` (its coordinates) and drags through `count`
+   offsets from there, as queued events; the release comes at the last
+   one, after the capture has rendered `view` mid-drag. */
+static QuirkProbeDragCapture *
+QuirkProbeDragTab(NSView *bar, NSView *view, NSPoint start, const NSPoint *offsets, NSUInteger count)
+{
+  NSWindow *window = [bar window];
+  QuirkProbeDragCapture *capture = AUTORELEASE([QuirkProbeDragCapture new]);
+  NSPoint origin = [bar convertPoint: start toView: nil];
+  NSPoint last = origin;
+  NSTimer *timer;
+  NSUInteger i;
+
+  QuirkProbeDrainTabEvents();
+  for (i = 0; i < count; i++)
+    {
+      last = NSMakePoint(origin.x + offsets[i].x, origin.y + offsets[i].y);
+      [NSApp postEvent: QuirkProbeTabMouse(NSLeftMouseDragged, window, last) atStart: NO];
+    }
+  capture->_bar = bar;
+  capture->_view = view;
+  capture->_release = RETAIN(QuirkProbeTabMouse(NSLeftMouseUp, window, last));
+  timer = [NSTimer timerWithTimeInterval: 0.3 target: capture selector: @selector(capture:)
+                                userInfo: nil repeats: NO];
+  [[NSRunLoop currentRunLoop] addTimer: timer forMode: NSEventTrackingRunLoopMode];
+  [bar mouseDown: QuirkProbeTabMouse(NSLeftMouseDown, window, origin)];
+  [timer invalidate];
+  QuirkProbeDrainTabEvents();
+  return capture;
+}
+
+static NSArray *
+QuirkProbeTabTitles(NSWindow *window)
+{
+  NSMutableArray *titles = [NSMutableArray array];
+  NSEnumerator *enumerator = [[window tabbedWindows] objectEnumerator];
+  NSWindow *tab = nil;
+
+  while ((tab = [enumerator nextObject]) != nil)
+    {
+      [titles addObject: [tab title]];
+    }
+  return titles;
+}
+
+static NSInteger
+QuirkProbeTabBrightness(NSUInteger rgb[3])
+{
+  return (NSInteger)(rgb[0] + rgb[1] + rgb[2]);
+}
+
+/* `count` tabbed windows with `identifier`, `frame` each, the first
+   selected; nil without the tabbing API. */
+- (NSArray *) makeTabbedWindows: (NSUInteger)count frame: (NSRect)frame identifier: (NSString *)identifier
+{
+  NSMutableArray *windows = [NSMutableArray array];
+  NSUInteger i;
+
+  if ([NSWindow instancesRespondToSelector: @selector(addTabbedWindow:ordered:)] == NO)
+    {
+      return nil;
+    }
+  for (i = 0; i < count; i++)
+    {
+      NSWindow *window = [self windowWithFrame: frame
+                                         title: [NSString stringWithFormat: @"%@ %lu", identifier, (unsigned long)i + 1]];
+
+      [window setTabbingIdentifier: identifier];
+      if (i == 0)
+        {
+          [window orderFront: nil];
+        }
+      else
+        {
+          [[windows lastObject] addTabbedWindow: window ordered: NSWindowAbove];
+        }
+      [windows addObject: window];
+    }
+  [[windows objectAtIndex: 0] makeKeyAndOrderFront: nil];
+  return windows;
+}
+
+- (void) closeTabbedWindows: (NSArray *)windows
+{
+  NSEnumerator *enumerator = [windows objectEnumerator];
+  NSWindow *window = nil;
+
+  while ((window = [enumerator nextObject]) != nil)
+    {
+      [window close];
+    }
+}
+
+- (void) checkWindowTabScrolling
+{
+  BOOL highContrast = QuirkProbeHasArgument(@"--high-contrast", @"yes");
+  CGFloat desktop = QuirkProbeDesktopScale();
+  NSArray *windows = [self makeTabbedWindows: 8 frame: NSMakeRect(120, 220, 480, 160)
+                              identifier: @"QuirkProbe Scroll"];
+  NSWindow *window = [windows objectAtIndex: 0];
+  NSView *decoration = [[window contentView] superview];
+  NSView *bar = QuirkProbeFindTabBar(decoration);
+  NSString *missing = nil;
+
+  if (windows == nil)
+    {
+      missing = @"NSWindow lacks Apple's tabbing API";
+    }
+  else if (bar == nil || [bar window] != window || [bar numberOfTabs] != 8)
+    {
+      missing = [NSString stringWithFormat: @"eight tabbed windows show no bar with eight tabs (bar %@)", bar];
+    }
+  else if ([bar respondsToSelector: @selector(scrollOffset)] == NO
+           || [bar respondsToSelector: @selector(maximumScrollOffset)] == NO)
+    {
+      missing = @"the tab bar doesn't scroll (no -scrollOffset: the shared code before phase 2)";
+    }
+  else if ([bar maximumScrollOffset] <= 0.0)
+    {
+      missing = [NSString stringWithFormat: @"eight tabs fit unscrolled in %@", NSStringFromRect([bar tabsRect])];
+    }
+  if (missing != nil)
+    {
+      [self fail: @"window-tab-scroll-wheel" detail: missing];
+      [self fail: @"window-tab-scroll-fade" detail: missing];
+      [self closeTabbedWindows: windows];
+      return;
+    }
+
+  /* One notch down scrolls by GTK's step, the visible width to the power
+     2/3; one up scrolls back. */
+  {
+    NSRect tabs = [bar tabsRect];
+    CGFloat step = pow(NSWidth(tabs), 2.0 / 3.0);
+    NSPoint point = [bar convertPoint: NSMakePoint(NSMidX(tabs), NSMidY([bar bounds])) toView: nil];
+    CGFloat before = [bar scrollOffset];
+    CGFloat down;
+    CGFloat up;
+
+    [NSApp sendEvent: QuirkProbeTabWheel(window, point, -1.0)];
+    down = [bar scrollOffset];
+    [NSApp sendEvent: QuirkProbeTabWheel(window, point, 1.0)];
+    up = [bar scrollOffset];
+    if (fabs(before) < 0.5 && fabs(down - step) < 1.0 && fabs(up) < 0.5)
+      {
+        [self pass: @"window-tab-scroll-wheel" detail:
+          [NSString stringWithFormat: @"a notch down scrolled the tabs %.1fpt (of %.0f), a notch up back to 0",
+                    down, [bar maximumScrollOffset]]];
+      }
+    else
+      {
+        [self fail: @"window-tab-scroll-wheel" detail:
+          [NSString stringWithFormat: @"scrolled %.1f, then %.1f after a notch down (want %.1f), %.1f after one up",
+                    before, down, step, up]];
+      }
+  }
+
+  /* The fifth tab selected: scrolled in at the right end, with tabs past
+     it, so the fade covers its end. From the edge inwards: the strip's
+     colour, a blend, the tab's own colour. In high contrast: the strip's
+     colour and a WindowText divider on the inner side of an 8pt band. */
+  {
+    NSWindow *fifth = [windows objectAtIndex: 4];
+    NSView *fifthDecoration = nil;
+    NSView *fifthBar = nil;
+    NSRect tabs;
+    NSRect tab;
+    CGFloat fade = round((highContrast ? 8.0 : 24.0) * desktop);
+    CGFloat y = 6.0 * desktop;
+    NSUInteger strip[3], selected[3], edge[3], middle[3], inner[3], divider[3];
+    NSBitmapImageRep *rep = nil;
+
+    [fifth makeKeyAndOrderFront: nil];
+    fifthDecoration = [[fifth contentView] superview];
+    fifthBar = QuirkProbeFindTabBar(fifthDecoration);
+    tabs = [fifthBar tabsRect];
+    tab = [fifthBar rectForTabAtIndex: 4];
+    [fifth display];
+    rep = QuirkProbeRender(fifthDecoration);
+    if (fifthBar == nil || [fifthBar window] != fifth
+        || fabs(NSMaxX(tab) - NSMaxX(tabs)) > 1.0
+        || [fifthBar scrollOffset] >= [fifthBar maximumScrollOffset])
+      {
+        [self fail: @"window-tab-scroll-fade" detail:
+          [NSString stringWithFormat: @"the fifth tab %@ isn't at the end of the tabs' area %@ with tabs past it",
+                    NSStringFromRect(tab), NSStringFromRect(tabs)]];
+      }
+    else if (QuirkProbeTabPixel(rep, fifthDecoration, fifthBar, NSMakePoint(NSMidX(tab), NSMaxY([fifthBar bounds]) - 3.0), strip)
+             && QuirkProbeTabPixel(rep, fifthDecoration, fifthBar, NSMakePoint(NSMidX(tab), -3.0), selected)
+             && QuirkProbeTabPixel(rep, fifthDecoration, fifthBar, NSMakePoint(NSMaxX(tabs) - 1.5, y), edge)
+             && QuirkProbeTabPixel(rep, fifthDecoration, fifthBar, NSMakePoint(NSMaxX(tabs) - fade / 2.0, y), middle)
+             && QuirkProbeTabPixel(rep, fifthDecoration, fifthBar, NSMakePoint(NSMaxX(tabs) - fade - 6.0 * desktop, y), inner)
+             && QuirkProbeTabPixel(rep, fifthDecoration, fifthBar, NSMakePoint(NSMaxX(tabs) - fade, y), divider))
+      {
+        NSInteger e = QuirkProbeTabBrightness(edge);
+        NSInteger m = QuirkProbeTabBrightness(middle);
+        NSInteger i = QuirkProbeTabBrightness(inner);
+        BOOL faded;
+        NSString *detail = [NSString stringWithFormat:
+          @"strip %@, selected tab %@; from the edge: %@, %@, %@ (divider %@)",
+          QuirkProbeTabHex(strip), QuirkProbeTabHex(selected), QuirkProbeTabHex(edge),
+          QuirkProbeTabHex(middle), QuirkProbeTabHex(inner), QuirkProbeTabHex(divider)];
+
+        if (highContrast)
+          {
+            faded = QuirkProbeTabColorDistance(edge, strip) <= 3
+              && QuirkProbeTabColorDistance(divider, strip) > 40
+              && QuirkProbeTabColorDistance(divider, selected) > 40;
+          }
+        else
+          {
+            faded = QuirkProbeTabColorDistance(edge, strip) <= 3
+              && QuirkProbeTabColorDistance(inner, selected) <= 3
+              && QuirkProbeTabColorDistance(edge, inner) >= 4
+              && ((e < m && m < i) || (i < m && m < e));
+          }
+        if (faded)
+          {
+            [self pass: @"window-tab-scroll-fade" detail: detail];
+          }
+        else
+          {
+            [self fail: @"window-tab-scroll-fade" detail: detail];
+          }
+      }
+    else
+      {
+        [self fail: @"window-tab-scroll-fade" detail: @"couldn't read the render"];
+      }
+    [self saveView: fifthDecoration named: @"window-tabs-scrolled"];
+  }
+  [self closeTabbedWindows: windows];
+}
+
+- (void) checkWindowTabDragging
+{
+  BOOL highContrast = QuirkProbeHasArgument(@"--high-contrast", @"yes");
+  CGFloat desktop = QuirkProbeDesktopScale();
+  NSArray *windows = [self makeTabbedWindows: 3 frame: NSMakeRect(120, 220, 600, 160)
+                              identifier: @"QuirkProbe Drag"];
+  NSWindow *first = [windows objectAtIndex: 0];
+  NSView *decoration = [[first contentView] superview];
+  NSView *bar = QuirkProbeFindTabBar(decoration);
+  NSString *missing = nil;
+
+  if (windows == nil)
+    {
+      missing = @"NSWindow lacks Apple's tabbing API";
+    }
+  else if (bar == nil || [bar window] != first || [bar numberOfTabs] != 3)
+    {
+      missing = [NSString stringWithFormat: @"three tabbed windows show no bar with three tabs (bar %@)", bar];
+    }
+  else if ([bar respondsToSelector: @selector(isDraggingTab)] == NO)
+    {
+      missing = @"tabs can't be dragged (no -isDraggingTab: the shared code before phase 2)";
+    }
+  if (missing != nil)
+    {
+      [self fail: @"window-tab-dragged" detail: missing];
+      [self fail: @"window-tab-drag-reorder" detail: missing];
+      [self fail: @"window-tab-drag-detach" detail: missing];
+      [self closeTabbedWindows: windows];
+      return;
+    }
+
+  /* The first tab (selected) dragged 0.6 of a tab to the right: drawn
+     lifted off the strip mid-drag (the line along the strip's foot shows
+     under it, where a selected tab runs into the content), over a shadow
+     outside its edge (none in high contrast); dropped, it takes the
+     second slot and stays selected. */
+  {
+    NSRect tab = [bar rectForTabAtIndex: 0];
+    CGFloat width = [bar tabWidth];
+    NSPoint start = NSMakePoint(NSMidX(tab) - 20.0, NSMidY([bar bounds]));
+    NSPoint path[3];
+    QuirkProbeDragCapture *capture;
+    NSUInteger foot[3], content[3], shadow[3], strip[3];
+    NSArray *order;
+
+    path[0] = NSMakePoint(12.0, 0.0);
+    path[1] = NSMakePoint(0.3 * width, 0.0);
+    path[2] = NSMakePoint(0.6 * width, 0.0);
+    capture = QuirkProbeDragTab(bar, decoration, start, path, 3);
+    if (capture->_captured == NO || capture->_dragging == NO || capture->_draggedIndex != 0)
+      {
+        [self fail: @"window-tab-dragged" detail:
+          [NSString stringWithFormat: @"no drag tracked (captured %d, dragging %d, tab %lu)",
+                    (int)capture->_captured, (int)capture->_dragging, (unsigned long)capture->_draggedIndex]];
+      }
+    else if (QuirkProbeTabPixel(capture->_rep, decoration, bar, NSMakePoint(NSMidX(capture->_draggedRect), 0.0), foot)
+             && QuirkProbeTabPixel(capture->_rep, decoration, bar, NSMakePoint(NSMidX(capture->_draggedRect), -3.0), content)
+             && QuirkProbeTabPixel(capture->_rep, decoration, bar,
+                                   NSMakePoint(NSMaxX(capture->_draggedRect) + 1.0, 28.0 * desktop), shadow)
+             && QuirkProbeTabPixel(capture->_rep, decoration, bar,
+                                   NSMakePoint(NSMaxX(capture->_draggedRect) + 1.0, NSMaxY([bar bounds]) - 1.0), strip))
+      {
+        BOOL lifted = QuirkProbeTabColorDistance(foot, content) > 4;
+        BOOL shaded = QuirkProbeTabBrightness(shadow) + 6 <= QuirkProbeTabBrightness(strip);
+        NSString *detail = [NSString stringWithFormat:
+          @"dragged tab at %@: under it %@ (content %@); beside it %@ (strip %@)",
+          NSStringFromRect(capture->_draggedRect), QuirkProbeTabHex(foot), QuirkProbeTabHex(content),
+          QuirkProbeTabHex(shadow), QuirkProbeTabHex(strip)];
+
+        if (lifted && (shaded || highContrast))
+          {
+            [self pass: @"window-tab-dragged" detail: detail];
+          }
+        else
+          {
+            [self fail: @"window-tab-dragged" detail: detail];
+          }
+      }
+    else
+      {
+        [self fail: @"window-tab-dragged" detail: @"couldn't read the render"];
+      }
+    if (capture->_rep != nil && _outputDirectory != nil)
+      {
+        [[capture->_rep representationUsingType: NSPNGFileType properties: [NSDictionary dictionary]]
+          writeToFile: [_outputDirectory stringByAppendingPathComponent: @"window-tabs-dragged.png"]
+           atomically: YES];
+      }
+
+    order = QuirkProbeTabTitles(first);
+    if ([order isEqual: [NSArray arrayWithObjects: @"QuirkProbe Drag 2", @"QuirkProbe Drag 1", @"QuirkProbe Drag 3", nil]]
+        && [first isVisible])
+      {
+        [self pass: @"window-tab-drag-reorder" detail: @"dropped in the second slot, and still the selected tab"];
+      }
+    else
+      {
+        [self fail: @"window-tab-drag-reorder" detail:
+          [NSString stringWithFormat: @"tabs %@ after the drop, the dragged one on screen %d",
+                    [order componentsJoinedByString: @", "], (int)[first isVisible]]];
+      }
+  }
+
+  /* The same tab pulled well below the bar and released: a window of its
+     own, moved down as far as the pointer went; the other two stay
+     tabbed. */
+  {
+    NSWindow *second = [windows objectAtIndex: 1];
+    NSUInteger index = [[first tabbedWindows] indexOfObjectIdenticalTo: first];
+    NSRect frame = [first frame];
+    CGFloat drop = NSHeight([bar bounds]) + 40.0;
+    NSPoint path[2];
+    NSRect tab;
+
+    if (index == NSNotFound || [first isVisible] == NO)
+      {
+        [self fail: @"window-tab-drag-detach" detail: @"the dragged tab isn't the selected tab of its group"];
+      }
+    else
+      {
+        tab = [bar rectForTabAtIndex: index];
+        path[0] = NSMakePoint(0.0, -12.0);
+        path[1] = NSMakePoint(0.0, -drop);
+        (void)QuirkProbeDragTab(bar, decoration, NSMakePoint(NSMidX(tab) - 20.0, NSMidY([bar bounds])), path, 2);
+        QuirkProbeDispatchEvents(0.2);
+        if ([[first tabbedWindows] count] < 2 && [[second tabbedWindows] count] == 2
+            && [first isVisible]
+            && fabs(NSMinX([first frame]) - NSMinX(frame)) <= 2.0
+            && fabs(NSMinY([first frame]) - (NSMinY(frame) - drop)) <= 2.0)
+          {
+            [self pass: @"window-tab-drag-detach" detail:
+              [NSString stringWithFormat: @"pulled %.0fpt below the bar: a window of its own at %@, the other two tabbed",
+                        drop, NSStringFromPoint([first frame].origin)]];
+          }
+        else
+          {
+            [self fail: @"window-tab-drag-detach" detail:
+              [NSString stringWithFormat: @"its group has %lu tabs, the other's %lu; on screen %d; frame %@ (want %@ moved %.0fpt down)",
+                        (unsigned long)[[first tabbedWindows] count], (unsigned long)[[second tabbedWindows] count],
+                        (int)[first isVisible], NSStringFromRect([first frame]), NSStringFromRect(frame), drop]];
+          }
+      }
+  }
+  [self closeTabbedWindows: windows];
+}
+
+/* A gap opened for a tab dragged from another window is laid out as a
+   slot: the tabs from it on move one slot along at their width, and the
+   "+" (WinUI's AddTabButton, right after the last tab) follows. */
+- (void) checkWindowTabDropGap
+{
+  NSArray *windows = [self makeTabbedWindows: 2 frame: NSMakeRect(120, 220, 1200, 160)
+                              identifier: @"QuirkProbe Gap"];
+  NSWindow *first = [windows objectAtIndex: 0];
+  NSView *decoration = [[first contentView] superview];
+  NSView *bar = QuirkProbeFindTabBar(decoration);
+  NSRect tab;
+  NSRect moved;
+  NSRect newTab;
+  CGFloat width;
+  CGFloat gapWidth;
+
+  if (windows == nil || bar == nil || [bar numberOfTabs] != 2)
+    {
+      [self fail: @"window-tab-drop-gap" detail: @"two tabbed windows show no bar with two tabs"];
+      [self closeTabbedWindows: windows];
+      return;
+    }
+  if ([bar respondsToSelector: @selector(setDropGapSlot:)] == NO)
+    {
+      [self fail: @"window-tab-drop-gap" detail: @"the bar opens no gap (no -setDropGapSlot:: the shared code before phase 2)"];
+      [self closeTabbedWindows: windows];
+      return;
+    }
+  _offersNewTab = YES;
+  tab = [bar rectForTabAtIndex: 0];
+  width = [bar tabWidth];
+  [bar setDropGapSlot: 1];
+  gapWidth = [bar tabWidth];
+  moved = [bar rectForTabAtIndex: 1];
+  newTab = [bar newTabButtonRect];
+  [first display];
+  [self saveView: decoration named: @"window-tabs-drop-gap"];
+  if (fabs(gapWidth - width) < 0.5
+      && fabs(NSMinX(moved) - (NSMinX(tab) + 2.0 * width)) < 0.5
+      && fabs(NSMinX(newTab) - NSMaxX(moved)) <= 1.0)
+    {
+      [self pass: @"window-tab-drop-gap" detail:
+        [NSString stringWithFormat: @"a gap in the second slot: tabs still %.0fpt, the second at %.0f, the \"+\" at %.0f",
+                  gapWidth, NSMinX(moved), NSMinX(newTab)]];
+    }
+  else
+    {
+      [self fail: @"window-tab-drop-gap" detail:
+        [NSString stringWithFormat: @"tabs %.0fpt (%.0f without the gap), the second tab %@, the \"+\" %@",
+                  gapWidth, width, NSStringFromRect(moved), NSStringFromRect(newTab)]];
+    }
+  [bar setDropGapSlot: -1];
+  _offersNewTab = NO;
+  [self closeTabbedWindows: windows];
+}
+
+/* The bar is redrawn when its window becomes or stops being key: the
+   theme draws the key state, and the shared bar shows its "+" only while
+   the key window's responders answer -newWindowForTab:. A newly selected
+   tab drew its bar before it became key and kept that drawing, without
+   the "+" and with the tabs wider than the bar hit-tests them
+   (MarkdownViewer; likely why a posted click on a new tab's close button
+   was sometimes ignored). */
+- (void) checkWindowTabKeyRedraw
+{
+  NSArray *windows = [self makeTabbedWindows: 2 frame: NSMakeRect(120, 220, 480, 160)
+                                  identifier: @"QuirkProbe Key"];
+  NSWindow *first = [windows objectAtIndex: 0];
+  NSView *bar = QuirkProbeFindTabBar([[first contentView] superview]);
+  NSWindow *other = [self windowWithFrame: NSMakeRect(640, 220, 200, 100) title: @"QuirkProbe Key Other"];
+  BOOL resigned;
+  BOOL became;
+
+  if (windows == nil || bar == nil || [bar window] != first)
+    {
+      [self fail: @"window-tab-bar-redraws-on-key" detail: @"two tabbed windows show no bar"];
+      [self closeTabbedWindows: windows];
+      [other close];
+      return;
+    }
+  [first display];
+  [other makeKeyAndOrderFront: nil];
+  resigned = [bar needsDisplay];
+  [first display];
+  [first makeKeyAndOrderFront: nil];
+  became = [bar needsDisplay];
+  if ([first isKeyWindow] == NO)
+    {
+      [self skip: @"window-tab-bar-redraws-on-key" detail: @"the tab's window didn't become key"];
+    }
+  else if (resigned && became)
+    {
+      [self pass: @"window-tab-bar-redraws-on-key" detail:
+        @"the bar needs display once its window stops being key, and again once it is key"];
+    }
+  else
+    {
+      [self fail: @"window-tab-bar-redraws-on-key" detail:
+        [NSString stringWithFormat: @"the bar needs display: after its window resigned key %d, after it became key %d",
+                  (int)resigned, (int)became]];
+    }
+  [other close];
+  [self closeTabbedWindows: windows];
 }
 
 - (void) checkHorizontalOnlyScroller
@@ -7558,6 +8151,10 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkSearchField];
   [self checkHorizontalOnlyScroller];
   [self checkWindowTabs];
+  [self checkWindowTabScrolling];
+  [self checkWindowTabDragging];
+  [self checkWindowTabDropGap];
+  [self checkWindowTabKeyRedraw];
   [self checkPopUpClick];
   [self checkFileDialogFilters];
   [self after: QuirkProbeSettleDelay perform: @selector(createLateWindow:)];

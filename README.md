@@ -192,7 +192,10 @@ from the theme, its Windows placement (maximized, and the size to restore
 to); closing the selected tab shows its neighbour first, so the app doesn't
 take it for its last window; Ctrl+Tab, Ctrl+Shift+Tab and Ctrl+Page
 Up/Down switch tabs even from a text view. A tab keeps its group's frame
-when the theme gives it the menu bar.
+when the theme gives it the menu bar. Tabs are dragged along the bar to
+reorder them, or pulled 32pt above or below it into a window of their own
+or onto another window's bar; tabs that don't fit at their minimum width
+scroll with the wheel.
 
 The theme draws the bar as WinUI's TabView (Notepad, Terminal), from its
 `generic.xaml` resources: a 40px strip (8px above 32px tabs) on a step
@@ -205,8 +208,13 @@ between them; a 32x24 close button on every tab (WinUI's default
 CloseButtonOverlayMode, Auto, means Always), shown as a dot while the tab's
 window has unsaved changes and the pointer isn't on the tab, as Notepad
 does; a "+" right after the last tab when something answers
-`-newWindowForTab:`. High contrast uses ButtonFace, Window, WindowText,
-Hilight and HilightText as WinUI's TabView does.
+`-newWindowForTab:`. A dragged tab is lifted off the strip over a soft
+shadow, as WinUI lifts a dragged TabViewItem. Where tabs are scrolled out
+of sight the strip fades in over 24px at that end; WinUI's TabView has
+chevron scroll buttons there instead, but the shared bar has no buttons
+to click at its ends. High contrast uses ButtonFace, Window, WindowText,
+Hilight and HilightText as WinUI's TabView does (no shadow, and an 8px
+ButtonFace band with a WindowText divider in place of the fade).
 
 Windows 11 apps put their tabs in the title bar. libs-back's Windows
 server leaves the title bar to Windows, so here the bar has its own row
