@@ -499,6 +499,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkDatePicker;
 - (void) checkBrowser;
 - (void) checkBrowserTitles;
+- (void) checkSplitViewDividers;
 - (void) checkColorWell;
 - (void) checkBoxes;
 - (void) checkContrastTheme;
@@ -3535,6 +3536,163 @@ QuirkProbeColumnTitleProblem(NSBitmapImageRep *rep, NSRect pixels, CGFloat scale
           }
         [self fail: @"browser-column-titles" detail: [NSString stringWithFormat:
           @"rows' text edge %.0fpt; %@", textEdge / scale, [details componentsJoinedByString: @"; "]]];
+      }
+  }
+  [window orderOut: nil];
+}
+
+/* A split view of two empty panes, laid out. */
+static NSSplitView *
+QuirkProbeSplitView(NSView *content, NSRect frame, BOOL vertical, NSSplitViewDividerStyle style)
+{
+  NSSplitView *split = AUTORELEASE([[NSSplitView alloc] initWithFrame: frame]);
+  NSRect half = vertical ? NSMakeRect(0, 0, NSWidth(frame) / 2, NSHeight(frame))
+                         : NSMakeRect(0, 0, NSWidth(frame), NSHeight(frame) / 2);
+
+  [split setVertical: vertical];
+  [split setDividerStyle: style];
+  [split addSubview: AUTORELEASE([[NSView alloc] initWithFrame: half])];
+  [split addSubview: AUTORELEASE([[NSView alloc] initWithFrame: half])];
+  [split adjustSubviews];
+  [content addSubview: split];
+  return split;
+}
+
+/* The 0-255 channels of `color`. */
+static void
+QuirkProbeRGB(NSColor *color, NSInteger rgb[3])
+{
+  NSColor *calibrated = [color colorUsingColorSpaceName: NSCalibratedRGBColorSpace];
+
+  rgb[0] = (NSInteger)lround([calibrated redComponent] * 255.0);
+  rgb[1] = (NSInteger)lround([calibrated greenComponent] * 255.0);
+  rgb[2] = (NSInteger)lround([calibrated blueComponent] * 255.0);
+}
+
+/* The largest channel difference between a pixel and `rgb`. */
+static NSInteger
+QuirkProbeChannelDistance(NSBitmapImageRep *rep, NSInteger x, NSInteger y, NSInteger rgb[3])
+{
+  NSUInteger red = 0, green = 0, blue = 0;
+
+  if (QuirkProbePixel(rep, x, y, &red, &green, &blue) == NO)
+    {
+      return 255;
+    }
+  return MAX(llabs((long long)red - rgb[0]), MAX(llabs((long long)green - rgb[1]), llabs((long long)blue - rgb[2])));
+}
+
+/* Split view dividers (#75): WinUI separates panes with a 1px
+   DividerStrokeColorDefault line (black or white at 8% over the window;
+   WindowText in high contrast) and no grip. libs-gui drew a thin divider
+   in controlShadowColor, the darkest line in MarkdownViewer's window, and
+   a thick one (the font panel's, GNUstep's default) as NeXT's dimple. A
+   thin vertical divider's colour against the palette's, and a thick
+   horizontal one: a hairline across it, nothing else, at its full 6pt
+   (the hit area apps rely on). */
+- (void) checkSplitViewDividers
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(200, 180, 420, 260)
+                                     title: @"QuirkProbe Split Views"];
+  NSView *content = [window contentView];
+  NSSplitView *thin = QuirkProbeSplitView(content, NSMakeRect(20, 20, 180, 220), YES, NSSplitViewDividerStyleThin);
+  NSSplitView *thick = QuirkProbeSplitView(content, NSMakeRect(220, 20, 180, 220), NO, NSSplitViewDividerStyleThick);
+  BOOL highContrast = QuirkProbeHasArgument(@"--high-contrast", nil);
+  NSInteger windowRGB[3], textRGB[3], expected[3], reported[3];
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale;
+  NSUInteger i;
+
+  QuirkProbeRGB([NSColor windowBackgroundColor], windowRGB);
+  QuirkProbeRGB([NSColor controlTextColor], textRGB);
+  for (i = 0; i < 3; i++)
+    {
+      expected[i] = highContrast ? textRGB[i] : (NSInteger)lround(windowRGB[i] + (textRGB[i] - windowRGB[i]) * 0.08);
+    }
+  QuirkProbeRGB([thin dividerColor], reported);
+
+  [window orderFront: nil];
+  [window display];
+  rep = QuirkProbeRender(content);
+  scale = QuirkProbeScale(rep, content);
+  [self saveView: content named: @"split-view-dividers"];
+
+  /* The thin divider: the palette's divider, and -dividerColor says so
+     (libs-gui caches controlShadowColor at -initWithFrame:). */
+  {
+    NSRect leading = [[[thin subviews] objectAtIndex: 0] frame];
+    NSRect divider = NSMakeRect(NSMaxX(leading), 0, [thin dividerThickness], NSHeight([thin bounds]));
+    NSRect pixels = QuirkProbePixelRect(content, [content convertRect: divider fromView: thin], scale);
+    NSInteger x = (NSInteger)NSMinX(pixels), y = (NSInteger)NSMidY(pixels);
+    NSInteger drawn = QuirkProbeChannelDistance(rep, x, y, expected);
+    NSInteger said = MAX(llabs(reported[0] - expected[0]), MAX(llabs(reported[1] - expected[1]), llabs(reported[2] - expected[2])));
+    NSUInteger red = 0, green = 0, blue = 0;
+
+    QuirkProbePixel(rep, x, y, &red, &green, &blue);
+    if (drawn <= 6 && said <= 6)
+      {
+        [self pass: @"split-view-thin-divider" detail: [NSString stringWithFormat:
+          @"#%02lX%02lX%02lX, the palette's divider #%02lX%02lX%02lX, which -dividerColor returns",
+          (unsigned long)red, (unsigned long)green, (unsigned long)blue,
+          (long)expected[0], (long)expected[1], (long)expected[2]]];
+      }
+    else
+      {
+        [self fail: @"split-view-thin-divider" detail: [NSString stringWithFormat:
+          @"drawn #%02lX%02lX%02lX, -dividerColor #%02lX%02lX%02lX; the palette's divider is #%02lX%02lX%02lX",
+          (unsigned long)red, (unsigned long)green, (unsigned long)blue,
+          (long)reported[0], (long)reported[1], (long)reported[2],
+          (long)expected[0], (long)expected[1], (long)expected[2]]];
+      }
+  }
+
+  /* The thick divider: rows of it are either the hairline all the way
+     across or the window all the way across. */
+  {
+    NSRect leading = [[[thick subviews] objectAtIndex: 0] frame];
+    NSRect divider = NSMakeRect(0, NSMaxY(leading), NSWidth([thick bounds]), [thick dividerThickness]);
+    NSRect pixels = QuirkProbePixelRect(content, [content convertRect: divider fromView: thick], scale);
+    NSInteger x, y, lineRows = 0, windowRows = 0, otherRows = 0;
+    NSInteger x0 = (NSInteger)NSMinX(pixels), x1 = (NSInteger)NSMaxX(pixels);
+
+    for (y = (NSInteger)NSMinY(pixels); y < (NSInteger)NSMaxY(pixels); y++)
+      {
+        NSInteger onLine = 0, onWindow = 0;
+
+        for (x = x0; x < x1; x++)
+          {
+            if (QuirkProbeChannelDistance(rep, x, y, expected) <= 6)
+              {
+                onLine++;
+              }
+            else if (QuirkProbeChannelDistance(rep, x, y, windowRGB) <= 6)
+              {
+                onWindow++;
+              }
+          }
+        if (onLine == x1 - x0)
+          {
+            lineRows++;
+          }
+        else if (onWindow == x1 - x0)
+          {
+            windowRows++;
+          }
+        else
+          {
+            otherRows++;
+          }
+      }
+    if ([thick dividerThickness] >= 6.0 && lineRows >= 1 && lineRows <= (NSInteger)ceil(scale) && otherRows == 0)
+      {
+        [self pass: @"split-view-thick-divider" detail: [NSString stringWithFormat:
+          @"a %ld px hairline across the %.0fpt divider, no dimple", (long)lineRows, [thick dividerThickness]]];
+      }
+    else
+      {
+        [self fail: @"split-view-thick-divider" detail: [NSString stringWithFormat:
+          @"the %.0fpt divider has %ld rows of the divider colour, %ld of the window, %ld of anything else (a dimple?)",
+          [thick dividerThickness], (long)lineRows, (long)windowRows, (long)otherRows]];
       }
   }
   [window orderOut: nil];
@@ -7348,6 +7506,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkDatePicker];
   [self checkBrowser];
   [self checkBrowserTitles];
+  [self checkSplitViewDividers];
   [self checkColorWell];
   [self checkBoxes];
   [self checkContrastTheme];
