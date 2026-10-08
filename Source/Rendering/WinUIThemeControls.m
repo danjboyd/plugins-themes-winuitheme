@@ -330,8 +330,10 @@ WinUIThemeDrawCheckboxOrRadioIndicator(WinUITheme *theme,
   if (radio && (state == NSOnState || (pressed && state == NSOffState)))
     {
       /* A checked radio's centre; pressed, an unchecked one shows it too,
-         in the border's colour. */
-      CGFloat dot = round((pressed ? 10.0 : (hover ? 14.0 : 12.0)) * scale);
+         in the border's colour. WinUI's is 12 of its 20px (14 under the
+         pointer, 10 pressed): a share of the indicator, so the accent ring
+         stays at compact metrics' smaller size (#81). */
+      CGFloat dot = round(indicatorSize * (pressed ? 0.5 : (hover ? 0.7 : 0.6)));
 
       WinUIThemeDrawRadioDot(WinUIThemeCenteredRect(indicatorRect, dot, dot),
                              state == NSOnState ? markColor : borderColor);

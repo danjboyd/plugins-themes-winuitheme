@@ -468,6 +468,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkListSelection;
 - (void) checkSelectedRowText;
 - (void) checkToolTip;
+- (void) checkInspectorIndicators;
 - (void) checkSearchField;
 - (void) checkHorizontalOnlyScroller;
 - (void) checkWindowTabs;
@@ -632,6 +633,28 @@ QuirkProbeSelectedRowInk(NSTableView *view, NSInteger row, NSBitmapImageRep *rep
         }
     }
   return count;
+}
+
+/* The accent colour's pixels (the checked box or radio), whatever the
+   palette: within 40 of selectedControlColor in each channel. */
+static NSUInteger QuirkProbeAccentRGB[3];
+
+static BOOL
+QuirkProbeIsPaletteAccent(NSUInteger red, NSUInteger green, NSUInteger blue)
+{
+  return labs((long)red - (long)QuirkProbeAccentRGB[0]) <= 40
+    && labs((long)green - (long)QuirkProbeAccentRGB[1]) <= 40
+    && labs((long)blue - (long)QuirkProbeAccentRGB[2]) <= 40;
+}
+
+static void
+QuirkProbeLoadAccent(void)
+{
+  NSColor *accent = [[NSColor selectedControlColor] colorUsingColorSpaceName: NSCalibratedRGBColorSpace];
+
+  QuirkProbeAccentRGB[0] = (NSUInteger)lrint([accent redComponent] * 255.0);
+  QuirkProbeAccentRGB[1] = (NSUInteger)lrint([accent greenComponent] * 255.0);
+  QuirkProbeAccentRGB[2] = (NSUInteger)lrint([accent blueComponent] * 255.0);
 }
 
 @implementation QuirkProbe
@@ -6022,6 +6045,65 @@ QuirkProbeInkIn(NSBitmapImageRep *rep, NSRect area, NSInteger fill, NSInteger th
   [window orderOut: nil];
 }
 
+/* Radios as Gorm's inspectors have them (issue #81): a checked radio
+   smaller than WinUI's 20px keeps an accent ring round its dot (the dot
+   was a fixed 12px, which filled a compact radio). */
+- (void) checkInspectorIndicators
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(420, 300, 260, 100)
+                                     title: @"QuirkProbe Indicators"];
+  NSButton *radio = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(20, 20, 120, 16)]);
+  NSBitmapImageRep *rep;
+  QuirkProbeInk accent;
+  CGFloat scale;
+
+  QuirkProbeLoadAccent();
+  [radio setButtonType: NSRadioButton];
+  [radio setTitle: @"Buffered"];
+  [radio setState: NSOnState];
+  [[window contentView] addSubview: radio];
+  [window orderFront: nil];
+  [window display];
+
+  /* The ring: accent from the indicator's edge to the dot, along its
+     middle row. */
+  rep = QuirkProbeRender(radio);
+  scale = QuirkProbeScale(rep, radio);
+  [self saveView: radio named: @"radio-dot-small"];
+  accent = QuirkProbeMeasureIn(rep, QuirkProbeIsPaletteAccent, NSMakeRect(0, 0, 30 * scale, [rep pixelsHigh]));
+  if (accent.count == 0)
+    {
+      [self fail: @"radio-ring-small" detail: @"no accent: the checked radio isn't drawn"];
+    }
+  else
+    {
+      NSInteger y = accent.minY + accent.height / 2;
+      NSInteger x = accent.minX;
+      NSInteger run = 0;
+      NSUInteger red, green, blue;
+
+      while (x < accent.minX + accent.width && QuirkProbePixel(rep, x, y, &red, &green, &blue)
+             && QuirkProbeIsPaletteAccent(red, green, blue))
+        {
+          run++;
+          x++;
+        }
+      if (run >= 2.5 * scale && run < accent.width / 2)
+        {
+          [self pass: @"radio-ring-small" detail: [NSString stringWithFormat:
+            @"a %.0fpt radio keeps a %.1fpt accent ring round its dot",
+            accent.width / scale, run / scale]];
+        }
+      else
+        {
+          [self fail: @"radio-ring-small" detail: [NSString stringWithFormat:
+            @"a %.0fpt radio's accent ring is %.1fpt: it reads as unchecked",
+            accent.width / scale, run / scale]];
+        }
+    }
+  [window orderOut: nil];
+}
+
 /* WinUI's AutoSuggestBox (issue #9): an empty search field shows only
    the magnifier, at its trailing edge, nothing before its text; with
    text, the delete cross shows just before the magnifier. */
@@ -6443,6 +6525,7 @@ QuirkProbeLastItemOfMenu(NSString *title)
   [self checkListSelection];
   [self checkSelectedRowText];
   [self checkToolTip];
+  [self checkInspectorIndicators];
   [self checkSearchField];
   [self checkHorizontalOnlyScroller];
   [self checkWindowTabs];
