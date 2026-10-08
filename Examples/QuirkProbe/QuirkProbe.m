@@ -455,6 +455,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkBoxes;
 - (void) checkContrastTheme;
 - (void) checkSegmentedControl;
+- (void) checkCellSizes;
 - (void) checkTabView;
 - (void) checkMetricsChoice;
 - (void) checkTableDefaults;
@@ -3716,6 +3717,137 @@ QuirkProbeAccentRuns(NSBitmapImageRep *rep, NSInteger y, CGFloat scale, CGFloat 
   [window orderOut: nil];
 }
 
+/* -cellSize gives the height the theme draws a control at (issue #86). An
+   app that sizes its controls from -cellSize got WinUI's 32pt push
+   buttons, but segmented controls, sliders and TextBoxes only as tall as
+   their text: the selected segment's pill and the slider's thumb were
+   clipped, and a text field sat shorter than the button beside it. WinUI's
+   Segmented, Slider (its touch target) and TextBox are as tall as a
+   Button, 32px (24px compact). */
+- (void) checkCellSizes
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(240, 200, 420, 260)
+                                     title: @"QuirkProbe Cell Sizes"];
+  NSView *content = [window contentView];
+  NSButton *button = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(20, 210, 100, 32)]);
+  NSSegmentedControl *segments = QuirkProbeSegments(content, NSMakeRect(20, 160, 300, 20),
+                                                    NSSegmentSwitchTrackingSelectOne);
+  NSSlider *slider = AUTORELEASE([[NSSlider alloc] initWithFrame: NSMakeRect(20, 110, 240, 20)]);
+  NSTextField *field = AUTORELEASE([[NSTextField alloc] initWithFrame: NSMakeRect(20, 60, 200, 20)]);
+  NSTextField *readOnly = AUTORELEASE([[NSTextField alloc] initWithFrame: NSMakeRect(20, 10, 200, 20)]);
+  NSControl *controls[4];
+  NSString *names[4] = { @"cell-size-segmented", @"cell-size-slider",
+                         @"cell-size-text-field", @"cell-size-read-only-field" };
+  CGFloat buttonHeight, desktop = QuirkProbeDesktopScale();
+  CGFloat thumb = round(20.0 * desktop);
+  NSUInteger index;
+
+  [button setTitle: @"OK"];
+  [button setBezelStyle: NSRoundedBezelStyle];
+  [content addSubview: button];
+  [segments setSelectedSegment: 0];
+  [slider setMinValue: 0.0];
+  [slider setMaxValue: 100.0];
+  [slider setDoubleValue: 50.0];
+  [content addSubview: slider];
+  [field setStringValue: @"Text"];
+  [content addSubview: field];
+  [readOnly setStringValue: @"Read only"];
+  [readOnly setEditable: NO];
+  [readOnly setBezeled: YES];
+  [content addSubview: readOnly];
+  controls[0] = segments;
+  controls[1] = slider;
+  controls[2] = field;
+  controls[3] = readOnly;
+
+  buttonHeight = [[button cell] cellSize].height;
+  for (index = 0; index < 4; index++)
+    {
+      CGFloat height = [[controls[index] cell] cellSize].height;
+      NSString *detail = [NSString stringWithFormat: @"%.0fpt tall, a push button %.0fpt",
+                                                     height, buttonHeight];
+
+      [controls[index] setFrameSize: NSMakeSize(NSWidth([controls[index] frame]), height)];
+      if (fabs(height - buttonHeight) <= 0.5)
+        {
+          [self pass: names[index] detail: detail];
+        }
+      else
+        {
+          [self fail: names[index] detail: detail];
+        }
+    }
+
+  /* Drawn in a frame of that height, nothing is clipped: the selected
+     segment's 3x16pt pill and the slider's whole thumb show. */
+  [window orderFront: nil];
+  [window display];
+  if (QuirkProbeHasArgument(@"--high-contrast", nil))
+    {
+      [self skip: @"cell-size-segmented-unclipped" detail: @"high contrast draws the selection as the highlight"];
+    }
+  else
+    {
+      NSBitmapImageRep *rep = QuirkProbeRender(segments);
+      CGFloat scale = QuirkProbeScale(rep, segments);
+      QuirkProbeInk pill = QuirkProbeMeasureIn(rep, QuirkProbeIsAccentBlue, NSZeroRect);
+      NSString *detail = [NSString stringWithFormat: @"in %.0fpt: a %.0fx%.0fpt accent pill",
+                                                     NSHeight([segments frame]),
+                                                     pill.width / scale, pill.height / scale];
+
+      [self saveView: segments named: @"cell-size-segmented"];
+      if (pill.count > 0 && fabs(pill.width / scale - 16.0) <= 1.5 && fabs(pill.height / scale - 3.0) <= 1.0
+          && pill.minY + pill.height < [rep pixelsHigh] - 1)
+        {
+          [self pass: @"cell-size-segmented-unclipped" detail: detail];
+        }
+      else
+        {
+          [self fail: @"cell-size-segmented-unclipped" detail: [detail stringByAppendingString: @", expected 16x3"]];
+        }
+    }
+  {
+    NSBitmapImageRep *rep = QuirkProbeRender(slider);
+    CGFloat scale = QuirkProbeScale(rep, slider);
+    NSInteger x = (NSInteger)(NSWidth([slider bounds]) / 2.0 * scale);
+    NSInteger y, top = -1, bottom = -1;
+    NSUInteger red, green, blue;
+    NSString *detail = nil;
+
+    [self saveView: slider named: @"cell-size-slider"];
+    QuirkProbePixel(rep, 1, 1, &red, &green, &blue);
+    QuirkProbeInkBackground = red + green + blue;
+    /* The thumb's edge in light mode is a stroke only a few levels from
+       the window: anything off the background counts. */
+    for (y = 0; y < [rep pixelsHigh]; y++)
+      {
+        QuirkProbePixel(rep, x, y, &red, &green, &blue);
+        if (llabs((long long)(red + green + blue) - (long long)QuirkProbeInkBackground) > 12)
+          {
+            if (top < 0)
+              {
+                top = y;
+              }
+            bottom = y;
+          }
+      }
+    detail = [NSString stringWithFormat: @"in %.0fpt: the thumb is %.0fpt tall (%.0fpt expected)",
+                                         NSHeight([slider frame]),
+                                         (top >= 0) ? (bottom - top + 1) / scale : 0.0, thumb];
+    if (top > 0 && bottom < [rep pixelsHigh] - 1 && (bottom - top + 1) >= (thumb - 1.5) * scale)
+      {
+        [self pass: @"cell-size-slider-unclipped" detail: detail];
+      }
+    else
+      {
+        [self fail: @"cell-size-slider-unclipped" detail: detail];
+      }
+  }
+  [segments removeFromSuperview];
+  [window orderOut: nil];
+}
+
 /* NSTabView's top tabs as WinUI's SelectorBar (issue #49): text items, the
    selected one over a 3x16pt accent pill. A click on a tab has to find it:
    the theme drew tabs without recording their rects, so
@@ -6877,6 +7009,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkBoxes];
   [self checkContrastTheme];
   [self checkSegmentedControl];
+  [self checkCellSizes];
   [self checkTabView];
   [self checkMetricsChoice];
   [self checkTableDefaults];

@@ -35,6 +35,7 @@ WinUITheme_OBJC_FILES = \
 	Source/Rendering/WinUIThemeBrowser.m \
 	Source/Rendering/WinUIThemeColorWell.m \
 	Source/Rendering/WinUIThemeBoxes.m \
+	Source/Rendering/WinUIThemeCellSizes.m \
 	Source/Rendering/WinUIThemeMenusAndData.m \
 	Source/Rendering/WinUIThemeMenuTracking.m \
 	Source/Rendering/WinUIThemeApplicationMenu.m \
