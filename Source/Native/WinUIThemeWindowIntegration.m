@@ -22,6 +22,7 @@
 
 #import "../WinUITheme.h"
 #import "../Settings/WinUIThemeSettings.h"
+#import "GSWindowTabbing.h"
 
 #import <AppKit/AppKit.h>
 #import <math.h>
@@ -867,6 +868,28 @@ WinUIThemeApplyWindowIdentity(NSWindow *window,
 
 @end
 
+/* A menu bar makes a window taller (-[GSWindowDecorationView addMenuView:]
+   grows the frame by the bar). The theme gives a window made after launch
+   the main menu's bar when it becomes key or main (#1), and libs-gui may
+   add it to every window when the menu changes; a tab (#72) has by then
+   taken its group's frame, so each new tab grew the group by a menu bar.
+   A window tabbed with others keeps its frame, and its content gives up
+   the row. */
+@interface GSWindowDecorationView (WinUIThemeMenuView)
+- (void) addMenuView: (NSMenuView *)menuView;
+@end
+
+static void
+WinUIThemeKeepTabFrame(NSWindow *window, NSRect frame)
+{
+  if ([window respondsToSelector: @selector(tabbedWindows)]
+      && [[window tabbedWindows] count] > 1
+      && NSEqualRects([window frame], frame) == NO)
+    {
+      [window setFrame: frame display: YES];
+    }
+}
+
 @implementation WinUIThemeBackendWindowDecorationView
 
 - (void) setWindowNumber: (int)theWindowNumber
@@ -887,6 +910,14 @@ WinUIThemeApplyWindowIdentity(NSWindow *window,
 {
   [super setInputState: state];
   WinUIThemeWindowIntegrationSynchronizeWindow(window);
+}
+
+- (void) addMenuView: (NSMenuView *)menuView
+{
+  NSRect frame = [window frame];
+
+  [super addMenuView: menuView];
+  WinUIThemeKeepTabFrame(window, frame);
 }
 
 @end
@@ -911,6 +942,14 @@ WinUIThemeApplyWindowIdentity(NSWindow *window,
 {
   [super setInputState: state];
   WinUIThemeWindowIntegrationSynchronizeWindow(window);
+}
+
+- (void) addMenuView: (NSMenuView *)menuView
+{
+  NSRect frame = [window frame];
+
+  [super addMenuView: menuView];
+  WinUIThemeKeepTabFrame(window, frame);
 }
 
 @end

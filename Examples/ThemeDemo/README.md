@@ -62,6 +62,7 @@ the caption under them, in lower case with hyphens for spaces: `save`,
 | `type TEXT` | types text into the focus |
 | `key KEY` | presses a key: `tab`, `shift+tab`, `return`, `escape`, `space`, `up`, `down`, `left`, `right`, `home`, `end`, `backspace`, `delete`, or a character, with `shift+`, `ctrl+` (GNUstep's Command) or `alt+`. A key press shows keyboard focus, as it does for a user |
 | `report-focus` | reports the focused control |
+| `tooltip NAME`, `tooltip-hide` | shows a control's tool tip as its timer would (below the pointer, which isn't moved), and hides it; capture it with `screenshot-app` |
 | `open-dropdown NAME`, `close-dropdown` | opens a pop-up button's menu or a combo box's list, and closes it |
 | `capture-dropdown NAME PATH` | opens it, captures the app's windows to `PATH`, and closes it |
 | `alert`, `dismiss-alert [BUTTON]` | runs the demo's stock "save changes" NSAlert, and presses one of its buttons (Cancel unless named). The alert closes within about a second of `dismiss-alert`: wait before capturing what's under it |

@@ -29,7 +29,7 @@ in `Docs/IMPROVEMENTS.md`.
 
 ## Where things stand
 
-Phases A to H are merged into `main`:
+Phases A to I are merged into `main`:
 
 | PR | Branch | Issues |
 | --- | --- | --- |
@@ -43,12 +43,24 @@ Phases A to H are merged into `main`:
 | #68 | `adwaita-parity-phase-g` | #62 (LGPL-2.1-or-later), #13, #57, #56, #58 |
 | #70 | `fix-missing-indicator-images` | buttons as radios without gui's images |
 | #71 | `adwaita-parity-phase-h` | #26, #48, #49, #31 |
+| #73 | `adwaita-parity-phase-i` | #27, #45, #32, #17 |
 
-Phase I, on `adwaita-parity-phase-i` from `main` (`a0c38be`), isn't pushed
-yet: #27 (boxes as cards, forms as TextBoxes), #45 (contrast themes' system
-colours), #32 (the Gorm palette, `Palettes/WinUI`) and #17 (ThemeDemo
-command scripts). The issues close when their commits (`Fixes #N`) reach
-`main`.
+Phase J, on `adwaita-parity-phase-j` from `main` (`d0da342`): #66 (selected
+row text), #22 (tool tip padding and font), window tabs (part of #72:
+above the content, drawn as WinUI's TabView, on the vendored shared code)
+and the 2026-10-08 real-app pass (part of #19, filed as #74-#82). The issues
+close when their commits (`Fixes #N`) reach `main`.
+
+**Window tabs (#72):** the shared code (danjboyd/gnustep-window-tabbing,
+`2fcb697`) is vendored in `ThirdParty/gnustep-window-tabbing`; update it by
+copying and recording the hash in the README. The theme installs it from
+`-activate`, so `NSWindow` has Apple's tabbing API before an app's first
+window. The bar sits above the content because libs-back leaves the title
+bar to Windows; title-bar tabs are #83 (libs-back work first). The spec
+comment (gnustep-window-tabbing#1) reports two shared-code problems the
+theme works round: closing the selected tab quit the app, and a tab grew by
+the menu bar. Still to do for #72: check ObjcMarkdown's tabs (its
+`window-tabs` branch, ObjcMarkdown#101, isn't pushed yet).
 
 **Upstream patch waiting for the owner:** libs-back branch `win32pbs-images`
 (`C:\Users\Support\git\gnustep\libs-back`, commit `f01cbbb`, not pushed)
@@ -90,27 +102,24 @@ in a CLANG64 shell; never install it into
 
 | Area | Issues |
 | --- | --- |
-| Fidelity | #22 tool tips (colours done in #39; padding and font remain); #30 popup window owner/tool-window style; #66 selected row text colour (unreadable in high contrast) |
-| Windows | #72 window tabs (Windows 11 title-bar tabs on the shared code in danjboyd/gnustep-window-tabbing; Adwaita builds that first); #67 dialogs get a maximize button (libs-back); #69 print panel drops PrintDlgW's choices |
+| Fidelity | #74 browser titles upside down (font panel); #75 split view dividers; #80 `NSImageRight` checkboxes; #81 radio dot at compact size; #82 pop-up selection in high contrast; #30 popup window owner/tool-window style |
+| Windows | #76 file dialogs show one type at a time; #77 menu bar overflow; #78 menu bar keyboard access (confirm with a real keyboard); #79 alert captions; #72/#83 window tabs (ObjcMarkdown check; title bar); #67 dialogs get a maximize button (libs-back); #69 print panel drops PrintDlgW's choices |
 | System | #47 Mica (investigate, upstream) |
 | Nib apps | #33 document window titles |
-| Testing | #19 real-app backlog; #20 native dialogs at run time |
+| Testing | #19 real-app backlog (menus, tool tips and hover in the apps need the real pointer); #20 native dialogs at run time |
 
 **Suggested next five:**
 
-1. **#66 selected row text colour:** unreadable in high contrast, and with
-   #45 the contrast themes' Hilight and HilightText are now real colours to
-   match.
-2. **Post the libs-back image patch** (above), once reviewed: pasting
-   images on Windows for ScreenshotTool.
-3. **#72 window tabs:** read the shared spec and comment on what the
-   Windows backend needs (ordering windows out, frames, the title bar),
-   then draw the tabs once Adwaita has settled the theme methods.
-4. **#22 tool tips:** WinUI's padding and font remain; ThemeDemo's
-   commands (#17) can now script and capture them.
-5. **#19 real apps:** Gorm with the new palette (#32), ObjcMarkdown and
-   ScreenshotTool, run through the scripted ThemeDemo captures where they
-   fit.
+1. **Post the libs-back image patch** (above), once the owner has reviewed
+   it: pasting images on Windows for ScreenshotTool.
+2. **#76 file dialog filters:** ScreenshotTool's Open hides every file but
+   PNGs; the most visible real-app bug.
+3. **#80 and #81, Gorm's inspectors:** `NSImageRight` checkboxes and the
+   compact radio dot, both small and seen all over Gorm.
+4. **#74 and #75, the font panel and split views:** upside-down browser
+   titles and dark dividers in MarkdownViewer.
+5. **#77 and #78, the menu bar:** overflow in narrow windows and keyboard
+   access (Alt, F10); check #78 with a real keyboard first.
 
 ### Known gaps in finished work
 
@@ -178,6 +187,31 @@ in a CLANG64 shell; never install it into
     scripts do that).
   - On other platforms the FIFO is opened but screen captures aren't
     implemented.
+- **Selected rows (#66):** in light and dark an app's own text colours
+  stay on the selection (they read on WinUI's subtle fill); only high
+  contrast forces HighlightText. The theme's text on accent fills now has
+  its own `accentTextColor` key; `selectedControlTextColor` is a selected
+  row's text.
+- **Tool tips (#22):** the padding is applied in `GSTTPanel`'s
+  `-setFrame:display:` by recognising libs-gui's text-plus-4pt frame; a
+  libs-gui that sizes tips differently would get no padding. The probe and
+  ThemeDemo show tips through `GSToolTips`' `_timedOut:`; real hover wasn't
+  checked (it needs the real pointer).
+- **Window tabs (#72):**
+  - Above the content, not in the title bar (#83).
+  - An app that compiles the shared code in itself (as the shared repo's
+    TabDemo does) crashes under the theme: two copies of each class.
+    Reported on the spec; apps should rely on the theme.
+  - The "+" button's hit area covers the empty strip after the tabs.
+  - The theme's `-[NSWindow close]` hook (selecting the neighbour first)
+    is installed with `method_setImplementation` and stays after a theme
+    switch.
+  - Not exercised: Ctrl+Tab, middle click, libs-gui master, real hardware.
+- **Pointer checks on 2026-10-08:** `button-hover`, `table-row-hover` and
+  `scroller-hover-expands` failed in every configuration at the end of
+  phase J, and failed the same way on `main`'s build, so the desktop was
+  to blame (other windows were open over the probe's). Rerun with the
+  desktop clear.
 - **Overriding NSBrowser methods breaks the fonts.** GSTheme sends each
   overridden class a message while it loads the theme, before the theme's
   font defaults are set. +[NSBrowser initialize] makes a title cell, which
@@ -227,7 +261,7 @@ in a CLANG64 shell; never install it into
   - `-Configuration light,dark` picks configurations;
   - `-Theme <path>` checks another build;
   - `-OutputDirectory <dir>` saves renders.
-- **Coverage:** 108 checks in light, dark and the 150% configurations (110 in
+- **Coverage:** 120 checks in light, dark and the 150% configurations (122 in
   the compact one), 4 of them moving the pointer. In high contrast and the
   contrast themes some checks skip with a reason.
 - **ThemeDemo scripts:** `Tests/Scripts/Invoke-ThemeDemoScript.ps1 -Script
@@ -320,12 +354,18 @@ How checks are written (`Examples/QuirkProbe/QuirkProbe.m`):
   | Scroll bars | `WinUIThemeScrollers.m` |
   | Focus visual | `WinUIThemeFocus.m` |
   | DWM and window integration | `Source/Native/WinUIThemeWindowIntegration.m` |
+  | Boxes and forms (#27) | `WinUIThemeBoxes.m` |
+  | Window tabs (#72) | `WinUIThemeWindowTabs.m`, shared code in `ThirdParty/` |
 
 - **Porting from Adwaita:** its versions of most of these are in
   `plugins-themes-Adwaita/Source/Rendering/`. Ported pieces include the
   overlay scrollers and the focus-visible handling.
 
 ## Working on Windows: gotchas
+
+- **Notification order:** GNUstep's notification centre tells the most
+  recent observer of a name first (the opposite of what one might assume);
+  it's why closing a tab quit the app before the theme's close hook.
 
 - **Use the Write tool for code containing escapes.** In this shell, bash
   heredocs feeding Python turned `"\n"` inside Objective-C string literals

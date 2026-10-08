@@ -621,7 +621,7 @@ WinUIThemeDatePickerAccent(WinUITheme *theme)
 static NSColor *
 WinUIThemeDatePickerOnAccent(WinUITheme *theme)
 {
-  return WinUIThemeColorFromTheme(theme, @"selectedControlTextColor", [NSColor selectedControlTextColor]);
+  return WinUIThemeColorFromTheme(theme, @"accentTextColor", [NSColor selectedControlTextColor]);
 }
 
 static NSDictionary *

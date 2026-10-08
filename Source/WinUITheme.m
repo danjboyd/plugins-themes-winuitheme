@@ -25,6 +25,7 @@
 #import "Rendering/WinUIThemePalette.h"
 #import "Native/WinUIThemeShellDialogs.h"
 #import "Native/WinUIThemeWindowIntegration.h"
+#import "GSWindowTabbing.h"
 
 #import <AppKit/AppKit.h>
 #import <GNUstepGUI/GSDisplayServer.h>
@@ -175,6 +176,12 @@ WinUIThemeRightTextAlignment(void)
 
 - (void) activate
 {
+  /* Window tabs (#72): Apple's NSWindow tabbing API, where NSWindow
+     lacks it. GSTheme activates the user's theme as NSApplication is
+     made, so the API is there before an app sets up its first window
+     (ObjcMarkdown checks for it then). */
+  GSWindowTabbingInstall();
+  WinUIThemeInstallWindowTabs();
   [self reloadConfiguration];
   [self applyRuntimeDefaults];
   _runtimeDefaultsApplied = YES;
@@ -373,7 +380,11 @@ WinUIThemeRightTextAlignment(void)
   [self addFont: interfaceFont forKey: @"NSControlContentFont" toDictionary: dictionary];
   [self addFont: interfaceFont forKey: @"NSLabelFont" toDictionary: dictionary];
   [self addFont: interfaceFont forKey: @"NSMessageFont" toDictionary: dictionary];
-  [self addFont: interfaceFont forKey: @"NSToolTipsFont" toDictionary: dictionary];
+  /* WinUI's ToolTip uses Caption, 12px times the text size (#22). */
+  [self addFont: [NSFont fontWithName: [interfaceFont fontName]
+                                 size: round(12.0 * [_settings textScaleFactor])]
+         forKey: @"NSToolTipsFont"
+   toDictionary: dictionary];
   /* Bold is WinUI's Semibold (#44): left unset, gui's bold system font
      wasn't Segoe at all. */
   [self addFont: [_settings semiboldInterfaceFontOfSize: [interfaceFont pointSize]]

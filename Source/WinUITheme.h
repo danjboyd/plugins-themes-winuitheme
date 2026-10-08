@@ -68,5 +68,9 @@ NSTextAlignment WinUIThemeRightTextAlignment(void);
 - (void) tidyMainMenu;
 @end
 
+/* Window tabs (#72, WinUIThemeWindowTabs.m): after GSWindowTabbingInstall(),
+   a closing tab hands its place to its neighbour before it closes. */
+void WinUIThemeInstallWindowTabs(void);
+
 #endif
 

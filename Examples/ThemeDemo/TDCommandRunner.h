@@ -45,6 +45,7 @@
   NSMutableArray *_queue;
   BOOL _scheduled;
   NSView *_focusedControl;
+  id _toolTips;
   NSTimer *_pipeTimer;
   NSMutableData *_pipeBuffer;
 #ifdef _WIN32

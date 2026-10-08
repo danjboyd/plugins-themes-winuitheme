@@ -300,6 +300,121 @@ QuirkProbeModuleOfAddress(void *address)
   return NULL;
 }
 
+#pragma mark Window tabs
+
+/* Apple's window tabbing API and the shared tab bar's layout methods
+   (gnustep-window-tabbing), which the theme installs at run time (#72).
+   The probe doesn't compile that code in, so it declares what it calls and
+   checks that NSWindow has it. */
+@interface NSWindow (QuirkProbeTabbing)
+- (void) addTabbedWindow: (NSWindow *)window ordered: (NSWindowOrderingMode)ordered;
+- (NSArray *) tabbedWindows;
+@end
+
+@interface NSView (QuirkProbeTabBar)
+- (NSUInteger) numberOfTabs;
+- (NSRect) rectForTabAtIndex: (NSUInteger)index;
+- (NSRect) closeButtonRectForTabAtIndex: (NSUInteger)index;
+- (NSRect) newTabButtonRect;
+@end
+
+/* Notes whether a window was on screen when another one began to close. */
+@interface QuirkProbeCloseWatcher : NSObject
+{
+@public
+  NSWindow *_closing;
+  NSWindow *_other;
+  BOOL _heard;
+  BOOL _otherVisible;
+}
+@end
+
+@implementation QuirkProbeCloseWatcher
+/* Registered for every window, as NSApplication is: the centre tells the
+   observers of a name in turn, the latest first, so this hears it when
+   NSApplication does. */
+- (void) windowWillClose: (NSNotification *)notification
+{
+  if ([notification object] == _closing && _heard == NO)
+    {
+      _heard = YES;
+      _otherVisible = [_other isVisible];
+    }
+}
+@end
+
+/* The tab bar among `view`'s subviews. */
+static NSView *
+QuirkProbeFindTabBar(NSView *view)
+{
+  NSEnumerator *enumerator = [[view subviews] objectEnumerator];
+  NSView *subview = nil;
+
+  if ([view respondsToSelector: @selector(newTabButtonRect)]
+      && [view respondsToSelector: @selector(rectForTabAtIndex:)])
+    {
+      return view;
+    }
+  while ((subview = [enumerator nextObject]) != nil)
+    {
+      NSView *found = QuirkProbeFindTabBar(subview);
+
+      if (found != nil)
+        {
+          return found;
+        }
+    }
+  return nil;
+}
+
+/* The colour at `point` (in `bar`'s coordinates) of a render of `view`,
+   which contains the bar. */
+static BOOL
+QuirkProbeTabPixel(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSPoint point,
+                   NSUInteger rgb[3])
+{
+  CGFloat scale = QuirkProbeScale(rep, view);
+  NSPoint inView = [bar convertPoint: point toView: view];
+  NSRect pixel = QuirkProbePixelRect(view, NSMakeRect(floor(inView.x), floor(inView.y), 1.0, 1.0), scale);
+
+  return QuirkProbePixel(rep, (NSInteger)NSMinX(pixel), (NSInteger)NSMinY(pixel),
+                         &rgb[0], &rgb[1], &rgb[2]);
+}
+
+static NSUInteger
+QuirkProbeTabColorDistance(NSUInteger a[3], NSUInteger b[3])
+{
+  NSUInteger distance = 0;
+  NSUInteger i;
+
+  for (i = 0; i < 3; i++)
+    {
+      NSUInteger d = (a[i] > b[i]) ? a[i] - b[i] : b[i] - a[i];
+
+      distance = MAX(distance, d);
+    }
+  return distance;
+}
+
+static NSString *
+QuirkProbeTabHex(NSUInteger rgb[3])
+{
+  return [NSString stringWithFormat: @"#%02lX%02lX%02lX",
+                                     (unsigned long)rgb[0], (unsigned long)rgb[1], (unsigned long)rgb[2]];
+}
+
+/* Pixels passing `test` in `rect` (the bar's coordinates) of a render of
+   `view`. */
+static QuirkProbeInk
+QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
+                 QuirkProbePixelTest test)
+{
+  CGFloat scale = QuirkProbeScale(rep, view);
+
+  return QuirkProbeMeasureIn(rep, test,
+                             QuirkProbePixelRect(view, [bar convertRect: rect toView: view], scale));
+}
+
 #pragma mark Test classes
 
 /* A button cell subclass, as GSToolbarButtonCell is: theme overrides
@@ -350,8 +465,11 @@ QuirkProbeModuleOfAddress(void *address)
 - (void) checkTextBox;
 - (void) checkComboBoxes;
 - (void) checkListSelection;
+- (void) checkSelectedRowText;
+- (void) checkToolTip;
 - (void) checkSearchField;
 - (void) checkHorizontalOnlyScroller;
+- (void) checkWindowTabs;
 - (void) createLateWindow: (NSTimer *)timer;
 - (void) checkLateWindow: (NSTimer *)timer;
 - (void) checkMenuBarTitles: (NSWindow *)window;
@@ -418,6 +536,103 @@ QuirkProbeModuleOfAddress(void *address)
 
 @end
 
+/* Rows whose text colour the app sets, as MarkdownViewer does (#66): a
+   table's as attributed strings, an outline's from -willDisplayCell:. */
+@interface QuirkProbeColouredRows : NSObject
+{
+  NSColor *_color;
+}
+- (id) initWithColor: (NSColor *)color;
+@end
+
+@implementation QuirkProbeColouredRows
+
+- (id) initWithColor: (NSColor *)color
+{
+  self = [super init];
+  if (self != nil)
+    {
+      ASSIGN(_color, color);
+    }
+  return self;
+}
+
+- (void) dealloc
+{
+  RELEASE(_color);
+  [super dealloc];
+}
+
+- (NSInteger) numberOfRowsInTableView: (NSTableView *)tableView
+{
+  return 3;
+}
+
+- (id) tableView: (NSTableView *)tableView objectValueForTableColumn: (NSTableColumn *)column row: (NSInteger)row
+{
+  NSString *title = [NSString stringWithFormat: @"Document %ld", (long)row];
+  NSDictionary *attributes = [NSDictionary dictionaryWithObject: _color forKey: NSForegroundColorAttributeName];
+
+  return AUTORELEASE([[NSAttributedString alloc] initWithString: title attributes: attributes]);
+}
+
+- (NSInteger) outlineView: (NSOutlineView *)outlineView numberOfChildrenOfItem: (id)item
+{
+  return item == nil ? 3 : 0;
+}
+
+- (id) outlineView: (NSOutlineView *)outlineView child: (NSInteger)index ofItem: (id)item
+{
+  return [NSString stringWithFormat: @"Folder %ld", (long)index];
+}
+
+- (BOOL) outlineView: (NSOutlineView *)outlineView isItemExpandable: (id)item
+{
+  return NO;
+}
+
+- (id) outlineView: (NSOutlineView *)outlineView objectValueForTableColumn: (NSTableColumn *)column byItem: (id)item
+{
+  return item;
+}
+
+- (void) outlineView: (NSOutlineView *)outlineView willDisplayCell: (id)cell
+      forTableColumn: (NSTableColumn *)column item: (id)item
+{
+  if ([cell respondsToSelector: @selector(setTextColor:)])
+    {
+      [cell setTextColor: _color];
+    }
+}
+
+@end
+
+/* How many pixels of the title area of `view`'s selected `row` stand out
+   from the selection's fill, which is sampled at the row's trailing end. */
+static NSUInteger
+QuirkProbeSelectedRowInk(NSTableView *view, NSInteger row, NSBitmapImageRep *rep, CGFloat scale)
+{
+  NSRect rect = [view frameOfCellAtColumn: 0 row: row];
+  NSRect pixels = QuirkProbePixelRect(view, rect, scale);
+  NSUInteger red = 0, green = 0, blue = 0, count = 0;
+  NSInteger fill, x, y;
+
+  QuirkProbePixel(rep, (NSInteger)(NSMaxX(pixels) - 12 * scale), (NSInteger)NSMidY(pixels), &red, &green, &blue);
+  fill = (NSInteger)(red + green + blue);
+  for (y = (NSInteger)NSMinY(pixels) + 1; y < (NSInteger)NSMaxY(pixels) - 1; y++)
+    {
+      for (x = (NSInteger)(NSMinX(pixels) + 20 * scale); x < (NSInteger)(NSMinX(pixels) + 130 * scale); x++)
+        {
+          if (QuirkProbePixel(rep, x, y, &red, &green, &blue)
+              && llabs((long long)(red + green + blue) - (long long)fill) > 150)
+            {
+              count++;
+            }
+        }
+    }
+  return count;
+}
+
 @implementation QuirkProbe
 
 - (id) init
@@ -435,6 +650,22 @@ QuirkProbeModuleOfAddress(void *address)
   RELEASE(_outputDirectory);
   RELEASE(_windows);
   [super dealloc];
+}
+
+/* The tab bar's "+" shows only when something answers -newWindowForTab:
+   (checkWindowTabs); the probe, NSApp's delegate, answers only while that
+   check asks it to. */
+- (BOOL) respondsToSelector: (SEL)selector
+{
+  if (sel_isEqual(selector, @selector(newWindowForTab:)))
+    {
+      return _offersNewTab;
+    }
+  return [super respondsToSelector: selector];
+}
+
+- (void) newWindowForTab: (id)sender
+{
 }
 
 #pragma mark Results
@@ -1459,7 +1690,7 @@ QuirkProbeHex(NSColor *color)
   BOOL dark = QuirkProbeHasArgument(@"--mode", @"dark");
   NSColorList *colors = [[GSTheme theme] colors];
   NSColor *accent = [colors colorWithKey: @"accentColor"];
-  NSColor *onAccent = [colors colorWithKey: @"selectedControlTextColor"];
+  NSColor *onAccent = [colors colorWithKey: @"accentTextColor"];
   NSColor *expected = QuirkProbeSystemAccentShade(dark ? 1 : 4);
   NSString *expectedOn = dark ? @"#000000" : @"#FFFFFF";
 
@@ -1671,7 +1902,7 @@ QuirkProbeCentreIs(NSView *view, NSColor *color, NSUInteger slack, NSString **se
                                      title: @"QuirkProbe Template Images"];
   NSColorList *colors = [[GSTheme theme] colors];
   NSColor *text = [colors colorWithKey: @"labelColor"];
-  NSColor *onAccent = [colors colorWithKey: @"selectedControlTextColor"];
+  NSColor *onAccent = [colors colorWithKey: @"accentTextColor"];
   NSButton *plain = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(10, 20, 60, 40)]);
   NSButton *primary = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(80, 20, 60, 40)]);
   NSSegmentedControl *segments = AUTORELEASE([[NSSegmentedControl alloc]
@@ -4459,6 +4690,295 @@ QuirkProbeStripInk(NSScrollView *scrollView, NSUInteger fill, CGFloat inset)
    "below the vertical scroller" when there was none, it went under the
    clip view, unseen and unclickable. It's re-raised once something else
    is above it, as here. */
+/* Window tabs (#72): the theme installs Apple's tabbing API (the shared
+   gnustep-window-tabbing code) and draws the bar as WinUI's TabView: a
+   40pt strip above the content, the selected tab in the content's colour
+   with no line under it, a 32x24 close button on every tab, titles cut
+   short with an ellipsis, and a "+" right after the last tab only when
+   something answers -newWindowForTab:. Before, NSWindow had no tabbing at
+   all. */
+- (void) checkWindowTabs
+{
+  BOOL highContrast = QuirkProbeHasArgument(@"--high-contrast", @"yes");
+  CGFloat desktop = QuirkProbeDesktopScale();
+  NSString *missing = @"no tab bar: NSWindow lacks -addTabbedWindow:ordered: (the theme doesn't install window tabbing)";
+  NSWindow *first = nil;
+  NSWindow *second = nil;
+  NSView *decoration = nil;
+  NSView *content = nil;
+  NSView *bar = nil;
+  NSBitmapImageRep *rep = nil;
+  NSRect barFrame;
+  NSRect selectedTab;
+  NSRect otherTab;
+  NSRect closeRect;
+  NSRect otherClose;
+  NSRect newTab;
+  NSUInteger selectedLow[3], selectedFoot[3], contentTop[3], otherLow[3], otherFoot[3];
+  NSUInteger strip[3];
+  QuirkProbeInk ink;
+  CGFloat x;
+
+  if ([NSWindow instancesRespondToSelector: @selector(addTabbedWindow:ordered:)] == NO)
+    {
+      [self fail: @"window-tabs-api" detail: @"NSWindow lacks Apple's tabbing API"];
+      [self fail: @"window-tab-bar" detail: missing];
+      [self fail: @"window-tab-joined" detail: missing];
+      [self fail: @"window-tab-close-button" detail: missing];
+      [self fail: @"window-tab-title-fitted" detail: missing];
+      [self fail: @"window-tab-new-button" detail: missing];
+      [self fail: @"window-tab-keeps-group-frame" detail: missing];
+      [self fail: @"window-tab-close-shows-neighbour" detail: missing];
+      return;
+    }
+  [self pass: @"window-tabs-api" detail: @"NSWindow has -addTabbedWindow:ordered:"];
+
+  first = [self windowWithFrame: NSMakeRect(120, 220, 480, 220) title: @"QuirkProbe Tab One"];
+  second = [self windowWithFrame: NSMakeRect(120, 220, 480, 220) title: @"QuirkProbe Tab Two"];
+  [first orderFront: nil];
+  [first addTabbedWindow: second ordered: NSWindowAbove];
+  [second display];
+
+  content = [second contentView];
+  decoration = [content superview];
+  bar = QuirkProbeFindTabBar(decoration);
+  if (bar == nil || [bar window] != second || [bar numberOfTabs] != 2)
+    {
+      NSString *detail = [NSString stringWithFormat: @"two tabbed windows show no bar with two tabs (bar %@, %lu tabs)",
+                                   bar, (unsigned long)[bar numberOfTabs]];
+
+      [self fail: @"window-tab-bar" detail: detail];
+      [self fail: @"window-tab-joined" detail: detail];
+      [self fail: @"window-tab-close-button" detail: detail];
+      [self fail: @"window-tab-title-fitted" detail: detail];
+      [self fail: @"window-tab-new-button" detail: detail];
+      [self fail: @"window-tab-keeps-group-frame" detail: detail];
+      [self fail: @"window-tab-close-shows-neighbour" detail: detail];
+      [second close];
+      [first close];
+      return;
+    }
+
+  /* A strip of 40pt (scaled with the desktop), right above the content. */
+  barFrame = [bar frame];
+  if (fabs(NSHeight(barFrame) - round(40.0 * desktop)) < 0.5
+      && fabs(NSMinY(barFrame) - NSMaxY([content frame])) < 0.5
+      && fabs(NSWidth(barFrame) - NSWidth([content frame])) < 0.5)
+    {
+      [self pass: @"window-tab-bar" detail:
+        [NSString stringWithFormat: @"%.0fpt bar above the content", NSHeight(barFrame)]];
+    }
+  else
+    {
+      [self fail: @"window-tab-bar" detail:
+        [NSString stringWithFormat: @"bar %@, content %@ (want a %.0fpt bar right above the content)",
+                  NSStringFromRect(barFrame), NSStringFromRect([content frame]), round(40.0 * desktop)]];
+    }
+
+  /* The selected tab (the second) is the content's colour down to the
+     content, while a line runs under the other tab and the strip behind
+     it is a step darker. */
+  selectedTab = [bar rectForTabAtIndex: 1];
+  otherTab = [bar rectForTabAtIndex: 0];
+  rep = QuirkProbeRender(decoration);
+  x = NSMinX(selectedTab) + 20.0;
+  if (QuirkProbeTabPixel(rep, decoration, bar, NSMakePoint(x, 3.0), selectedLow)
+      && QuirkProbeTabPixel(rep, decoration, bar, NSMakePoint(x, 0.0), selectedFoot)
+      && QuirkProbeTabPixel(rep, decoration, bar, NSMakePoint(x, -3.0), contentTop)
+      && QuirkProbeTabPixel(rep, decoration, bar, NSMakePoint(NSMinX(otherTab) + 20.0, 3.0), otherLow)
+      && QuirkProbeTabPixel(rep, decoration, bar, NSMakePoint(NSMinX(otherTab) + 20.0, 0.0), otherFoot))
+    {
+      BOOL joined = QuirkProbeTabColorDistance(selectedLow, contentTop) <= 6
+        && QuirkProbeTabColorDistance(selectedFoot, contentTop) <= 6;
+      BOOL lineUnderOther = QuirkProbeTabColorDistance(otherFoot, contentTop) > 4;
+      BOOL stripDiffers = QuirkProbeTabColorDistance(otherLow, contentTop) > 3;
+      NSString *detail = [NSString stringWithFormat:
+        @"selected tab %@ (foot %@), content %@, other tab %@ (foot %@)",
+        QuirkProbeTabHex(selectedLow), QuirkProbeTabHex(selectedFoot), QuirkProbeTabHex(contentTop),
+        QuirkProbeTabHex(otherLow), QuirkProbeTabHex(otherFoot)];
+
+      /* Contrast themes may give ButtonFace (the strip) Window's colour. */
+      if (joined && lineUnderOther && (stripDiffers || highContrast))
+        {
+          [self pass: @"window-tab-joined" detail: detail];
+        }
+      else
+        {
+          [self fail: @"window-tab-joined" detail: detail];
+        }
+    }
+  else
+    {
+      [self fail: @"window-tab-joined" detail: @"couldn't read the render"];
+    }
+  [self saveView: decoration named: @"window-tabs"];
+
+  /* A close button (32x24, 4pt from the trailing edge) on the selected tab
+     and on the other one (WinUI's CloseButtonOverlayMode Auto is Always),
+     with a cross in it. */
+  closeRect = [bar closeButtonRectForTabAtIndex: 1];
+  otherClose = [bar closeButtonRectForTabAtIndex: 0];
+  QuirkProbeInkBackground = selectedLow[0] + selectedLow[1] + selectedLow[2];
+  ink = QuirkProbeTabInk(rep, decoration, bar, closeRect, QuirkProbeIsInk);
+  if (NSIsEmptyRect(closeRect) == NO && NSIsEmptyRect(otherClose) == NO
+      && NSContainsRect(selectedTab, closeRect)
+      && fabs(NSWidth(closeRect) - round(32.0 * desktop)) < 0.5
+      && fabs(NSHeight(closeRect) - round(24.0 * desktop)) < 0.5
+      && NSMaxX(selectedTab) - NSMaxX(closeRect) <= round(6.0 * desktop)
+      && ink.count > 0)
+    {
+      [self pass: @"window-tab-close-button" detail:
+        [NSString stringWithFormat: @"%@ in tab %@, cross of %lu pixels",
+                  NSStringFromRect(closeRect), NSStringFromRect(selectedTab), (unsigned long)ink.count]];
+    }
+  else
+    {
+      [self fail: @"window-tab-close-button" detail:
+        [NSString stringWithFormat: @"selected tab %@: close %@ (%lu ink pixels); other tab's close %@",
+                  NSStringFromRect(selectedTab), NSStringFromRect(closeRect),
+                  (unsigned long)ink.count, NSStringFromRect(otherClose)]];
+    }
+
+  /* A long title ends in an ellipsis before the close button: nothing in
+     the gap between the title's area and the cross. */
+  [first setTitle: @"QuirkProbe tab whose title is much too long to fit in its tab"];
+  [second display];
+  rep = QuirkProbeRender(decoration);
+  otherClose = [bar closeButtonRectForTabAtIndex: 0];
+  if (QuirkProbeTabPixel(rep, decoration, bar, NSMakePoint(NSMinX(otherTab) + 4.0, 3.0), strip))
+    {
+      QuirkProbeInk title;
+      NSRect body = NSMakeRect(NSMinX(otherTab), 4.0 * desktop, NSWidth(otherTab), 24.0 * desktop);
+      NSRect gap = NSMakeRect(NSMinX(otherClose) - 4.0 * desktop, NSMinY(body),
+                              10.0 * desktop, NSHeight(body));
+      NSRect titleArea = NSMakeRect(NSMinX(otherTab) + 6.0 * desktop, NSMinY(body),
+                                    NSMinX(gap) - NSMinX(otherTab) - 6.0 * desktop, NSHeight(body));
+
+      QuirkProbeInkBackground = strip[0] + strip[1] + strip[2];
+      title = QuirkProbeTabInk(rep, decoration, bar, titleArea, QuirkProbeIsInk);
+      ink = QuirkProbeTabInk(rep, decoration, bar, gap, QuirkProbeIsFaintInk);
+      if (title.count > 20 && ink.count == 0)
+        {
+          [self pass: @"window-tab-title-fitted" detail:
+            [NSString stringWithFormat: @"title of %lu pixels, the gap before the close button clear",
+                      (unsigned long)title.count]];
+        }
+      else
+        {
+          [self fail: @"window-tab-title-fitted" detail:
+            [NSString stringWithFormat: @"title %lu pixels, %lu in the gap before the close button %@",
+                      (unsigned long)title.count, (unsigned long)ink.count, NSStringFromRect(otherClose)]];
+        }
+    }
+  else
+    {
+      [self fail: @"window-tab-title-fitted" detail: @"couldn't read the render"];
+    }
+
+  /* The "+": none while nothing answers -newWindowForTab:, then right
+     after the last tab, with a plus in it. */
+  _offersNewTab = NO;
+  newTab = [bar newTabButtonRect];
+  if (NSIsEmptyRect(newTab) == NO)
+    {
+      [self fail: @"window-tab-new-button" detail:
+        [NSString stringWithFormat: @"a \"+\" at %@ though nothing answers -newWindowForTab:",
+                  NSStringFromRect(newTab)]];
+    }
+  else
+    {
+      _offersNewTab = YES;
+      [bar setNeedsDisplay: YES];
+      [second display];
+      newTab = [bar newTabButtonRect];
+      rep = QuirkProbeRender(decoration);
+      QuirkProbeInkBackground = strip[0] + strip[1] + strip[2];
+      ink = QuirkProbeTabInk(rep, decoration, bar,
+                             NSMakeRect(NSMinX(newTab) + 8.0 * desktop, 6.0 * desktop,
+                                        24.0 * desktop, 20.0 * desktop),
+                             QuirkProbeIsInk);
+      if (NSIsEmptyRect(newTab) == NO
+          && fabs(NSMinX(newTab) - NSMaxX([bar rectForTabAtIndex: 1])) <= 1.0
+          && ink.count > 0)
+        {
+          [self pass: @"window-tab-new-button" detail:
+            [NSString stringWithFormat: @"none without a responder; with one at %@ after the last tab %@",
+                      NSStringFromRect(newTab), NSStringFromRect([bar rectForTabAtIndex: 1])]];
+        }
+      else
+        {
+          [self fail: @"window-tab-new-button" detail:
+            [NSString stringWithFormat: @"with a responder: \"+\" %@ (%lu ink pixels), last tab %@",
+                      NSStringFromRect(newTab), (unsigned long)ink.count,
+                      NSStringFromRect([bar rectForTabAtIndex: 1])]];
+        }
+      _offersNewTab = NO;
+    }
+
+  /* A new tab takes its group's frame. The theme gives a window made
+     after launch the main menu's bar when it becomes main, which made it
+     taller: each new tab grew the group by a menu bar. */
+  {
+    NSWindow *third = [self windowWithFrame: NSMakeRect(160, 160, 300, 120)
+                                      title: @"QuirkProbe Tab Three"];
+    NSRect groupFrame = [second frame];
+
+    [second addTabbedWindow: third ordered: NSWindowAbove];
+    [third makeMainWindow];
+    if ([third menu] == nil)
+      {
+        [self skip: @"window-tab-keeps-group-frame" detail: @"the new tab got no menu bar"];
+      }
+    else if (NSEqualRects([third frame], groupFrame))
+      {
+        [self pass: @"window-tab-keeps-group-frame" detail:
+          [NSString stringWithFormat: @"%@ with its menu bar", NSStringFromRect(groupFrame)]];
+      }
+    else
+      {
+        [self fail: @"window-tab-keeps-group-frame" detail:
+          [NSString stringWithFormat: @"the group's frame %@, the new tab's %@ once it has the menu bar",
+                    NSStringFromRect(groupFrame), NSStringFromRect([third frame])]];
+      }
+    [third close];
+  }
+
+  /* Closing the selected tab: its neighbour is on screen by the time the
+     window says it will close. NSApplication counts the windows on screen
+     then, and took the selected tab for the app's last window, quitting
+     the app under Windows-style menus. */
+  {
+    QuirkProbeCloseWatcher *watcher = [QuirkProbeCloseWatcher new];
+    NSWindow *selected = [[second tabbedWindows] count] > 1 ? second : nil;
+
+    watcher->_closing = second;
+    watcher->_other = first;
+    [[NSNotificationCenter defaultCenter] addObserver: watcher
+                                             selector: @selector(windowWillClose:)
+                                                 name: NSWindowWillCloseNotification
+                                               object: nil];
+    [second close];
+    [[NSNotificationCenter defaultCenter] removeObserver: watcher];
+    if (selected == nil)
+      {
+        [self fail: @"window-tab-close-shows-neighbour" detail: @"the second window wasn't in a group"];
+      }
+    else if (watcher->_heard && watcher->_otherVisible && [first isVisible])
+      {
+        [self pass: @"window-tab-close-shows-neighbour" detail:
+          @"the neighbour was on screen when the selected tab began to close"];
+      }
+    else
+      {
+        [self fail: @"window-tab-close-shows-neighbour" detail:
+          [NSString stringWithFormat: @"heard %d, neighbour on screen then %d, after %d",
+                    (int)watcher->_heard, (int)watcher->_otherVisible, (int)[first isVisible]]];
+      }
+    RELEASE(watcher);
+  }
+  [first close];
+}
+
 - (void) checkHorizontalOnlyScroller
 {
   NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
@@ -5234,6 +5754,175 @@ QuirkProbeInkIn(NSBitmapImageRep *rep, NSRect area, NSInteger fill, NSInteger th
   [window orderOut: nil];
 }
 
+/* A selected row's text is readable whatever colour the app gives it
+   (issue #66). In light and dark the app uses selectedControlTextColor,
+   which was white over WinUI's near-white selection; in high contrast it
+   keeps controlTextColor, which was black on the black highlight. A table
+   gets its colours from attributed strings, an outline from
+   -willDisplayCell:. */
+- (void) checkSelectedRowText
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(100, 600, 320, 220)
+                                     title: @"QuirkProbe Row Text"];
+  BOOL highContrast = QuirkProbeHasArgument(@"--high-contrast", nil);
+  NSColor *color = highContrast ? [NSColor controlTextColor] : [NSColor selectedControlTextColor];
+  QuirkProbeColouredRows *rows = AUTORELEASE([[QuirkProbeColouredRows alloc] initWithColor: color]);
+  NSTableView *table = AUTORELEASE([[NSTableView alloc] initWithFrame: NSMakeRect(10, 120, 300, 90)]);
+  NSOutlineView *outline = AUTORELEASE([[NSOutlineView alloc] initWithFrame: NSMakeRect(10, 10, 300, 100)]);
+  NSTableColumn *column = AUTORELEASE([[NSTableColumn alloc] initWithIdentifier: @"name"]);
+  NSTableColumn *outlineColumn = AUTORELEASE([[NSTableColumn alloc] initWithIdentifier: @"name"]);
+  NSArray *views = [NSArray arrayWithObjects: table, outline, nil];
+  NSArray *names = [NSArray arrayWithObjects: @"selected-row-text-table", @"selected-row-text-outline", nil];
+  NSUInteger i;
+
+  [column setWidth: 280];
+  [table addTableColumn: column];
+  [table setHeaderView: nil];
+  [table setDataSource: rows];
+  [outlineColumn setWidth: 280];
+  [outline addTableColumn: outlineColumn];
+  [outline setOutlineTableColumn: outlineColumn];
+  [outline setHeaderView: nil];
+  [outline setDataSource: rows];
+  [outline setDelegate: (id)rows];
+  [[window contentView] addSubview: table];
+  [[window contentView] addSubview: outline];
+  [window makeKeyAndOrderFront: nil];
+  [table reloadData];
+  [outline reloadData];
+  [table selectRowIndexes: [NSIndexSet indexSetWithIndex: 1] byExtendingSelection: NO];
+  [outline selectRowIndexes: [NSIndexSet indexSetWithIndex: 1] byExtendingSelection: NO];
+  [window makeFirstResponder: table];
+  [window display];
+
+  for (i = 0; i < [views count]; i++)
+    {
+      NSTableView *view = [views objectAtIndex: i];
+      NSBitmapImageRep *rep = QuirkProbeRender(view);
+      CGFloat scale = QuirkProbeScale(rep, view);
+      NSUInteger ink = QuirkProbeSelectedRowInk(view, 1, rep, scale);
+
+      [self saveView: view named: [names objectAtIndex: i]];
+      if (ink >= (NSUInteger)(20 * scale * scale))
+        {
+          [self pass: [names objectAtIndex: i] detail: [NSString stringWithFormat:
+            @"%lu px of text stand out from the selection", (unsigned long)ink]];
+        }
+      else
+        {
+          [self fail: [names objectAtIndex: i] detail: [NSString stringWithFormat:
+            @"only %lu px of the selected row's text stand out from its fill: unreadable",
+            (unsigned long)ink]];
+        }
+    }
+  [table setDataSource: nil];
+  [outline setDataSource: nil];
+  [outline setDelegate: nil];
+  [window orderOut: nil];
+}
+
+/* WinUI's ToolTip (issue #22): Caption text (12px times the text size)
+   inside ToolTipBorderPadding, 9pt from the left and 6pt from the top,
+   rather than libs-gui's 2pt round the text at the body size. The tip is
+   shown as GSToolTips shows it when its timer fires, and stays where
+   libs-gui put its top edge. */
+- (void) checkToolTip
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(300, 400, 240, 100)
+                                     title: @"QuirkProbe Tool Tip"];
+  NSView *anchor = [window contentView];
+  NSString *tip = @"Zoom: Fit to Window";
+  NSTimer *fake = [NSTimer timerWithTimeInterval: 1000 target: self selector: @selector(description)
+                                        userInfo: tip repeats: NO];
+  id tips = nil;
+  NSWindow *panel = nil;
+  NSEnumerator *enumerator;
+  NSWindow *each;
+  CGFloat textScale = [[NSUserDefaults standardUserDefaults] floatForKey: @"WinUIThemeTextScaleFactor"];
+  CGFloat expectedSize;
+
+  textScale = (textScale >= 100.0) ? textScale / 100.0 : 1.0;
+  expectedSize = round(12.0 * textScale);
+  [window orderFront: nil];
+  [anchor setToolTip: tip];
+  tips = [NSClassFromString(@"GSToolTips") performSelector: @selector(tipsForView:) withObject: anchor];
+  if (tips == nil || [tips respondsToSelector: @selector(_timedOut:)] == NO)
+    {
+      [self skip: @"tooltip-padding" detail: @"libs-gui's GSToolTips has no _timedOut:"];
+      [self skip: @"tooltip-font" detail: @"libs-gui's GSToolTips has no _timedOut:"];
+      [window orderOut: nil];
+      return;
+    }
+  [tips performSelector: @selector(_timedOut:) withObject: fake];
+  enumerator = [[NSApp windows] objectEnumerator];
+  while ((each = [enumerator nextObject]) != nil)
+    {
+      if ([each isKindOfClass: NSClassFromString(@"GSTTPanel")] && [each isVisible])
+        {
+          panel = each;
+        }
+    }
+  if (panel == nil)
+    {
+      [self fail: @"tooltip-padding" detail: @"no tool tip window appeared"];
+      [self fail: @"tooltip-font" detail: @"no tool tip window appeared"];
+    }
+  else
+    {
+      NSView *content = [panel contentView];
+      NSAttributedString *text = [content valueForKey: @"text"];
+      NSFont *font = ([text length] > 0) ? [text attribute: NSFontAttributeName atIndex: 0 effectiveRange: NULL] : nil;
+      NSBitmapImageRep *rep;
+      CGFloat scale;
+      NSUInteger red = 0, green = 0, blue = 0;
+      QuirkProbeInk ink;
+      CGFloat left, top;
+
+      [content display];
+      rep = QuirkProbeRender(content);
+      scale = QuirkProbeScale(rep, content);
+      [self saveView: content named: @"tooltip"];
+      QuirkProbePixel(rep, [rep pixelsWide] / 2, (NSInteger)(2 * scale), &red, &green, &blue);
+      QuirkProbeInkBackground = red + green + blue;
+      ink = QuirkProbeMeasureIn(rep, QuirkProbeIsInk,
+                                NSMakeRect(2 * scale, 2 * scale, [rep pixelsWide] - 4 * scale,
+                                           [rep pixelsHigh] - 4 * scale));
+      left = ink.minX / scale;
+      top = ink.minY / scale;
+      /* The ink starts a little inside the text's own box: a glyph's side
+         bearing, and above the capitals the line's leading, which grows
+         with the font. */
+      if (ink.count > 0 && left >= 8.0 && left <= 11.5 && top >= 6.0 && top <= 6.0 + 0.4 * expectedSize)
+        {
+          [self pass: @"tooltip-padding" detail: [NSString stringWithFormat:
+            @"the text starts %.1fpt from the left and %.1fpt from the top of a %.0fx%.0fpt tip",
+            left, top, NSWidth([content bounds]), NSHeight([content bounds])]];
+        }
+      else
+        {
+          [self fail: @"tooltip-padding" detail: [NSString stringWithFormat:
+            @"the text starts %.1fpt from the left and %.1fpt from the top (%lu px of ink): not WinUI's padding",
+            left, top, (unsigned long)ink.count]];
+        }
+      if (font != nil && fabs([font pointSize] - expectedSize) < 0.5)
+        {
+          [self pass: @"tooltip-font" detail: [NSString stringWithFormat:
+            @"%@ at %.0fpt, Caption", [font fontName], [font pointSize]]];
+        }
+      else
+        {
+          [self fail: @"tooltip-font" detail: [NSString stringWithFormat:
+            @"%@ at %.1fpt, expected Caption at %.0fpt", [font fontName], [font pointSize], expectedSize]];
+        }
+    }
+  if ([tips respondsToSelector: @selector(_endDisplay)])
+    {
+      [tips performSelector: @selector(_endDisplay)];
+    }
+  [anchor setToolTip: nil];
+  [window orderOut: nil];
+}
+
 /* WinUI's AutoSuggestBox (issue #9): an empty search field shows only
    the magnifier, at its trailing edge, nothing before its text; with
    text, the delete cross shows just before the magnifier. */
@@ -5652,8 +6341,11 @@ QuirkProbeLastItemOfMenu(NSString *title)
   [self checkTextBox];
   [self checkComboBoxes];
   [self checkListSelection];
+  [self checkSelectedRowText];
+  [self checkToolTip];
   [self checkSearchField];
   [self checkHorizontalOnlyScroller];
+  [self checkWindowTabs];
   [self checkPopUpClick];
   [self after: QuirkProbeSettleDelay perform: @selector(createLateWindow:)];
 }

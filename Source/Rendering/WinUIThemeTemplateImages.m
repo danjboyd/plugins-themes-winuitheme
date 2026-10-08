@@ -214,7 +214,7 @@ WinUIThemeTemplateImageColor(WinUITheme *theme, NSButtonCell *cell, NSView *cont
     }
   if (enabled && [cell isBordered] && WinUIThemeButtonIsDefault(cell))
     {
-      return WinUIThemeColorFromTheme(theme, @"selectedControlTextColor",
+      return WinUIThemeColorFromTheme(theme, @"accentTextColor",
                                       [NSColor selectedControlTextColor]);
     }
   (void)controlView;
