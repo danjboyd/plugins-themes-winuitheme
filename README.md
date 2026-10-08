@@ -180,6 +180,12 @@ before an app sets up its first window. Apps that check
 `[NSWindow instancesRespondToSelector: @selector(addTabbedWindow:ordered:)]`
 (ObjcMarkdown) find it.
 
+**Off by default for now** (#72): apps that find the API use it (ObjcMarkdown
+turns its documents into window tabs), and the tabs haven't been checked
+with ObjcMarkdown yet. `WinUIThemeWindowTabs YES` (a user default, or
+`-WinUIThemeWindowTabs YES` on the command line) turns them on;
+QuirkProbe runs with it on.
+
 The theme draws the bar as WinUI's TabView (Notepad, Terminal), from its
 `generic.xaml` resources: a 40px strip (8px above 32px tabs) on a step
 darker than the window, tabs 100 to 240px wide sharing it, titles at 12px

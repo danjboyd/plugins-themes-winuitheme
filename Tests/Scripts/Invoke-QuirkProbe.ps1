@@ -54,7 +54,8 @@ foreach ($name in $Configuration) {
     throw "Unknown configuration '$name'. Known: $($configurationArguments.Keys -join ', ')"
   }
 
-  $arguments = @("-GSTheme", "`"$Theme`"") + $configurationArguments[$name]
+  # Window tabs are off by default (#72); the probe checks them on.
+  $arguments = @("-GSTheme", "`"$Theme`"", "-WinUIThemeWindowTabs", "YES") + $configurationArguments[$name]
   if (-not $NoPointer) {
     $arguments += @("-ProbeMovesPointer", "YES")
   }
