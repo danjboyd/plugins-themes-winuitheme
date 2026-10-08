@@ -62,7 +62,6 @@ static NSWindow *newTabWindow = nil;
 /* Private helpers, used before they are defined. */
 @interface GSWindowTabbingWindow (Helpers)
 - (BOOL) _canBeTabbed;
-- (BOOL) _canBeTabbedWith: (NSWindow *)other;
 - (NSWindow *) _keyWindowForTabbing;
 - (NSWindow *) _windowToJoinAsTab;
 - (BOOL) _tabbingSelectsSelfInGroup;
@@ -203,24 +202,13 @@ static NSWindow *newTabWindow = nil;
   [[self tabGroup] _selectNextTab: NO];
 }
 
+/* A little below and to the right of the group, as macOS places it. */
 - (IBAction) moveTabToNewWindow: (id)sender
 {
-  NSWindowTabGroup *group = [self tabGroup];
-  NSRect frame;
+  NSPoint origin = [self frame].origin;
 
-  if ([[group windows] count] < 2)
-    {
-      return;
-    }
-  frame = [self frame];
-  [group removeWindow: self];
-  /* A little below and to the right of the group, as macOS places it. */
-  frame.origin.x += 30.0;
-  frame.origin.y -= 30.0;
-  internalOrdering++;
-  [self setFrame: frame display: NO];
-  [self makeKeyAndOrderFront: nil];
-  internalOrdering--;
+  [self _tabbingMoveToNewWindowAt: NSMakePoint(origin.x + 30.0,
+                                               origin.y - 30.0)];
 }
 
 /* A window that has been on screen, or is in a group, joins; windows
@@ -256,10 +244,20 @@ static NSWindow *newTabWindow = nil;
 
 /* GSWindowTabbable: how the tab group moves its windows. */
 
-- (void) _tabbingShowWithFrame: (NSRect)frame makeKey: (BOOL)makeKey
+- (BOOL) _tabbingIsMaximized
+{
+  BOOL known;
+
+  return GSWindowTabbingWindowIsMaximized(self, &known);
+}
+
+- (void) _tabbingShowWithFrame: (NSRect)frame
+                     maximized: (BOOL)maximized
+                       makeKey: (BOOL)makeKey
 {
   internalOrdering++;
   [self setFrame: frame display: NO];
+  GSWindowTabbingWillShowMaximized(self, maximized);
   if (makeKey)
     {
       [self makeKeyAndOrderFront: nil];
@@ -268,6 +266,7 @@ static NSWindow *newTabWindow = nil;
     {
       [self orderFront: nil];
     }
+  GSWindowTabbingDidShowMaximized(self, maximized);
   internalOrdering--;
 }
 
@@ -281,6 +280,26 @@ static NSWindow *newTabWindow = nil;
 - (void) _tabbingGroupDidChange
 {
   [self _updateTabBar];
+}
+
+/* The window leaves its group as a window of its own, its frame's origin
+   at origin, key; nothing happens unless the group has other windows. */
+- (void) _tabbingMoveToNewWindowAt: (NSPoint)origin
+{
+  NSWindowTabGroup *group = [self tabGroup];
+  NSRect frame;
+
+  if ([[group windows] count] < 2)
+    {
+      return;
+    }
+  frame = [self frame];
+  [group removeWindow: self];
+  frame.origin = origin;
+  internalOrdering++;
+  [self setFrame: frame display: NO];
+  [self makeKeyAndOrderFront: nil];
+  internalOrdering--;
 }
 
 - (NSWindowTabGroup *) _tabbingGroup
@@ -425,6 +444,21 @@ static NSWindow *newTabWindow = nil;
       newTabWindow = nil;
     }
   GSWindowTabbingForgetWindow(self);
+}
+
+/* A window with other tabs keeps the frame it shares with them when an
+   in-window menu bar or a toolbar comes or goes: the content gives up or
+   takes back the row, as for the tab bar.  GSWindowDecorationView keeps
+   the content's size and changes the frame, so a new tab, given the
+   group's frame before the theme or NSApp gave it its menu bar (on its
+   becoming key), grew the group by the bar's height, again with each new
+   tab. */
+- (void) _tabbingDecorationsDidChangeFromFrame: (NSRect)frame
+{
+  if ([self tabbedWindows] != nil && NSEqualRects([self frame], frame) == NO)
+    {
+      [self setFrame: frame display: YES];
+    }
 }
 
 - (CGFloat) _tabBarReservedHeight
