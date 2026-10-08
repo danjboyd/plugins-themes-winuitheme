@@ -1094,6 +1094,22 @@ objectValueForTableColumn: (NSTableColumn *)column
       [self fail: @"switch-enabled-by-default" detail: @"a switch made in code is disabled"];
     }
 
+  /* A switch from a .gorm file (an NSArchiver archive, which holds no
+     enabled flag for it), as the WinUI Gorm palette's ToggleSwitch (#32). */
+  {
+    NSSwitch *decoded = [NSUnarchiver unarchiveObjectWithData:
+                           [NSArchiver archivedDataWithRootObject: switches[0]]];
+
+    if ([decoded isKindOfClass: [NSSwitch class]] && [decoded isEnabled])
+      {
+        [self pass: @"switch-decoded-enabled" detail: @"a switch decoded from a .gorm archive is enabled"];
+      }
+    else
+      {
+        [self fail: @"switch-decoded-enabled" detail: @"a switch decoded from a .gorm archive is disabled"];
+      }
+  }
+
   /* On, off, disabled on, disabled off. */
   [switches[0] setState: NSControlStateValueOn];
   [switches[1] setState: NSControlStateValueOff];

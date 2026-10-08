@@ -1,0 +1,7 @@
+{
+  NibFile = "";
+  Class = "WinUIPalette";
+  Icon = "WinUIPalette";
+  ExportClasses = ();
+  ExportImages = ();
+}

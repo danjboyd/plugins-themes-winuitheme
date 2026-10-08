@@ -2264,6 +2264,27 @@ static const CGFloat WinUIThemeSearchDeleteWidth = 28.0;
   return control;
 }
 
+/* Its -initWithCoder: leaves _enabled NO as well, unless a keyed archive
+   holds NSEnabled, and a .gorm file never does: a switch laid out in Gorm
+   (the WinUI palette's ToggleSwitch, #32) came up disabled. A decoded
+   switch is enabled unless its archive says otherwise, as later libs-gui
+   does. */
+- (id) _overrideNSSwitchMethod_initWithCoder: (NSCoder *)coder
+{
+  typedef id (*InitWithCoderIMP)(id, SEL, NSCoder *);
+  InitWithCoderIMP originalIMP
+    = (InitWithCoderIMP)WinUIThemeOriginalMethod(_cmd, self, [NSSwitch class]);
+  BOOL archivesEnabled = ([coder allowsKeyedCoding]
+                          && [coder containsValueForKey: @"NSEnabled"]);
+  id control = (originalIMP != NULL) ? originalIMP(self, _cmd, coder) : self;
+
+  if (control != nil && !archivesEnabled)
+    {
+      [control setEnabled: YES];
+    }
+  return control;
+}
+
 - (void) _overrideNSButtonCellMethod_drawWithFrame: (NSRect)cellFrame
                                             inView: (NSView *)controlView
 {
