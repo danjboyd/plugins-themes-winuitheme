@@ -49,6 +49,7 @@ Regression checks live in `Examples/QuirkProbe`; run
 | Top tabs were pills on a grey strip, and a click on a tab selected nothing: the theme drew them without recording their rects (#49) | WinUI's SelectorBar over a content card, each tab's rect recorded; QuirkProbe `tab-*` | ThemeDemo |
 | Layouts made at GNUstep's 12pt didn't fit WinUI's 14px: a label sized for "Miniaturize window" needed 119pt of its 107 (#31) | compact metrics for apps with a main nib or Gorm file, and the `WinUIThemeMetrics` override; QuirkProbe `metrics-choice`, `compact-nib-*` and a `compact` configuration | the parity audit, SystemPreferences |
 | Boxes were NeXT's groove with the title centred in it, separators a dark line, and a form's entries a bezel filled white (#27) | grooved, bezelled and lined boxes are WinUI cards with a semibold title above them at the leading edge; separators and line borders are DividerStrokeColorDefault hairlines; form entries are TextBoxes; QuirkProbe `box-*`, `form-entry-textbox` | ThemeDemo |
+| High contrast was black on white, or white on black, whatever the contrast theme: Aquatic, Desert, Dusk and Night sky all looked alike, and disabled text was as strong as the rest (#45) | the contrast theme's system colours (GetSysColor): Window, WindowText, Hilight, HilightText, GrayText, ButtonFace and ButtonText; `--contrast-theme` and `WinUIThemeContrastTheme` load one of Windows' own for testing; QuirkProbe `contrast-*` and `dusk` and `desert` configurations | the parity audit (Adwaita row 81) |
 
 ## Found in real apps
 

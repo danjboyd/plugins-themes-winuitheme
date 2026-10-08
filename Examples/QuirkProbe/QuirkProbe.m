@@ -337,6 +337,7 @@ QuirkProbeModuleOfAddress(void *address)
 - (void) checkBrowser;
 - (void) checkColorWell;
 - (void) checkBoxes;
+- (void) checkContrastTheme;
 - (void) checkSegmentedControl;
 - (void) checkTabView;
 - (void) checkMetricsChoice;
@@ -3160,6 +3161,143 @@ QuirkProbeSumAt(NSBitmapImageRep *rep, NSInteger x, NSInteger y)
   [window orderOut: nil];
 }
 
+/* A contrast theme's colours, from Windows' own .theme files
+   (Resources\Ease of Access Themes): Window, WindowText, Hilight,
+   HilightText, GrayText, ButtonFace and ButtonText, as RGB triples. */
+static const unsigned char *
+QuirkProbeContrastTheme(NSString *name)
+{
+  static const unsigned char dusk[] = {
+    45, 50, 54,  255, 255, 255,  161, 191, 222,  33, 45, 59,
+    166, 166, 166,  45, 50, 54,  182, 246, 240
+  };
+  static const unsigned char desert[] = {
+    255, 250, 239,  61, 61, 61,  144, 57, 9,  255, 245, 227,
+    103, 103, 103,  255, 250, 239,  32, 32, 32
+  };
+
+  if ([name isEqualToString: @"dusk"])
+    {
+      return dusk;
+    }
+  if ([name isEqualToString: @"desert"])
+    {
+      return desert;
+    }
+  return NULL;
+}
+
+/* YES when `color` is within 2 of the triple at `rgb`. */
+static BOOL
+QuirkProbeColorMatches(NSColor *color, const unsigned char *rgb)
+{
+  NSColor *converted = [color colorUsingColorSpaceName: NSCalibratedRGBColorSpace];
+
+  return converted != nil
+    && fabs([converted redComponent] * 255.0 - rgb[0]) <= 2.0
+    && fabs([converted greenComponent] * 255.0 - rgb[1]) <= 2.0
+    && fabs([converted blueComponent] * 255.0 - rgb[2]) <= 2.0;
+}
+
+static const unsigned char *QuirkProbeWantedRGB = NULL;
+
+/* Pixels within 24 of QuirkProbeWantedRGB in each channel. */
+static BOOL
+QuirkProbeIsWantedColor(NSUInteger red, NSUInteger green, NSUInteger blue)
+{
+  return labs((long)red - QuirkProbeWantedRGB[0]) <= 24
+    && labs((long)green - QuirkProbeWantedRGB[1]) <= 24
+    && labs((long)blue - QuirkProbeWantedRGB[2]) <= 24;
+}
+
+/* High contrast in the active contrast theme's colours (issue #45): the
+   probe runs with --contrast-theme dusk or desert, Windows' own themes,
+   and the palette must be theirs, not black and white. A button is
+   ButtonFace with ButtonText, which in Dusk differs from WindowText. */
+- (void) checkContrastTheme
+{
+  NSArray *arguments = [[NSProcessInfo processInfo] arguments];
+  NSUInteger index = [arguments indexOfObject: @"--contrast-theme"];
+  NSString *name = (index != NSNotFound && index + 1 < [arguments count])
+    ? [[arguments objectAtIndex: index + 1] lowercaseString] : nil;
+  const unsigned char *rgb = QuirkProbeContrastTheme(name);
+  NSArray *colors = nil;
+  NSArray *names = [NSArray arrayWithObjects: @"Window", @"WindowText", @"Hilight", @"HilightText",
+                                              @"GrayText", nil];
+  NSMutableArray *wrong = [NSMutableArray array];
+  NSUInteger i;
+
+  if (rgb == NULL)
+    {
+      [self skip: @"contrast-colours" detail: @"no contrast theme (--contrast-theme dusk or desert)"];
+      [self skip: @"contrast-button" detail: @"no contrast theme (--contrast-theme dusk or desert)"];
+      return;
+    }
+
+  colors = [NSArray arrayWithObjects: [NSColor windowBackgroundColor], [NSColor controlTextColor],
+                                      [NSColor selectedControlColor], [NSColor selectedControlTextColor],
+                                      [NSColor disabledControlTextColor], nil];
+  for (i = 0; i < [names count]; i++)
+    {
+      if (QuirkProbeColorMatches([colors objectAtIndex: i], rgb + 3 * i) == NO)
+        {
+          [wrong addObject: [names objectAtIndex: i]];
+        }
+    }
+  if ([wrong count] == 0)
+    {
+      [self pass: @"contrast-colours" detail: [NSString stringWithFormat:
+        @"the window, text, highlight and disabled colours are %@'s", name]];
+    }
+  else
+    {
+      [self fail: @"contrast-colours" detail: [NSString stringWithFormat:
+        @"not %@'s: %@", name, [wrong componentsJoinedByString: @", "]]];
+    }
+
+  /* The button: a ButtonFace fill beside its ButtonText title. */
+  {
+    NSWindow *window = [self windowWithFrame: NSMakeRect(240, 240, 200, 80)
+                                       title: @"QuirkProbe Contrast"];
+    NSButton *button = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(20, 24, 140, 32)]);
+    NSBitmapImageRep *rep = nil;
+    CGFloat scale;
+    NSUInteger red = 0, green = 0, blue = 0;
+    QuirkProbeInk title;
+    BOOL face;
+
+    [button setButtonType: NSMomentaryPushInButton];
+    [button setBezelStyle: NSRoundedBezelStyle];
+    [button setTitle: @"Apply"];
+    [[window contentView] addSubview: button];
+    [window orderFront: nil];
+    [window display];
+    rep = QuirkProbeRender(button);
+    scale = QuirkProbeScale(rep, button);
+    [self saveView: button named: @"contrast-button"];
+    QuirkProbePixel(rep, (NSInteger)(10 * scale), [rep pixelsHigh] / 2, &red, &green, &blue);
+    QuirkProbeWantedRGB = rgb + 15;
+    face = QuirkProbeIsWantedColor(red, green, blue);
+    QuirkProbeWantedRGB = rgb + 18;
+    title = QuirkProbeMeasureIn(rep, QuirkProbeIsWantedColor,
+                                NSMakeRect(20 * scale, 4 * scale, [rep pixelsWide] - 40 * scale,
+                                           [rep pixelsHigh] - 8 * scale));
+    if (face && title.count >= (NSUInteger)(20 * scale * scale))
+      {
+        [self pass: @"contrast-button" detail: [NSString stringWithFormat:
+          @"ButtonFace with %lu px of ButtonText", (unsigned long)title.count]];
+      }
+    else
+      {
+        [self fail: @"contrast-button" detail: [NSString stringWithFormat:
+          @"the fill is %lu,%lu,%lu (ButtonFace %@), %lu px of ButtonText",
+          (unsigned long)red, (unsigned long)green, (unsigned long)blue, face ? @"yes" : @"no",
+          (unsigned long)title.count]];
+      }
+    [window orderOut: nil];
+  }
+}
+
 static NSSegmentedControl *
 QuirkProbeSegments(NSView *content, NSRect frame, NSInteger mode)
 {
@@ -5485,6 +5623,7 @@ QuirkProbeLastItemOfMenu(NSString *title)
   [self checkBrowser];
   [self checkColorWell];
   [self checkBoxes];
+  [self checkContrastTheme];
   [self checkSegmentedControl];
   [self checkTabView];
   [self checkMetricsChoice];

@@ -369,6 +369,167 @@ WinUIThemeHighContrastEnabledFromSystem(void)
   return ((settings.dwFlags & HCF_HIGHCONTRASTON) != 0);
 }
 
+/* High contrast's colours (#45), by the names Windows' contrast themes
+   give them in their [Control Panel\Colors] sections. */
+static NSArray *
+WinUIThemeContrastColorNames(void)
+{
+  return [NSArray arrayWithObjects: @"Window", @"WindowText", @"Hilight", @"HilightText",
+                                    @"HotTrackingColor", @"GrayText", @"ButtonFace",
+                                    @"ButtonText", nil];
+}
+
+static NSColor *
+WinUIThemeContrastRGB(unsigned int red, unsigned int green, unsigned int blue)
+{
+  return [NSColor colorWithCalibratedRed: red / 255.0
+                                   green: green / 255.0
+                                    blue: blue / 255.0
+                                   alpha: 1.0];
+}
+
+#ifdef _WIN32
+/* The active contrast theme's colours, as WinUI's SystemColor* resources
+   read them. */
+static NSDictionary *
+WinUIThemeContrastColorsFromSystem(void)
+{
+  static const int indexes[] = {
+    COLOR_WINDOW, COLOR_WINDOWTEXT, COLOR_HIGHLIGHT, COLOR_HIGHLIGHTTEXT,
+    COLOR_HOTLIGHT, COLOR_GRAYTEXT, COLOR_BTNFACE, COLOR_BTNTEXT
+  };
+  NSArray *names = WinUIThemeContrastColorNames();
+  NSMutableDictionary *colors = [NSMutableDictionary dictionary];
+  NSUInteger i;
+
+  for (i = 0; i < [names count]; i++)
+    {
+      DWORD color = GetSysColor(indexes[i]);
+
+      [colors setObject: WinUIThemeContrastRGB(GetRValue(color), GetGValue(color), GetBValue(color))
+                 forKey: [names objectAtIndex: i]];
+    }
+  return colors;
+}
+#endif
+
+/* A contrast theme's file: a path to a .theme file, or one of Windows'
+   by its name in Settings (Aquatic, Desert, Dusk, Night sky). */
+static NSString *
+WinUIThemeContrastThemePath(NSString *name)
+{
+  NSDictionary *files = [NSDictionary dictionaryWithObjectsAndKeys:
+    @"hcblack.theme", @"aquatic",
+    @"hcwhite.theme", @"desert",
+    @"hc1.theme", @"dusk",
+    @"hc2.theme", @"night-sky",
+    nil];
+  NSString *key = [[[name lowercaseString] componentsSeparatedByString: @" "] componentsJoinedByString: @"-"];
+  NSString *file = [files objectForKey: key];
+  NSString *root = [[[NSProcessInfo processInfo] environment] objectForKey: @"SystemRoot"];
+
+  if (file == nil)
+    {
+      return [[NSFileManager defaultManager] fileExistsAtPath: name] ? name : nil;
+    }
+  if ([root length] == 0)
+    {
+      root = @"C:\\Windows";
+    }
+  return [[[root stringByAppendingPathComponent: @"Resources"]
+                 stringByAppendingPathComponent: @"Ease of Access Themes"]
+                 stringByAppendingPathComponent: file];
+}
+
+/* The colours in a .theme file's [Control Panel\Colors] section
+   ("Window=32 32 32"), or nil when any is missing. */
+static NSDictionary *
+WinUIThemeContrastColorsFromThemeFile(NSString *path)
+{
+  NSData *data = (path != nil) ? [NSData dataWithContentsOfFile: path] : nil;
+  const unsigned char *bytes = (const unsigned char *)[data bytes];
+  NSString *text = nil;
+  NSEnumerator *lines = nil;
+  NSString *line = nil;
+  NSMutableDictionary *colors = [NSMutableDictionary dictionary];
+  NSEnumerator *names = nil;
+  NSString *name = nil;
+  BOOL inColors = NO;
+
+  if (data == nil)
+    {
+      return nil;
+    }
+  /* Windows writes them in UTF-16 or ANSI. */
+  if ([data length] >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE)
+    {
+      text = AUTORELEASE([[NSString alloc] initWithData: data encoding: NSUnicodeStringEncoding]);
+    }
+  else
+    {
+      text = AUTORELEASE([[NSString alloc] initWithData: data encoding: NSISOLatin1StringEncoding]);
+    }
+  lines = [[text componentsSeparatedByString: @"\n"] objectEnumerator];
+  while ((line = [lines nextObject]) != nil)
+    {
+      NSRange equals;
+      NSArray *parts = nil;
+
+      line = [line stringByTrimmingCharactersInSet: [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+      if ([line hasPrefix: @"["])
+        {
+          inColors = ([line caseInsensitiveCompare: @"[Control Panel\\Colors]"] == NSOrderedSame);
+          continue;
+        }
+      equals = [line rangeOfString: @"="];
+      if (inColors == NO || equals.location == NSNotFound)
+        {
+          continue;
+        }
+      parts = [[line substringFromIndex: NSMaxRange(equals)] componentsSeparatedByString: @" "];
+      if ([parts count] == 3)
+        {
+          [colors setObject: WinUIThemeContrastRGB([[parts objectAtIndex: 0] intValue],
+                                                   [[parts objectAtIndex: 1] intValue],
+                                                   [[parts objectAtIndex: 2] intValue])
+                     forKey: [line substringToIndex: equals.location]];
+        }
+    }
+  names = [WinUIThemeContrastColorNames() objectEnumerator];
+  while ((name = [names nextObject]) != nil)
+    {
+      if ([colors objectForKey: name] == nil)
+        {
+          return nil;
+        }
+    }
+  return colors;
+}
+
+/* High contrast forced on (WinUIThemeHighContrast, --high-contrast)
+   without Windows' being on: black on white, or white on black in the dark
+   scheme, with the highlight in the text colour. */
+static NSDictionary *
+WinUIThemeContrastColorsForScheme(BOOL dark)
+{
+  NSColor *back = dark ? [NSColor blackColor] : [NSColor whiteColor];
+  NSColor *ink = dark ? [NSColor whiteColor] : [NSColor blackColor];
+
+  return [NSDictionary dictionaryWithObjectsAndKeys:
+    back, @"Window", ink, @"WindowText", ink, @"Hilight", back, @"HilightText",
+    ink, @"HotTrackingColor", ink, @"GrayText", back, @"ButtonFace", ink, @"ButtonText",
+    nil];
+}
+
+static CGFloat
+WinUIThemeContrastLuminance(NSColor *color)
+{
+  NSColor *rgb = [color colorUsingColorSpaceName: NSCalibratedRGBColorSpace];
+
+  return (rgb == nil) ? 1.0
+    : 0.2126 * [rgb redComponent] + 0.7152 * [rgb greenComponent] + 0.0722 * [rgb blueComponent];
+}
+
 /* The app accent, as Windows' Settings sets it: AccentColorMenu is
    0xAABBGGRR. (DWM's ColorizationColor, read before, is the window
    frame's colour, which the user can turn off or tint differently.) */
@@ -449,6 +610,7 @@ WinUIThemeAccentPaletteFromSystem(void)
   RELEASE(_monospaceFontName);
   RELEASE(_accentColor);
   RELEASE(_accentPalette);
+  RELEASE(_contrastColors);
   [super dealloc];
 }
 
@@ -463,6 +625,7 @@ WinUIThemeAccentPaletteFromSystem(void)
   NSNumber *preferDarkOverride = [defaults objectForKey: @"WinUIThemePreferDark"];
   NSNumber *preferLightOverride = [defaults objectForKey: @"WinUIThemePreferLight"];
   NSNumber *highContrastOverride = [defaults objectForKey: @"WinUIThemeHighContrast"];
+  NSString *contrastThemeOverride = [defaults stringForKey: @"WinUIThemeContrastTheme"];
   NSNumber *reducedTransparencyOverride = [defaults objectForKey: @"WinUIThemeReducedTransparency"];
   NSNumber *desktopScaleFactorOverride = [defaults objectForKey: @"WinUIThemeDesktopScaleFactor"];
   NSNumber *interfaceFontSizeOverride = [defaults objectForKey: @"WinUIThemeInterfaceFontSize"];
@@ -474,6 +637,9 @@ WinUIThemeAccentPaletteFromSystem(void)
   NSString *accentHex = nil;
   NSString *commandModeOverride = nil;
   NSNumber *commandHighContrastOverride = nil;
+  NSString *commandContrastTheme = nil;
+  NSDictionary *contrastColors = nil;
+  BOOL systemHighContrast = NO;
   NSNumber *commandReducedTransparencyOverride = nil;
   CGFloat interfaceFontSize = 0.0;
   CGFloat menuFontSize = 0.0;
@@ -498,7 +664,8 @@ WinUIThemeAccentPaletteFromSystem(void)
     DWORD textScale = 100;
 
     desktopScaleFactor = WinUIThemeSystemDpi() / 96.0;
-    highContrast = WinUIThemeHighContrastEnabledFromSystem();
+    systemHighContrast = WinUIThemeHighContrastEnabledFromSystem();
+    highContrast = systemHighContrast;
     reducedTransparency = YES;
     if (WinUIThemeReadRegistryDWORD(WinUIThemePersonalizeRegistryPath,
                                     @"EnableTransparency",
@@ -566,6 +733,12 @@ WinUIThemeAccentPaletteFromSystem(void)
             {
               commandScaleFactorOverride = commandScaleFactorOverride / 100.0;
             }
+          i += 2;
+          continue;
+        }
+      if ([argument isEqualToString: @"--contrast-theme"] && [nextValue length] > 0)
+        {
+          commandContrastTheme = nextValue;
           i += 2;
           continue;
         }
@@ -740,6 +913,47 @@ WinUIThemeAccentPaletteFromSystem(void)
     {
       reducedTransparency = [commandReducedTransparencyOverride boolValue];
     }
+
+  /* High contrast's colours: a contrast theme named for testing
+     (WinUIThemeContrastTheme, --contrast-theme), which turns high contrast
+     on unless it's turned off; else Windows' own while its high contrast is
+     on; else black and white. The scheme follows the background, so
+     colours blended over it lean the right way. */
+  if ([commandContrastTheme length] == 0)
+    {
+      commandContrastTheme = contrastThemeOverride;
+    }
+  if ([commandContrastTheme length] > 0 && highContrastOverride == nil
+      && commandHighContrastOverride == nil)
+    {
+      highContrast = YES;
+    }
+  if (highContrast)
+    {
+      if ([commandContrastTheme length] > 0)
+        {
+          contrastColors = WinUIThemeContrastColorsFromThemeFile(WinUIThemeContrastThemePath(commandContrastTheme));
+          if (contrastColors == nil)
+            {
+              NSLog(@"WinUITheme: no contrast theme named %@", commandContrastTheme);
+            }
+        }
+#ifdef _WIN32
+      if (contrastColors == nil && systemHighContrast)
+        {
+          contrastColors = WinUIThemeContrastColorsFromSystem();
+        }
+#endif
+      if (contrastColors != nil)
+        {
+          colorScheme = (WinUIThemeContrastLuminance([contrastColors objectForKey: @"Window"]) < 0.5)
+            ? WinUIThemeColorSchemePreferDark : WinUIThemeColorSchemePreferLight;
+        }
+      else
+        {
+          contrastColors = WinUIThemeContrastColorsForScheme(colorScheme == WinUIThemeColorSchemePreferDark);
+        }
+    }
   if (commandScaleFactorOverride > 0.0)
     {
       desktopScaleFactor = commandScaleFactorOverride;
@@ -773,6 +987,7 @@ WinUIThemeAccentPaletteFromSystem(void)
   ASSIGN(_accentPalette, accentPalette);
   _colorScheme = colorScheme;
   _highContrast = highContrast;
+  ASSIGN(_contrastColors, contrastColors);
   _reducedTransparency = reducedTransparency;
   _dynamicScrollbars = dynamicScrollbars;
   _desktopScaleFactor = desktopScaleFactor > 0.0 ? desktopScaleFactor : 1.0;
@@ -837,6 +1052,11 @@ WinUIThemeAccentPaletteFromSystem(void)
 - (BOOL) highContrastEnabled
 {
   return _highContrast;
+}
+
+- (NSColor *) contrastColor: (NSString *)name
+{
+  return _highContrast ? [_contrastColors objectForKey: name] : nil;
 }
 
 - (BOOL) reducedTransparencyEnabled

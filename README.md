@@ -101,6 +101,21 @@ as a user default, which wins over the Info.plist:
 defaults write SystemPreferences WinUIThemeMetrics compact
 ```
 
+## High Contrast
+
+With a Windows contrast theme on (Aquatic, Desert, Dusk, Night sky or a
+custom one), apps take that theme's colours, as WinUI apps do through their
+`SystemColor*` resources: Window and WindowText for surfaces and text,
+Hilight and HilightText for selection and the accent, GrayText for disabled
+text, and ButtonFace and ButtonText for buttons. They follow a change of
+theme while running, and the title bar is left to Windows.
+
+To check an app under a contrast theme without changing the desktop, name
+one: `--contrast-theme dusk` on the command line, or the
+`WinUIThemeContrastTheme` default (`aquatic`, `desert`, `dusk`,
+`night-sky`, or a `.theme` file's path). The colours are read from Windows'
+own theme files.
+
 ## Real-App Gate
 
 Before release, the theme must validate against `ObjcMarkdown` in the sibling

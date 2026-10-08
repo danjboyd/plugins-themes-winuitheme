@@ -97,13 +97,18 @@ WinUIThemeDrawButtonChrome(WinUITheme *theme, NSRect frame, NSView *view, BOOL e
   NSRect drawRect = NSInsetRect(NSIntegralRect(frame), 0.5, 0.5);
   NSBezierPath *buttonPath = nil;
 
+  /* High contrast (#45): ButtonFace with ButtonText at rest, the
+     highlight when default, hovered or pressed, GrayText disabled. */
   if (highContrast)
     {
-      fillColor = (defaultButton || pressed) ? accent : window;
-      strokeColor = enabled ? text
+      BOOL highlighted = enabled && (defaultButton || pressed || hover);
+
+      fillColor = highlighted ? accent
+        : WinUIThemeColorFromTheme(theme, @"controlColor", window);
+      strokeColor = enabled ? WinUIThemeColorFromTheme(theme, @"buttonTextColor", text)
         : WinUIThemeColorFromTheme(theme, @"disabledControlTextColor", [NSColor disabledControlTextColor]);
       bottomStrokeColor = strokeColor;
-      titleColor = (defaultButton || pressed)
+      titleColor = highlighted
         ? WinUIThemeColorFromTheme(theme, @"selectedControlTextColor", [NSColor selectedControlTextColor])
         : strokeColor;
     }
@@ -2357,8 +2362,11 @@ static const CGFloat WinUIThemeSearchDeleteWidth = 28.0;
       BOOL hasCustomAlternateImage = ([cell alternateImage] != nil
                                       && [cell alternateImage] != [NSImage imageNamed: @"common_retH"]);
       BOOL enabled = [cell isEnabled];
+      /* High contrast's buttons are ButtonFace with ButtonText (#45). */
+      BOOL contrastButton = ([[theme settings] highContrastEnabled] && [cell isBordered]);
       NSColor *textColor = enabled
-        ? WinUIThemeColorFromTheme(theme, @"labelColor", [NSColor controlTextColor])
+        ? WinUIThemeColorFromTheme(theme, contrastButton ? @"buttonTextColor" : @"labelColor",
+                                   [NSColor controlTextColor])
         : WinUIThemeColorFromTheme(theme, @"disabledControlTextColor", [NSColor disabledControlTextColor]);
       NSRect titleRect = WinUIThemeButtonTitleRect(cell, cellFrame);
 
@@ -2402,9 +2410,12 @@ static const CGFloat WinUIThemeSearchDeleteWidth = 28.0;
 
       defaultButton = WinUIThemeButtonIsDefault(cell);
 
-      /* High contrast fills a pressed button with the highlight colour, so
-         its title takes the highlight text colour, as a default button's. */
-      if (enabled && (defaultButton || ([cell isHighlighted] && [[theme settings] highContrastEnabled])))
+      /* High contrast fills a pressed or hovered button with the highlight
+         colour, so its title takes the highlight text colour, as a default
+         button's. */
+      if (enabled && (defaultButton
+                      || (contrastButton && ([cell isHighlighted]
+                                             || WinUIThemeViewIsHovered(controlView)))))
         {
           textColor = WinUIThemeColorFromTheme(theme,
                                                @"selectedControlTextColor",

@@ -71,6 +71,7 @@ WinUIThemeRGB(CGFloat red, CGFloat green, CGFloat blue)
   NSColor *rowBackground = nil;
   NSColor *highlightedRowBackground = nil;
   NSColor *highlightedRowTextColor = nil;
+  NSColor *buttonTextColor = nil;
 
   if (dark)
     {
@@ -129,34 +130,46 @@ WinUIThemeRGB(CGFloat red, CGFloat green, CGFloat blue)
       highlightedRowTextColor = WinUIThemeRGB(22, 22, 22);
     }
 
+  /* High contrast (#45): the contrast theme's colours, as WinUI's
+     SystemColor* resources use them. Window and WindowText for surfaces
+     and text; Hilight and HilightText for selection, the accent and
+     hovered menu items; GrayText for disabled text; ButtonFace and
+     ButtonText for buttons. Borders and separators are the text colour.
+     (GNUstep has no link colour for HotTrackingColor.) */
   if (highContrast)
     {
-      controlColor = dark ? [NSColor blackColor] : [NSColor whiteColor];
-      windowBackground = controlColor;
-      controlBackground = controlColor;
-      surfaceColor = controlColor;
-      menuBarBackground = controlColor;
-      menuBarBorderColor = dark ? [NSColor whiteColor] : [NSColor blackColor];
-      menuBackground = controlColor;
-      menuBorderColor = dark ? [NSColor whiteColor] : [NSColor blackColor];
-      menuSelectionColor = dark ? [NSColor whiteColor] : [NSColor blackColor];
-      menuSelectionTextColor = dark ? [NSColor blackColor] : [NSColor whiteColor];
-      menuSeparatorColor = dark ? [NSColor whiteColor] : [NSColor blackColor];
-      headerBackground = controlColor;
-      textColor = dark ? [NSColor whiteColor] : [NSColor blackColor];
-      secondaryTextColor = textColor;
-      disabledTextColor = textColor;
-      shadowColor = textColor;
-      darkShadowColor = textColor;
-      separatorColor = textColor;
-      selectedTextColor = dark ? [NSColor blackColor] : [NSColor whiteColor];
-      rowBackground = controlColor;
-      alternateRowBackground = controlColor;
-      selectedInactiveColor = textColor;
-      gridColor = textColor;
-      highlightedRowBackground = menuSelectionColor;
-      highlightedRowTextColor = menuSelectionTextColor;
-      accent = dark ? [NSColor whiteColor] : [NSColor blackColor];
+      NSColor *window = [settings contrastColor: @"Window"];
+      NSColor *windowText = [settings contrastColor: @"WindowText"];
+      NSColor *highlight = [settings contrastColor: @"Hilight"];
+      NSColor *highlightText = [settings contrastColor: @"HilightText"];
+
+      controlColor = [settings contrastColor: @"ButtonFace"];
+      buttonTextColor = [settings contrastColor: @"ButtonText"];
+      windowBackground = window;
+      controlBackground = window;
+      surfaceColor = window;
+      menuBarBackground = window;
+      menuBarBorderColor = windowText;
+      menuBackground = window;
+      menuBorderColor = windowText;
+      menuSelectionColor = highlight;
+      menuSelectionTextColor = highlightText;
+      menuSeparatorColor = windowText;
+      headerBackground = window;
+      textColor = windowText;
+      secondaryTextColor = windowText;
+      disabledTextColor = [settings contrastColor: @"GrayText"];
+      shadowColor = windowText;
+      darkShadowColor = windowText;
+      separatorColor = windowText;
+      selectedTextColor = highlightText;
+      rowBackground = window;
+      alternateRowBackground = window;
+      selectedInactiveColor = highlight;
+      gridColor = windowText;
+      highlightedRowBackground = highlight;
+      highlightedRowTextColor = highlightText;
+      accent = highlight;
     }
   else if (reducedTransparency)
     {
@@ -239,6 +252,7 @@ WinUIThemeRGB(CGFloat red, CGFloat green, CGFloat blue)
   [colors setColor: highlightedRowBackground forKey: @"highlightedTableRowBackgroundColor"];
   [colors setColor: highlightedRowTextColor forKey: @"highlightedTableRowTextColor"];
   [colors setColor: selectedInactiveColor forKey: @"selectedInactiveColor"];
+  [colors setColor: (buttonTextColor != nil) ? buttonTextColor : textColor forKey: @"buttonTextColor"];
 
   return AUTORELEASE(colors);
 }
