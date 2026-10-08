@@ -26,8 +26,6 @@
 
 #import "GSWindowTabbing.h"
 
-#import <objc/runtime.h>
-
 /* Window tabs (#72) as WinUI's TabView draws them (Notepad, Terminal),
    over the shared gnustep-window-tabbing code, which lays the bar out and
    handles the mouse.
@@ -38,7 +36,8 @@
 
    From WinUI 3's TabView resources (generic.xaml):
    - the strip: 8px above 32px tabs (TabViewHeaderPadding,
-     TabViewItemMinHeight), tabs 100-240px wide;
+     TabViewItemMinHeight), tabs 100-240px wide and touching, 4px in from
+     each end;
    - the selected tab: SolidBackgroundFillColorTertiary, 8px top corners
      and 4px flares into the line along the strip's foot, a
      CardStrokeColorDefault outline, semibold text; it has no line under
@@ -48,7 +47,7 @@
    - other tabs: transparent, LayerOnMicaBaseAltFillColorSecondary under
      the pointer, TextFillColorSecondary text, a 1px
      DividerStrokeColorDefault separator 8px from the top and bottom,
-     hidden beside the selected tab and under the pointer;
+     hidden beside the selected, hovered or pressed tab;
    - titles at 12px (TabViewItemHeaderFontSize) times Windows' text size,
      8px from the leading edge;
    - the close button: 32x24 with 4px corners, 4px from the trailing edge,
@@ -339,52 +338,6 @@ WinUIThemeTabsTitleShowsEdited(NSString *title)
    draws a tab's close button right after the tab. */
 static BOOL WinUIThemeTabsLastTitleShowsEdited = NO;
 
-/* Closing the selected tab. The shared code shows its neighbour when it
-   hears NSWindowWillCloseNotification, but NSApplication hears it first
-   and, finding no other window on screen (the other tabs are ordered
-   out), takes it for the app's last window: under Windows-style menus,
-   or with an app delegate that asks for it, the app quit when its
-   selected tab closed. The neighbour now takes the tab's place before
-   the window closes. */
-static IMP WinUIThemeTabsOriginalClose = NULL;
-
-static void
-WinUIThemeTabsClose(id self, SEL _cmd)
-{
-  NSWindow *window = (NSWindow *)self;
-  NSArray *tabs = [window tabbedWindows];
-
-  if ([tabs count] > 1 && [[window tabGroup] selectedWindow] == window)
-    {
-      NSUInteger index = [tabs indexOfObjectIdenticalTo: window];
-      NSUInteger count = [tabs count];
-
-      if (index != NSNotFound)
-        {
-          [[window tabGroup] setSelectedWindow:
-            [tabs objectAtIndex: (index + 1 < count) ? index + 1 : index - 1]];
-        }
-    }
-  ((void (*)(id, SEL))WinUIThemeTabsOriginalClose)(self, _cmd);
-}
-
-void
-WinUIThemeInstallWindowTabs(void)
-{
-  Method method;
-
-  if (WinUIThemeTabsOriginalClose != NULL
-      || [NSWindow instancesRespondToSelector: @selector(tabbedWindows)] == NO)
-    {
-      return;
-    }
-  method = class_getInstanceMethod([NSWindow class], @selector(close));
-  if (method != NULL)
-    {
-      WinUIThemeTabsOriginalClose = method_setImplementation(method, (IMP)WinUIThemeTabsClose);
-    }
-}
-
 @implementation WinUITheme (WindowTabs)
 
 - (CGFloat) windowTabBarHeightForWindow: (NSWindow *)window
@@ -407,18 +360,33 @@ WinUIThemeInstallWindowTabs(void)
   return round(240.0 * WinUIThemeTabsDensity(self));
 }
 
+/* 4px at each end: WinUI's strip starts its tabs 2px in (LeftContentColumn's
+   MinWidth), and the selected tab's flares reach 4px past it, so the first
+   tab's flare shows whole. */
+- (CGFloat) windowTabBarMarginForWindow: (NSWindow *)window
+{
+  return round(4.0 * WinUIThemeTabsDensity(self));
+}
+
+/* TabView's tabs touch, with a divider between them. */
+- (CGFloat) windowTabSpacingForWindow: (NSWindow *)window
+{
+  return 0.0;
+}
+
 /* The "+" follows the last tab, as WinUI's AddTabButton does. The shared
-   bar puts the button at its end and gives the tabs what is left, so the
-   button's width is what the tabs leave: the rect then starts where the
-   tabs end, and the button is drawn at its start. Tabs share the width as
-   GSWindowTabWidth() does (floor of the share, between the limits). */
+   bar puts the button at its end (inside the margin) and gives the tabs
+   what is left, so the button's width is what the tabs leave: the rect
+   then starts where the tabs end, and the button is drawn at its start.
+   Tabs share the width as GSWindowTabWidth() does (floor of the share,
+   between the limits). */
 - (CGFloat) windowTabNewTabButtonWidthForWindow: (NSWindow *)window
 {
   CGFloat d = WinUIThemeTabsDensity(self);
   CGFloat button = round(40.0 * d);
   NSView *bar = GSWindowTabBarViewForWindow(window);
   NSUInteger count = [[[window tabGroup] windows] count];
-  CGFloat width = NSWidth([bar bounds]);
+  CGFloat width = NSWidth([bar bounds]) - 2.0 * [self windowTabBarMarginForWindow: window];
   CGFloat minimum = [self windowTabMinimumWidthForWindow: window];
   CGFloat maximum = [self windowTabMaximumWidthForWindow: window];
   CGFloat each;
@@ -505,15 +473,16 @@ WinUIThemeInstallWindowTabs(void)
               [NSGraphicsContext restoreGraphicsState];
             }
         }
-      /* The separator at the trailing edge, hidden under the pointer, on
-         the tab before the selected one and on the last tab. */
-      if (hovered == NO && (index < 0 || index + 1 != selectedIndex)
-          && (state & GSWindowTabLast) == 0)
+      /* The divider between two tabs that are neither selected, under the
+         pointer nor pressed (GSWindowTabPreviousHighlighted): none before
+         the first tab or after the last. */
+      if (hovered == NO
+          && (state & (GSWindowTabFirst | GSWindowTabPreviousHighlighted)) == 0)
         {
           CGFloat margin = round(8.0 * d);
 
           [WinUIThemeTabsSeparatorColor(self) set];
-          NSRectFill(NSMakeRect(NSMaxX(body) - 1.0, NSMinY(body) + margin,
+          NSRectFill(NSMakeRect(NSMinX(body), NSMinY(body) + margin,
                                 1.0, NSHeight(body) - 2.0 * margin));
         }
     }

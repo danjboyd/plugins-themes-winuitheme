@@ -173,21 +173,31 @@ own theme files.
 Apps get Apple's `NSWindow` tabbing API (`-addTabbedWindow:ordered:`,
 `tabbingIdentifier`, `tabGroup`, `-newWindowForTab:`, `-selectNextTab:` and
 the rest) from the shared code in `Source/WindowTabbing`. The
-theme installs it from `-activate` when `NSWindow` lacks it; GSTheme
-activates the user's theme as `NSApplication` is made, so the API is there
-before an app sets up its first window. Apps that check
+theme installs it from `-initWithBundle:`, before calling GSTheme's, when
+`NSWindow` lacks it: GSTheme records the methods a theme overrides there,
+and an override installed after the tabbing hooks calls them as its
+original. GSTheme loads the user's theme as `NSApplication` is made, so
+the API is there before an app sets up its first window. Apps that check
 `[NSWindow instancesRespondToSelector: @selector(addTabbedWindow:ordered:)]`
 (ObjcMarkdown) find it.
 
 **Off by default for now** (#72): apps that find the API use it (ObjcMarkdown
-turns its documents into window tabs), and the tabs haven't been checked
-with ObjcMarkdown yet. `WinUIThemeWindowTabs YES` (a user default, or
-`-WinUIThemeWindowTabs YES` on the command line) turns them on;
+turns its documents into window tabs). `WinUIThemeWindowTabs YES` (a user
+default, or `-WinUIThemeWindowTabs YES` on the command line) turns them on;
 QuirkProbe runs with it on.
+
+On Windows: the hidden tabs are ordered out, so the taskbar and Alt+Tab
+show one entry per group; selecting a tab gives it the group's frame and,
+from the theme, its Windows placement (maximized, and the size to restore
+to); closing the selected tab shows its neighbour first, so the app doesn't
+take it for its last window; Ctrl+Tab, Ctrl+Shift+Tab and Ctrl+Page
+Up/Down switch tabs even from a text view. A tab keeps its group's frame
+when the theme gives it the menu bar.
 
 The theme draws the bar as WinUI's TabView (Notepad, Terminal), from its
 `generic.xaml` resources: a 40px strip (8px above 32px tabs) on a step
-darker than the window, tabs 100 to 240px wide sharing it, titles at 12px
+darker than the window, tabs 100 to 240px wide sharing it from 4px in from
+each end, titles at 12px
 ending in an ellipsis; the selected tab in the window's colour with 8px top
 corners and small flares into the strip's foot, semibold, with no line under
 it so it runs into the content; other tabs with a hover fill and a divider
@@ -203,9 +213,12 @@ server leaves the title bar to Windows, so here the bar has its own row
 above the content, under the menu bar and the toolbar.
 
 An app that compiles the shared code in itself, as its `Examples/TabDemo`
-does, can't run under the theme: the process then has two copies of
-`NSWindowTabGroup` and the other classes, and crashes. Apps should rely on
-the theme (or libs-gui, later) for the API.
+does, brings a second copy of `NSWindowTabGroup` and the other classes.
+Since `4cb1b63` the copy whose classes the runtime kept does the work and
+the other defers to it (it tells them apart with `dladdr()`, which MinGW
+lacks: `Source/Native/Compat/dlfcn.h` gives the theme one). That hasn't
+been tried on Windows; apps should rely on the theme (or libs-gui, later)
+for the API.
 
 ## Real-App Gate
 

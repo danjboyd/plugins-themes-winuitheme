@@ -309,6 +309,7 @@ QuirkProbeModuleOfAddress(void *address)
 @interface NSWindow (QuirkProbeTabbing)
 - (void) addTabbedWindow: (NSWindow *)window ordered: (NSWindowOrderingMode)ordered;
 - (NSArray *) tabbedWindows;
+- (void) selectNextTab: (id)sender;
 @end
 
 @interface NSView (QuirkProbeTabBar)
@@ -4722,6 +4723,23 @@ QuirkProbeStripInk(NSScrollView *scrollView, NSUInteger fill, CGFloat inset)
    short with an ellipsis, and a "+" right after the last tab only when
    something answers -newWindowForTab:. Before, NSWindow had no tabbing at
    all. */
+
+/* A key press with the Ctrl key, as `window` gets it. */
+static NSEvent *
+QuirkProbeTabKey(NSWindow *window, NSString *characters, NSUInteger modifiers)
+{
+  return [NSEvent keyEventWithType: NSKeyDown
+                          location: NSZeroPoint
+                     modifierFlags: modifiers
+                         timestamp: 0
+                      windowNumber: [window windowNumber]
+                           context: nil
+                        characters: characters
+       charactersIgnoringModifiers: characters
+                         isARepeat: NO
+                           keyCode: 0];
+}
+
 - (void) checkWindowTabs
 {
   BOOL highContrast = QuirkProbeHasArgument(@"--high-contrast", @"yes");
@@ -4752,6 +4770,8 @@ QuirkProbeStripInk(NSScrollView *scrollView, NSUInteger fill, CGFloat inset)
       [self fail: @"window-tab-close-button" detail: missing];
       [self fail: @"window-tab-title-fitted" detail: missing];
       [self fail: @"window-tab-new-button" detail: missing];
+      [self fail: @"window-tab-shortcut-over-text-view" detail: missing];
+      [self fail: @"window-tab-takes-placement" detail: missing];
       [self fail: @"window-tab-keeps-group-frame" detail: missing];
       [self fail: @"window-tab-close-shows-neighbour" detail: missing];
       return;
@@ -4777,6 +4797,8 @@ QuirkProbeStripInk(NSScrollView *scrollView, NSUInteger fill, CGFloat inset)
       [self fail: @"window-tab-close-button" detail: detail];
       [self fail: @"window-tab-title-fitted" detail: detail];
       [self fail: @"window-tab-new-button" detail: detail];
+      [self fail: @"window-tab-shortcut-over-text-view" detail: detail];
+      [self fail: @"window-tab-takes-placement" detail: detail];
       [self fail: @"window-tab-keeps-group-frame" detail: detail];
       [self fail: @"window-tab-close-shows-neighbour" detail: detail];
       [second close];
@@ -4939,6 +4961,98 @@ QuirkProbeStripInk(NSScrollView *scrollView, NSUInteger fill, CGFloat inset)
         }
       _offersNewTab = NO;
     }
+
+  /* Ctrl+Tab and Ctrl+Page Down select the next tab ahead of a text view
+     with focus, whichever modifier the Ctrl key arrives as: Command under
+     GNUstep's default key mapping (the theme's), Control otherwise. The
+     shared code before 4cb1b63 let the text view take them (a tab
+     inserted, a page scrolled). */
+  {
+    NSTextView *secondText = AUTORELEASE([[NSTextView alloc] initWithFrame: NSMakeRect(10, 10, 200, 60)]);
+    NSTextView *firstText = AUTORELEASE([[NSTextView alloc] initWithFrame: NSMakeRect(10, 10, 200, 60)]);
+    BOOL byTab;
+    BOOL byPage;
+    NSString *typed;
+
+    [content addSubview: secondText];
+    [second makeFirstResponder: secondText];
+    [[first contentView] addSubview: firstText];
+    [first makeFirstResponder: firstText];
+    [second sendEvent: QuirkProbeTabKey(second, @"\t", NSCommandKeyMask)];
+    byTab = [first isVisible] && [second isVisible] == NO;
+    [first sendEvent: QuirkProbeTabKey(first, [NSString stringWithFormat: @"%C", (unichar)NSPageDownFunctionKey],
+                                       NSControlKeyMask)];
+    byPage = [second isVisible] && [first isVisible] == NO;
+    typed = [[secondText string] stringByAppendingString: [firstText string]];
+    if (byTab && byPage && [typed length] == 0)
+      {
+        [self pass: @"window-tab-shortcut-over-text-view" detail:
+          @"Command+Tab and Control+Page Down selected the next tab; the text views got nothing"];
+      }
+    else
+      {
+        [self fail: @"window-tab-shortcut-over-text-view" detail:
+          [NSString stringWithFormat: @"Ctrl+Tab selected the next tab %d, Ctrl+Page Down %d, the text views got %lu characters",
+                    (int)byTab, (int)byPage, (unsigned long)[typed length]]];
+      }
+    if ([second isVisible] == NO)
+      {
+        [second makeKeyAndOrderFront: nil];
+      }
+    [second makeFirstResponder: nil];
+    [first makeFirstResponder: nil];
+    [secondText removeFromSuperview];
+    [firstText removeFromSuperview];
+  }
+
+  /* Windows keeps maximized per window: a tab selected while its group
+     was maximized took the group's frame but wasn't maximized (the caption
+     button and a double-click didn't restore it), and one maximized
+     before came back maximized in a restored group. The selected tab now
+     takes the previous one's placement. */
+#ifdef _WIN32
+  {
+    HWND firstHandle = (HWND)(intptr_t)[first windowNumber];
+    HWND secondHandle = (HWND)(intptr_t)[second windowNumber];
+    BOOL tookMaximized;
+    BOOL tookRestored;
+
+    [second makeKeyAndOrderFront: nil];
+    QuirkProbeDispatchEvents(0.2);
+    ShowWindow(secondHandle, SW_MAXIMIZE);
+    QuirkProbeDispatchEvents(0.4);
+    [second selectNextTab: nil];
+    QuirkProbeDispatchEvents(0.4);
+    tookMaximized = [first isVisible] && IsZoomed(firstHandle);
+    ShowWindow(firstHandle, SW_RESTORE);
+    QuirkProbeDispatchEvents(0.4);
+    [first selectNextTab: nil];
+    QuirkProbeDispatchEvents(0.4);
+    tookRestored = [second isVisible] && IsZoomed(secondHandle) == 0;
+    if (tookMaximized && tookRestored)
+      {
+        [self pass: @"window-tab-takes-placement" detail:
+          @"a tab selected in a maximized group is maximized, and one maximized before is restored in a restored group"];
+      }
+    else
+      {
+        [self fail: @"window-tab-takes-placement" detail:
+          [NSString stringWithFormat: @"selected in a maximized group: maximized %d; selected in a restored group: restored %d",
+                    (int)tookMaximized, (int)tookRestored]];
+      }
+    /* Only the tab on screen: restoring a hidden one would show it. */
+    if ([second isVisible] == NO)
+      {
+        [second makeKeyAndOrderFront: nil];
+        QuirkProbeDispatchEvents(0.3);
+      }
+    if (IsZoomed(secondHandle))
+      {
+        ShowWindow(secondHandle, SW_RESTORE);
+      }
+    QuirkProbeDispatchEvents(0.3);
+  }
+#endif
 
   /* A new tab takes its group's frame. The theme gives a window made
      after launch the main menu's bar when it becomes main, which made it
