@@ -9,7 +9,7 @@
     common_SliderHoriz = "SliderThumb.png";
     common_SliderVert = "SliderThumb.png";
   };
-  GSThemeVersion = "0.1.0-phase3";
+  GSThemeVersion = "0.1.0-alpha1";
   GSThemeDomain = {
     GSBackHandlesWindowDecorations = YES;
     NSInterfaceStyleDefault = NSWindows95InterfaceStyle;
