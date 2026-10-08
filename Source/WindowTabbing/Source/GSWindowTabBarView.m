@@ -76,8 +76,34 @@ GSWindowTabScreenPoint(NSEvent *event)
 }
 
 /* Used before they are defined. */
+/* The events that tell a press tracked by the bar it has ended without
+   its release reaching the app: the window system took the pointer away
+   (on Windows, lost capture; on X11, another client's grab) and the
+   button went up elsewhere.  Then the pointer moves with no button down,
+   or a new press starts.  Such an event ends the tracking as a cancel,
+   and is put back for the app to handle. */
+static const NSUInteger GSWindowTabLostPressMask = NSMouseMovedMask
+  | NSLeftMouseDownMask | NSRightMouseDownMask | NSOtherMouseDownMask;
+
+static BOOL
+GSWindowTabPressWasLost(NSEvent *event)
+{
+  switch ([event type])
+    {
+      case NSMouseMoved:
+      case NSLeftMouseDown:
+      case NSRightMouseDown:
+      case NSOtherMouseDown:
+        [NSApp postEvent: event atStart: YES];
+        return YES;
+      default:
+        return NO;
+    }
+}
+
 @interface GSWindowTabBarView (Private)
 - (void) updateToolTips;
+- (void) observeKeyAndMainOfWindow: (NSWindow *)window;
 @end
 
 @implementation GSWindowTabBarView
@@ -91,8 +117,40 @@ GSWindowTabScreenPoint(NSEvent *event)
       _pressedTab = -1;
       _dropGapSlot = -1;
       [self setAutoresizingMask: NSViewWidthSizable | NSViewMinYMargin];
+      [self observeKeyAndMainOfWindow: window];
     }
   return self;
+}
+
+- (void) dealloc
+{
+  [[NSNotificationCenter defaultCenter] removeObserver: self];
+  [super dealloc];
+}
+
+/* The bar draws the window's key state, and whether there is a "+"
+   button can change with it (the responder chain that answers
+   -newWindowForTab:), so it is laid out and drawn again whenever the
+   window becomes or stops being key or main.  A tab selected while its
+   window wasn't key yet was otherwise drawn as it was then: no "+", and
+   tabs as wide as before, where clicks found other widths. */
+- (void) observeKeyAndMainOfWindow: (NSWindow *)window
+{
+  NSNotificationCenter *center = [NSNotificationCenter defaultCenter];
+
+  [center addObserver: self selector: @selector(windowKeyOrMainDidChange:)
+                 name: NSWindowDidBecomeKeyNotification object: window];
+  [center addObserver: self selector: @selector(windowKeyOrMainDidChange:)
+                 name: NSWindowDidResignKeyNotification object: window];
+  [center addObserver: self selector: @selector(windowKeyOrMainDidChange:)
+                 name: NSWindowDidBecomeMainNotification object: window];
+  [center addObserver: self selector: @selector(windowKeyOrMainDidChange:)
+                 name: NSWindowDidResignMainNotification object: window];
+}
+
+- (void) windowKeyOrMainDidChange: (NSNotification *)notification
+{
+  [self tabsDidChange];
 }
 
 - (BOOL) isFlipped
@@ -502,29 +560,63 @@ GSWindowTabScreenPoint(NSEvent *event)
     }
 }
 
+/* The theme's fade at an end of the tabs' area (NSMinXEdge or
+   NSMaxXEdge), or NSZeroRect when no tabs are out of sight that way. */
+- (NSRect) scrollFadeRectAtEdge: (NSRectEdge)edge
+{
+  NSRect tabs = [self tabsRect];
+  CGFloat width;
+
+  width = [[GSTheme theme] windowTabBarScrollFadeWidthForWindow: _tabWindow];
+  width = MIN(width, NSWidth(tabs) / 2.0);
+  if (width <= 0.0)
+    {
+      return NSZeroRect;
+    }
+  if (edge == NSMinXEdge && _scrollOffset > 0.0)
+    {
+      return NSMakeRect(NSMinX(tabs), 0.0, width, NSHeight(tabs));
+    }
+  if (edge == NSMaxXEdge && _scrollOffset < [self maximumScrollOffset])
+    {
+      return NSMakeRect(NSMaxX(tabs) - width, 0.0, width, NSHeight(tabs));
+    }
+  return NSZeroRect;
+}
+
+/* The close button of the tab at index, where it can be clicked: not
+   under a scroll fade, which hides it.  The tab itself can still be
+   clicked there, and scrolls into sight, as GTK's tabs do. */
+- (NSRect) liveCloseButtonRectForTabAtIndex: (NSUInteger)index
+{
+  NSRect button = [self closeButtonRectForTabAtIndex: index];
+
+  if (NSIsEmptyRect(button)
+    || NSIntersectsRect(button, [self scrollFadeRectAtEdge: NSMinXEdge])
+    || NSIntersectsRect(button, [self scrollFadeRectAtEdge: NSMaxXEdge]))
+    {
+      return NSZeroRect;
+    }
+  return button;
+}
+
 /* The theme's fade at each end where more tabs are out of sight. */
 - (void) drawScrollFades
 {
   GSTheme *theme = [GSTheme theme];
-  NSRect tabs = [self tabsRect];
-  CGFloat width = [theme windowTabBarScrollFadeWidthForWindow: _tabWindow];
+  NSRect rect;
 
-  width = MIN(width, NSWidth(tabs) / 2.0);
-  if (width <= 0.0)
+  rect = [self scrollFadeRectAtEdge: NSMinXEdge];
+  if (NSIsEmptyRect(rect) == NO)
     {
-      return;
-    }
-  if (_scrollOffset > 0.0)
-    {
-      [theme drawWindowTabBarScrollFadeInRect:
-        NSMakeRect(NSMinX(tabs), 0.0, width, NSHeight(tabs))
+      [theme drawWindowTabBarScrollFadeInRect: rect
                                          edge: NSMinXEdge
                                        window: _tabWindow];
     }
-  if (_scrollOffset < [self maximumScrollOffset])
+  rect = [self scrollFadeRectAtEdge: NSMaxXEdge];
+  if (NSIsEmptyRect(rect) == NO)
     {
-      [theme drawWindowTabBarScrollFadeInRect:
-        NSMakeRect(NSMaxX(tabs) - width, 0.0, width, NSHeight(tabs))
+      [theme drawWindowTabBarScrollFadeInRect: rect
                                          edge: NSMaxXEdge
                                        window: _tabWindow];
     }
@@ -552,7 +644,8 @@ GSWindowTabScreenPoint(NSEvent *event)
 }
 
 /* The tabs are clipped to their area, so scrolled ones don't run under
-   the "+" button; a dragged tab is drawn last, over the others. */
+   the "+" button; a dragged tab is drawn last, over the others and the
+   scroll fades. */
 - (void) drawRect: (NSRect)rect
 {
   NSUInteger count = [self numberOfTabs];
@@ -573,11 +666,11 @@ GSWindowTabScreenPoint(NSEvent *event)
           [self drawTabAtIndex: i];
         }
     }
+  [self drawScrollFades];
   if (_dragging && _dragDetached == NO && _dragIndex < count)
     {
       [self drawTabAtIndex: _dragIndex];
     }
-  [self drawScrollFades];
   [NSGraphicsContext restoreGraphicsState];
   if (NSIsEmptyRect([self newTabButtonRect]) == NO)
     {
@@ -621,7 +714,7 @@ GSWindowTabScreenPoint(NSEvent *event)
 {
   NSInteger tab = [self tabIndexAtPoint: point];
   BOOL closeHovered = (tab >= 0
-    && NSPointInRect(point, [self closeButtonRectForTabAtIndex: tab]));
+    && NSPointInRect(point, [self liveCloseButtonRectForTabAtIndex: tab]));
   BOOL newTabHovered = NSPointInRect(point, [self newTabButtonRect]);
 
   if (tab != _hoveredTab || closeHovered != _closeHovered
@@ -662,10 +755,11 @@ GSWindowTabScreenPoint(NSEvent *event)
 /* Buttons. */
 
 /* Tracks the button under the mouse until it's released; YES if it's
-   released inside rect. */
+   released inside rect.  A lost press is no click. */
 - (BOOL) trackButtonInRect: (NSRect)rect pressed: (BOOL *)pressed
 {
-  NSUInteger mask = NSLeftMouseUpMask | NSLeftMouseDraggedMask;
+  NSUInteger mask = NSLeftMouseUpMask | NSLeftMouseDraggedMask
+    | GSWindowTabLostPressMask;
   NSEvent *event;
   NSPoint point;
   BOOL inside = YES;
@@ -678,6 +772,11 @@ GSWindowTabScreenPoint(NSEvent *event)
                                  untilDate: [NSDate distantFuture]
                                     inMode: NSEventTrackingRunLoopMode
                                    dequeue: YES];
+      if (GSWindowTabPressWasLost(event))
+        {
+          inside = NO;
+          break;
+        }
       point = [self convertPoint: [event locationInWindow] fromView: nil];
       inside = NSPointInRect(point, rect);
       if (inside != *pressed)
@@ -812,7 +911,9 @@ GSWindowTabScreenPoint(NSEvent *event)
 
 /* The window whose tabs the tab would join when dropped at screen: the
    front window under the pointer, if the pointer is over its drop zone
-   and the two can be tabbed together; nil otherwise. */
+   and the two can be tabbed together; nil otherwise.  The tab's own
+   window is one of them: over it, the pointer is over no window the tab
+   could join, even if one is behind it. */
 - (NSWindow *) windowForDropAtScreenPoint: (NSPoint)screen
 {
   NSArray *windows = [NSApp orderedWindows];
@@ -823,12 +924,12 @@ GSWindowTabScreenPoint(NSEvent *event)
     {
       NSWindow *window = [windows objectAtIndex: i];
 
-      if (window == _tabWindow || [window isVisible] == NO
+      if ([window isVisible] == NO
         || NSPointInRect(screen, [window frame]) == NO)
         {
           continue;
         }
-      if ([window _tabbingGroup] == group
+      if (window == _tabWindow || [window _tabbingGroup] == group
         || NSPointInRect(screen, [self dropZoneOfWindow: window]) == NO
         || [_tabWindow _canBeTabbedWith: window] == NO)
         {
@@ -938,11 +1039,11 @@ GSWindowTabScreenPoint(NSEvent *event)
 
 /* Tracks a press on the tab at index from point (in this view) until the
    button is released: a drag once it has moved far enough, which Escape
-   cancels. */
+   or a lost press cancels. */
 - (void) trackTabAtIndex: (NSUInteger)index fromPoint: (NSPoint)start
 {
   NSUInteger mask = NSLeftMouseUpMask | NSLeftMouseDraggedMask
-    | NSKeyDownMask | NSPeriodicMask;
+    | NSKeyDownMask | NSPeriodicMask | GSWindowTabLostPressMask;
   CGFloat grab = start.x - NSMinX([self rectForTabAtIndex: index]);
   NSPoint press = [self convertPoint: start toView: nil];
   NSPoint screen = NSZeroPoint;
@@ -959,6 +1060,11 @@ GSWindowTabScreenPoint(NSEvent *event)
                                  untilDate: [NSDate distantFuture]
                                     inMode: NSEventTrackingRunLoopMode
                                    dequeue: YES];
+      if (GSWindowTabPressWasLost(event))
+        {
+          cancelled = YES;
+          break;
+        }
       if ([event type] == NSPeriodic)
         {
           if (_dragging && _dragDetached == NO)
@@ -1042,7 +1148,7 @@ GSWindowTabScreenPoint(NSEvent *event)
       [self pressNewTabButton];
     }
   else if (tab >= 0
-    && NSPointInRect(point, [self closeButtonRectForTabAtIndex: tab]))
+    && NSPointInRect(point, [self liveCloseButtonRectForTabAtIndex: tab]))
     {
       [self pressCloseButtonOfTabAtIndex: tab];
     }
@@ -1073,14 +1179,19 @@ GSWindowTabScreenPoint(NSEvent *event)
     }
 }
 
-/* The wheel scrolls tabs that don't fit, either way it turns. */
+/* The wheel scrolls tabs that don't fit, either way it turns: down or
+   right shows the tabs further right, as GTK's.  libs-back's X11 and
+   Windows servers both give a positive deltaX for the wheel tilted
+   right (X11's button 7, WM_MOUSEHWHEEL's positive delta), and a
+   positive deltaY for the wheel turned up, as NSScrollView reads
+   them. */
 - (void) scrollWheel: (NSEvent *)event
 {
   CGFloat delta = [event deltaX];
 
   if (delta == 0.0)
     {
-      delta = [event deltaY];
+      delta = -[event deltaY];
     }
   if ([self maximumScrollOffset] <= 0.0 || delta == 0.0)
     {
@@ -1088,7 +1199,7 @@ GSWindowTabScreenPoint(NSEvent *event)
       return;
     }
   [self setScrollOffset: _scrollOffset
-    - delta * GSWindowTabScrollStep(NSWidth([self tabsRect]))];
+    + delta * GSWindowTabScrollStep(NSWidth([self tabsRect]))];
 }
 
 - (BOOL) acceptsFirstMouse: (NSEvent *)event
