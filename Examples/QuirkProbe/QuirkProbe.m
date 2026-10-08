@@ -461,6 +461,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkIndicators;
 - (void) checkMenuFlyout;
 - (void) checkOverlayScrollers;
+- (void) checkOverlayAutohide;
 - (void) checkFocusVisual;
 - (void) checkTextBox;
 - (void) checkComboBoxes;
@@ -5022,6 +5023,104 @@ QuirkProbeStripInk(NSScrollView *scrollView, NSUInteger fill, CGFloat inset)
   [window orderOut: nil];
 }
 
+/* The overlay indicator over content that redraws itself as it scrolls,
+   as MarkdownViewer's preview does (auto-hiding scrollers, its own
+   background, a document that marks itself dirty). libs-gui drew the
+   dirty document after the scroll bar, over it, so the bar never
+   showed, though the content scrolled. */
+- (void) checkOverlayAutohide
+{
+  NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+  NSWindow *window = nil;
+  NSScrollView *scrollView = nil;
+  QuirkProbeFillView *document = nil;
+  NSTextView *text = nil;
+  NSUInteger fill = 3 * 128;
+  NSUInteger ink;
+
+  if (QuirkProbeHasArgument(@"--high-contrast", nil))
+    {
+      [self skip: @"scroller-over-redrawn-content" detail: @"high contrast keeps classic scroll bars"];
+      return;
+    }
+  [defaults setBool: YES forKey: @"WinUIThemeOverlayScrollbars"];
+  window = [self windowWithFrame: NSMakeRect(360, 360, 260, 200) title: @"QuirkProbe Autohide"];
+  scrollView = AUTORELEASE([[NSScrollView alloc] initWithFrame: NSMakeRect(20, 20, 200, 150)]);
+  document = AUTORELEASE([[QuirkProbeFillView alloc] initWithFrame: NSMakeRect(0, 0, 200, 600)]);
+  [document setAutoresizingMask: NSViewWidthSizable];
+  /* A text view inside it, as MarkdownViewer's preview has, drawing
+     nothing of its own here but marking itself dirty. */
+  text = AUTORELEASE([[NSTextView alloc] initWithFrame: NSMakeRect(0, 0, 200, 600)]);
+  [text setDrawsBackground: NO];
+  [text setAutoresizingMask: NSViewWidthSizable];
+  [document addSubview: text];
+  /* As MarkdownViewer's preview: both scrollers asked for, auto-hidden,
+     its own background. */
+  [scrollView setHasVerticalScroller: YES];
+  [scrollView setHasHorizontalScroller: YES];
+  [scrollView setAutohidesScrollers: YES];
+  [scrollView setDrawsBackground: YES];
+  [scrollView setBackgroundColor: [NSColor whiteColor]];
+  [scrollView setBorderType: NSNoBorder];
+  [scrollView setDocumentView: document];
+  [[window contentView] addSubview: scrollView];
+  [window orderFront: nil];
+  [window display];
+
+  /* Scrolled as the wheel scrolls it, and redrawn as an app's window is,
+     by the run loop: -display would redraw everything. */
+  [[scrollView contentView] scrollToPoint: NSMakePoint(0, 200)];
+  [scrollView reflectScrolledClipView: [scrollView contentView]];
+  [document setNeedsDisplay: YES];
+  [text setNeedsDisplay: YES];
+  QuirkProbeDispatchEvents(0.15);
+  [self saveView: scrollView named: @"scroller-autohide"];
+  /* What the window shows, not a fresh drawing of the views, which would
+     draw them in order and hide the fault. */
+  {
+    NSRect strip = [[scrollView verticalScroller] frame];
+    NSBitmapImageRep *shown;
+    NSInteger x, y;
+    CGFloat scale;
+
+    [scrollView lockFocus];
+    shown = AUTORELEASE([[NSBitmapImageRep alloc] initWithFocusedViewRect: [scrollView bounds]]);
+    [scrollView unlockFocus];
+    scale = QuirkProbeScale(shown, scrollView);
+    x = (NSInteger)((NSMaxX(strip) - 4.0) * scale);
+    ink = 0;
+    for (y = [shown pixelsHigh] / 4; y < 3 * [shown pixelsHigh] / 4; y++)
+      {
+        NSUInteger red, green, blue;
+
+        if (QuirkProbePixel(shown, x, y, &red, &green, &blue)
+            && llabs((long long)(red + green + blue) - (long long)fill) > 30)
+          {
+            ink++;
+          }
+      }
+  }
+  if (ink > 0)
+    {
+      [self pass: @"scroller-over-redrawn-content" detail: [NSString stringWithFormat:
+        @"scrolling shows %lu px of indicator", (unsigned long)ink]];
+    }
+  else
+    {
+      NSScroller *scroller = [scrollView verticalScroller];
+
+      [self fail: @"scroller-over-redrawn-content" detail: [NSString stringWithFormat:
+        @"no indicator while scrolling (scroller %@, in the scroll view: %@, hidden: %@, has: %@, frame %@)",
+        scroller != nil ? @"present" : @"nil",
+        [scroller superview] == scrollView ? @"yes" : @"no",
+        [scroller isHidden] ? @"yes" : @"no",
+        [scrollView hasVerticalScroller] ? @"yes" : @"no",
+        NSStringFromRect([scroller frame])]];
+    }
+  QuirkProbeDispatchEvents(1.4);
+  [window orderOut: nil];
+}
+
 /* WinUI's ScrollBar (issue #29): the content runs under the scroll bar,
    which shows nothing at rest, a thin indicator while the content
    scrolls, then fades; WinUIThemeOverlayScrollbars NO keeps a classic
@@ -6337,6 +6436,7 @@ QuirkProbeLastItemOfMenu(NSString *title)
   [self checkIndicators];
   [self checkMenuFlyout];
   [self checkOverlayScrollers];
+  [self checkOverlayAutohide];
   [self checkFocusVisual];
   [self checkTextBox];
   [self checkComboBoxes];

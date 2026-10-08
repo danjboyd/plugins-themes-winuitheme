@@ -601,6 +601,45 @@ WinUIThemeUpdateOverlayTracking(NSScrollView *scrollView, WinUIThemeOverlayState
   }
 }
 
+/* libs-gui displays a view's dirty area, its subviews with it, and then
+   the subviews still dirty, each on its own: content under an overlay bar
+   that marked itself dirty (MarkdownViewer's preview does as it scrolls)
+   was drawn after the bar and over it, so the bar never showed. While a
+   bar shows, the strips content was drawn into are drawn again, content
+   and bar together, in order. */
+- (void) _overrideNSScrollViewMethod_displayIfNeededInRectIgnoringOpacity: (NSRect)rect
+{
+  typedef void (*DisplayIMP)(id, SEL, NSRect);
+  DisplayIMP originalIMP = (DisplayIMP)WinUIThemeOriginalMethod(_cmd, self, [NSScrollView class]);
+  NSScrollView *scrollView = (NSScrollView *)self;
+  WinUIThemeOverlayState *state = WinUIThemeOverlayStateFor(scrollView, NO);
+  BOOL contentDirty = [[scrollView contentView] needsDisplay];
+
+  if (originalIMP != NULL)
+    {
+      originalIMP(self, _cmd, rect);
+    }
+  if (contentDirty && state != nil && (state->alpha > 0.0 || state->hovered != nil)
+      && WinUIThemeUsesOverlayScrollers())
+    {
+      NSScroller *scrollers[2] = { [scrollView verticalScroller], [scrollView horizontalScroller] };
+      int i;
+
+      for (i = 0; i < 2; i++)
+        {
+          if (scrollers[i] != nil && [scrollers[i] superview] == scrollView && [scrollers[i] isHidden] == NO)
+            {
+              NSRect strip = NSIntersectionRect(rect, [scrollers[i] frame]);
+
+              if (NSIsEmptyRect(strip) == NO)
+                {
+                  [scrollView displayRectIgnoringOpacity: strip];
+                }
+            }
+        }
+    }
+}
+
 /* Over the content: see-through. */
 - (BOOL) _overrideNSScrollerMethod_isOpaque
 {
