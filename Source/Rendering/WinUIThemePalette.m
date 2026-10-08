@@ -240,7 +240,14 @@ WinUIThemeRGB(CGFloat red, CGFloat green, CGFloat blue)
   [colors setColor: accent forKey: @"accentColor"];
   [colors setColor: accent forKey: @"highlightColor"];
   [colors setColor: accent forKey: @"selectedControlColor"];
-  [colors setColor: highContrast ? selectedTextColor : textOnAccent forKey: @"selectedControlTextColor"];
+  /* Text on the accent (TextOnAccentFillColorPrimary), for the theme's
+     accent fills: default buttons, checked boxes, the selected segment. */
+  [colors setColor: highContrast ? selectedTextColor : textOnAccent forKey: @"accentTextColor"];
+  /* A selected control's or row's text (#66): WinUI's selection is a subtle
+     fill, so it keeps the primary text colour; in high contrast it's the
+     highlight, with HighlightText. */
+  [colors setColor: highContrast ? selectedTextColor : textColor forKey: @"selectedControlTextColor"];
+  [colors setColor: highContrast ? selectedTextColor : textColor forKey: @"alternateSelectedControlTextColor"];
   [colors setColor: menuSelectionColor forKey: @"menuSelectionColor"];
   [colors setColor: menuSelectionColor forKey: @"selectedMenuItemColor"];
   [colors setColor: menuSelectionTextColor forKey: @"selectedMenuItemTextColor"];

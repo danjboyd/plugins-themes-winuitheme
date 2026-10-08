@@ -109,12 +109,12 @@ WinUIThemeDrawButtonChrome(WinUITheme *theme, NSRect frame, NSView *view, BOOL e
         : WinUIThemeColorFromTheme(theme, @"disabledControlTextColor", [NSColor disabledControlTextColor]);
       bottomStrokeColor = strokeColor;
       titleColor = highlighted
-        ? WinUIThemeColorFromTheme(theme, @"selectedControlTextColor", [NSColor selectedControlTextColor])
+        ? WinUIThemeColorFromTheme(theme, @"accentTextColor", [NSColor selectedControlTextColor])
         : strokeColor;
     }
   else if (defaultButton)
     {
-      NSColor *onAccent = WinUIThemeColorFromTheme(theme, @"selectedControlTextColor",
+      NSColor *onAccent = WinUIThemeColorFromTheme(theme, @"accentTextColor",
                                                    [NSColor selectedControlTextColor]);
 
       fillColor = pressed ? WinUIThemeBlendColor(window, accent, 0.80)
@@ -267,7 +267,7 @@ WinUIThemeDrawCheckboxOrRadioIndicator(WinUITheme *theme,
                                              [NSColor windowBackgroundColor]);
   NSColor *ink = dark ? [NSColor whiteColor] : [NSColor blackColor];
   NSColor *accent = WinUIThemeColorFromTheme(theme, @"accentColor", [NSColor selectedControlColor]);
-  NSColor *onAccent = WinUIThemeColorFromTheme(theme, @"selectedControlTextColor",
+  NSColor *onAccent = WinUIThemeColorFromTheme(theme, @"accentTextColor",
                                                [NSColor selectedControlTextColor]);
   NSColor *fillColor = nil;
   NSColor *borderColor = nil;
@@ -449,7 +449,7 @@ WinUIThemeSegmentedLabelAttributes(NSSegmentedCell *cell,
      colour. */
   color = WinUIThemeColorFromTheme(theme,
                                    selected
-                                     ? ([[theme settings] highContrastEnabled] ? @"selectedControlTextColor"
+                                     ? ([[theme settings] highContrastEnabled] ? @"accentTextColor"
                                                                               : @"labelColor")
                                      : @"secondaryLabelColor",
                                    [NSColor controlTextColor]);
@@ -1590,10 +1590,23 @@ WinUIThemeSwitchColors(WinUITheme *theme,
       return;
     }
 
-  WinUIThemeDrawAttributedStringWithEditorLayout(cell,
-                                                 [cell _drawAttributedString],
-                                                 [cell titleRectForBounds: cellFrame],
-                                                 controlView);
+  {
+    NSAttributedString *string = [cell _drawAttributedString];
+    NSColor *rowColor = WinUIThemeSelectedRowTextColor(controlView);
+
+    /* A selected row in high contrast: its text in HighlightText (#66). */
+    if (rowColor != nil && [string length] > 0)
+      {
+        NSMutableAttributedString *recoloured = AUTORELEASE([string mutableCopy]);
+
+        [recoloured addAttribute: NSForegroundColorAttributeName value: rowColor
+                           range: NSMakeRange(0, [recoloured length])];
+        string = recoloured;
+      }
+    WinUIThemeDrawAttributedStringWithEditorLayout(cell, string,
+                                                   [cell titleRectForBounds: cellFrame],
+                                                   controlView);
+  }
 }
 
 - (void) _overrideNSSegmentedCellMethod_drawSegment: (NSInteger)segmentIndex
@@ -2439,7 +2452,7 @@ static const CGFloat WinUIThemeSearchDeleteWidth = 28.0;
                                              || WinUIThemeViewIsHovered(controlView)))))
         {
           textColor = WinUIThemeColorFromTheme(theme,
-                                               @"selectedControlTextColor",
+                                               @"accentTextColor",
                                                [NSColor selectedControlTextColor]);
         }
 

@@ -350,6 +350,7 @@ QuirkProbeModuleOfAddress(void *address)
 - (void) checkTextBox;
 - (void) checkComboBoxes;
 - (void) checkListSelection;
+- (void) checkSelectedRowText;
 - (void) checkSearchField;
 - (void) checkHorizontalOnlyScroller;
 - (void) createLateWindow: (NSTimer *)timer;
@@ -417,6 +418,103 @@ QuirkProbeModuleOfAddress(void *address)
 }
 
 @end
+
+/* Rows whose text colour the app sets, as MarkdownViewer does (#66): a
+   table's as attributed strings, an outline's from -willDisplayCell:. */
+@interface QuirkProbeColouredRows : NSObject
+{
+  NSColor *_color;
+}
+- (id) initWithColor: (NSColor *)color;
+@end
+
+@implementation QuirkProbeColouredRows
+
+- (id) initWithColor: (NSColor *)color
+{
+  self = [super init];
+  if (self != nil)
+    {
+      ASSIGN(_color, color);
+    }
+  return self;
+}
+
+- (void) dealloc
+{
+  RELEASE(_color);
+  [super dealloc];
+}
+
+- (NSInteger) numberOfRowsInTableView: (NSTableView *)tableView
+{
+  return 3;
+}
+
+- (id) tableView: (NSTableView *)tableView objectValueForTableColumn: (NSTableColumn *)column row: (NSInteger)row
+{
+  NSString *title = [NSString stringWithFormat: @"Document %ld", (long)row];
+  NSDictionary *attributes = [NSDictionary dictionaryWithObject: _color forKey: NSForegroundColorAttributeName];
+
+  return AUTORELEASE([[NSAttributedString alloc] initWithString: title attributes: attributes]);
+}
+
+- (NSInteger) outlineView: (NSOutlineView *)outlineView numberOfChildrenOfItem: (id)item
+{
+  return item == nil ? 3 : 0;
+}
+
+- (id) outlineView: (NSOutlineView *)outlineView child: (NSInteger)index ofItem: (id)item
+{
+  return [NSString stringWithFormat: @"Folder %ld", (long)index];
+}
+
+- (BOOL) outlineView: (NSOutlineView *)outlineView isItemExpandable: (id)item
+{
+  return NO;
+}
+
+- (id) outlineView: (NSOutlineView *)outlineView objectValueForTableColumn: (NSTableColumn *)column byItem: (id)item
+{
+  return item;
+}
+
+- (void) outlineView: (NSOutlineView *)outlineView willDisplayCell: (id)cell
+      forTableColumn: (NSTableColumn *)column item: (id)item
+{
+  if ([cell respondsToSelector: @selector(setTextColor:)])
+    {
+      [cell setTextColor: _color];
+    }
+}
+
+@end
+
+/* How many pixels of the title area of `view`'s selected `row` stand out
+   from the selection's fill, which is sampled at the row's trailing end. */
+static NSUInteger
+QuirkProbeSelectedRowInk(NSTableView *view, NSInteger row, NSBitmapImageRep *rep, CGFloat scale)
+{
+  NSRect rect = [view frameOfCellAtColumn: 0 row: row];
+  NSRect pixels = QuirkProbePixelRect(view, rect, scale);
+  NSUInteger red = 0, green = 0, blue = 0, count = 0;
+  NSInteger fill, x, y;
+
+  QuirkProbePixel(rep, (NSInteger)(NSMaxX(pixels) - 12 * scale), (NSInteger)NSMidY(pixels), &red, &green, &blue);
+  fill = (NSInteger)(red + green + blue);
+  for (y = (NSInteger)NSMinY(pixels) + 1; y < (NSInteger)NSMaxY(pixels) - 1; y++)
+    {
+      for (x = (NSInteger)(NSMinX(pixels) + 20 * scale); x < (NSInteger)(NSMinX(pixels) + 130 * scale); x++)
+        {
+          if (QuirkProbePixel(rep, x, y, &red, &green, &blue)
+              && llabs((long long)(red + green + blue) - (long long)fill) > 150)
+            {
+              count++;
+            }
+        }
+    }
+  return count;
+}
 
 @implementation QuirkProbe
 
@@ -1459,7 +1557,7 @@ QuirkProbeHex(NSColor *color)
   BOOL dark = QuirkProbeHasArgument(@"--mode", @"dark");
   NSColorList *colors = [[GSTheme theme] colors];
   NSColor *accent = [colors colorWithKey: @"accentColor"];
-  NSColor *onAccent = [colors colorWithKey: @"selectedControlTextColor"];
+  NSColor *onAccent = [colors colorWithKey: @"accentTextColor"];
   NSColor *expected = QuirkProbeSystemAccentShade(dark ? 1 : 4);
   NSString *expectedOn = dark ? @"#000000" : @"#FFFFFF";
 
@@ -1671,7 +1769,7 @@ QuirkProbeCentreIs(NSView *view, NSColor *color, NSUInteger slack, NSString **se
                                      title: @"QuirkProbe Template Images"];
   NSColorList *colors = [[GSTheme theme] colors];
   NSColor *text = [colors colorWithKey: @"labelColor"];
-  NSColor *onAccent = [colors colorWithKey: @"selectedControlTextColor"];
+  NSColor *onAccent = [colors colorWithKey: @"accentTextColor"];
   NSButton *plain = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(10, 20, 60, 40)]);
   NSButton *primary = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(80, 20, 60, 40)]);
   NSSegmentedControl *segments = AUTORELEASE([[NSSegmentedControl alloc]
@@ -5234,6 +5332,73 @@ QuirkProbeInkIn(NSBitmapImageRep *rep, NSRect area, NSInteger fill, NSInteger th
   [window orderOut: nil];
 }
 
+/* A selected row's text is readable whatever colour the app gives it
+   (issue #66). In light and dark the app uses selectedControlTextColor,
+   which was white over WinUI's near-white selection; in high contrast it
+   keeps controlTextColor, which was black on the black highlight. A table
+   gets its colours from attributed strings, an outline from
+   -willDisplayCell:. */
+- (void) checkSelectedRowText
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(100, 600, 320, 220)
+                                     title: @"QuirkProbe Row Text"];
+  BOOL highContrast = QuirkProbeHasArgument(@"--high-contrast", nil);
+  NSColor *color = highContrast ? [NSColor controlTextColor] : [NSColor selectedControlTextColor];
+  QuirkProbeColouredRows *rows = AUTORELEASE([[QuirkProbeColouredRows alloc] initWithColor: color]);
+  NSTableView *table = AUTORELEASE([[NSTableView alloc] initWithFrame: NSMakeRect(10, 120, 300, 90)]);
+  NSOutlineView *outline = AUTORELEASE([[NSOutlineView alloc] initWithFrame: NSMakeRect(10, 10, 300, 100)]);
+  NSTableColumn *column = AUTORELEASE([[NSTableColumn alloc] initWithIdentifier: @"name"]);
+  NSTableColumn *outlineColumn = AUTORELEASE([[NSTableColumn alloc] initWithIdentifier: @"name"]);
+  NSArray *views = [NSArray arrayWithObjects: table, outline, nil];
+  NSArray *names = [NSArray arrayWithObjects: @"selected-row-text-table", @"selected-row-text-outline", nil];
+  NSUInteger i;
+
+  [column setWidth: 280];
+  [table addTableColumn: column];
+  [table setHeaderView: nil];
+  [table setDataSource: rows];
+  [outlineColumn setWidth: 280];
+  [outline addTableColumn: outlineColumn];
+  [outline setOutlineTableColumn: outlineColumn];
+  [outline setHeaderView: nil];
+  [outline setDataSource: rows];
+  [outline setDelegate: (id)rows];
+  [[window contentView] addSubview: table];
+  [[window contentView] addSubview: outline];
+  [window makeKeyAndOrderFront: nil];
+  [table reloadData];
+  [outline reloadData];
+  [table selectRowIndexes: [NSIndexSet indexSetWithIndex: 1] byExtendingSelection: NO];
+  [outline selectRowIndexes: [NSIndexSet indexSetWithIndex: 1] byExtendingSelection: NO];
+  [window makeFirstResponder: table];
+  [window display];
+
+  for (i = 0; i < [views count]; i++)
+    {
+      NSTableView *view = [views objectAtIndex: i];
+      NSBitmapImageRep *rep = QuirkProbeRender(view);
+      CGFloat scale = QuirkProbeScale(rep, view);
+      NSUInteger ink = QuirkProbeSelectedRowInk(view, 1, rep, scale);
+
+      [self saveView: view named: [names objectAtIndex: i]];
+      if (ink >= (NSUInteger)(20 * scale * scale))
+        {
+          [self pass: [names objectAtIndex: i] detail: [NSString stringWithFormat:
+            @"%lu px of text stand out from the selection", (unsigned long)ink]];
+        }
+      else
+        {
+          [self fail: [names objectAtIndex: i] detail: [NSString stringWithFormat:
+            @"only %lu px of the selected row's text stand out from its fill: unreadable",
+            (unsigned long)ink]];
+        }
+    }
+  [table setDataSource: nil];
+  [outline setDataSource: nil];
+  [outline setDelegate: nil];
+  [window orderOut: nil];
+}
+
 /* WinUI's AutoSuggestBox (issue #9): an empty search field shows only
    the magnifier, at its trailing edge, nothing before its text; with
    text, the delete cross shows just before the magnifier. */
@@ -5652,6 +5817,7 @@ QuirkProbeLastItemOfMenu(NSString *title)
   [self checkTextBox];
   [self checkComboBoxes];
   [self checkListSelection];
+  [self checkSelectedRowText];
   [self checkSearchField];
   [self checkHorizontalOnlyScroller];
   [self checkPopUpClick];

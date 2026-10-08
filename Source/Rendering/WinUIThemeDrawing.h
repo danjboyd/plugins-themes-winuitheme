@@ -202,6 +202,11 @@ void WinUIThemeRangeColors(WinUITheme *theme, BOOL enabled,
                            NSColor **thumbOut, NSColor **borderOut, NSColor **bottomOut);
 NSRect WinUIThemeSliderTrackRect(WinUITheme *theme, NSRect rect, BOOL horizontal);
 
+/* While a selected table or outline row draws in high contrast, the colour
+   its text takes whatever the app set (WinUIThemeMenusAndData.m); nil
+   otherwise. */
+NSColor *WinUIThemeSelectedRowTextColor(NSView *controlView);
+
 /* NSBrowser's columns (WinUIThemeBrowser.m): YES for a column's scroll
    view; its card, drawn as its border. */
 BOOL WinUIThemeIsBrowserColumn(NSView *view);

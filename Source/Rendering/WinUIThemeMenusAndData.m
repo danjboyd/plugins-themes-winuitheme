@@ -840,6 +840,46 @@ WinUIThemeDrawTableHover(WinUITheme *theme, NSTableView *tableView, NSRect clipR
   [NSGraphicsContext restoreGraphicsState];
 }
 
+/* The selected row being drawn, in high contrast: its table, and the colour
+   its text takes (#66). */
+static NSView *WinUIThemeRowTextView = nil;
+static NSColor *WinUIThemeRowTextColor = nil;
+
+NSColor *
+WinUIThemeSelectedRowTextColor(NSView *controlView)
+{
+  return (controlView != nil && controlView == WinUIThemeRowTextView) ? WinUIThemeRowTextColor : nil;
+}
+
+/* In high contrast a selected row is the highlight, so its text is
+   HighlightText, whatever colour the app gave the cell or its attributed
+   string (libs-gui sets a table cell's text colour only, and an outline
+   cell's not at all). In light and dark the selection is a subtle fill and
+   the app's colours stay. */
+static BOOL
+WinUIThemeBeginRow(WinUITheme *theme, NSInteger row, NSTableView *tableView)
+{
+  if ([[theme settings] highContrastEnabled] == NO
+      || [tableView isRowSelected: row] == NO)
+    {
+      return NO;
+    }
+  WinUIThemeRowTextView = tableView;
+  WinUIThemeRowTextColor = WinUIThemeColorFromTheme(theme, @"highlightedTableRowTextColor",
+                                                    [NSColor selectedControlTextColor]);
+  return YES;
+}
+
+static void
+WinUIThemeEndRow(BOOL began)
+{
+  if (began)
+    {
+      WinUIThemeRowTextView = nil;
+      WinUIThemeRowTextColor = nil;
+    }
+}
+
 @implementation WinUITheme (MenusAndData)
 
 - (void) displayPopUpMenu: (NSMenuView *)menuView
@@ -1763,6 +1803,26 @@ WinUIThemeDrawTableHover(WinUITheme *theme, NSTableView *tableView, NSRect clipR
 - (NSImage *) highlightedBranchImage
 {
   return WinUIThemeCreateDisclosureImage(self, WinUIThemeMenuChevronDown, YES);
+}
+
+- (void) drawTableViewRow: (NSInteger)rowIndex
+                 clipRect: (NSRect)clipRect
+                   inView: (NSTableView *)tableView
+{
+  BOOL began = WinUIThemeBeginRow(self, rowIndex, tableView);
+
+  [super drawTableViewRow: rowIndex clipRect: clipRect inView: tableView];
+  WinUIThemeEndRow(began);
+}
+
+- (void) drawOutlineViewRow: (NSInteger)rowIndex
+                   clipRect: (NSRect)clipRect
+                     inView: (NSOutlineView *)outlineView
+{
+  BOOL began = WinUIThemeBeginRow(self, rowIndex, outlineView);
+
+  [super drawOutlineViewRow: rowIndex clipRect: clipRect inView: outlineView];
+  WinUIThemeEndRow(began);
 }
 
 @end
