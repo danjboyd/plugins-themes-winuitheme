@@ -6787,6 +6787,34 @@ QuirkProbeInkIn(NSBitmapImageRep *rep, NSRect area, NSInteger fill, NSInteger th
     {
       [tips performSelector: @selector(_endDisplay)];
     }
+  /* The system tool-tip colours (#95), which apps use for their own
+     hints: the flyout's, as the tips themselves, not GNUstep's pale yellow
+     and black. */
+  {
+    NSColorList *colors = [[GSTheme theme] colors];
+    NSColor *back = [[NSColor toolTipColor] colorUsingColorSpaceName: NSCalibratedRGBColorSpace];
+    NSColor *ink = [[NSColor toolTipTextColor] colorUsingColorSpaceName: NSCalibratedRGBColorSpace];
+    NSColor *flyout = [[colors colorWithKey: @"menuBackgroundColor"] colorUsingColorSpaceName: NSCalibratedRGBColorSpace];
+    NSColor *text = [[colors colorWithKey: @"labelColor"] colorUsingColorSpaceName: NSCalibratedRGBColorSpace];
+
+    if (back != nil && ink != nil && flyout != nil && text != nil
+        && fabs([back redComponent] - [flyout redComponent]) < 0.01
+        && fabs([back greenComponent] - [flyout greenComponent]) < 0.01
+        && fabs([back blueComponent] - [flyout blueComponent]) < 0.01
+        && fabs([ink redComponent] - [text redComponent]) < 0.01
+        && fabs([ink greenComponent] - [text greenComponent]) < 0.01
+        && fabs([ink blueComponent] - [text blueComponent]) < 0.01)
+      {
+        [self pass: @"tooltip-system-colors" detail: [NSString stringWithFormat:
+          @"toolTipColor %@ and toolTipTextColor %@ are the flyout's", QuirkProbeHex(back), QuirkProbeHex(ink)]];
+      }
+    else
+      {
+        [self fail: @"tooltip-system-colors" detail: [NSString stringWithFormat:
+          @"toolTipColor %@ and toolTipTextColor %@; the flyout is %@ with %@ text",
+          QuirkProbeHex(back), QuirkProbeHex(ink), QuirkProbeHex(flyout), QuirkProbeHex(text)]];
+      }
+  }
   [anchor setToolTip: nil];
   [window orderOut: nil];
 }

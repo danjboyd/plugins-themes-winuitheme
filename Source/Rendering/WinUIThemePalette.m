@@ -230,6 +230,10 @@ WinUIThemeRGB(CGFloat red, CGFloat green, CGFloat blue)
   [colors setColor: menuBarBackground forKey: @"menuBarBackgroundColor"];
   [colors setColor: menuBarBorderColor forKey: @"menuBarBorderColor"];
   [colors setColor: menuBackground forKey: @"menuBackgroundColor"];
+  /* Tool tips (#95): the flyout's colours, as the theme draws its tips
+     (#39), for apps that draw their own hints with the system colours. */
+  [colors setColor: menuBackground forKey: @"toolTipColor"];
+  [colors setColor: textColor forKey: @"toolTipTextColor"];
   [colors setColor: menuBorderColor forKey: @"menuBorderColor"];
   [colors setColor: menuSeparatorColor forKey: @"menuSeparatorColor"];
   [colors setColor: headerBackground forKey: @"headerBackgroundColor"];
