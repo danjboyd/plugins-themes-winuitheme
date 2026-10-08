@@ -67,26 +67,66 @@ Run on 2026-10-06 with gnustep-gui 0.32 (MSYS2 clang64), branch
 | A nib-based app's 22pt controls drawn with the theme's 32-34pt metrics | SystemPreferences | #31 |
 | The application menu (app name, Hide, Services) in a Windows menu bar | ScreenshotTool, SystemPreferences, ThemeDemo | #24 |
 
+Run on 2026-10-08 (#19) with gnustep-gui 0.32 and the theme built from
+`d0da342` (phase I), passed with `-GSTheme`: MarkdownViewer (the dev build of
+ObjcMarkdown `01fe70f`), ScreenshotTool (`origin/main`, `635e656`, built in a
+scratch copy) and Gorm 1.5.0 (built, not installed) with and without
+`-WinUIThemeMetrics winui` and the WinUI palette, each in light, dark and the
+Dusk contrast theme where it applied.
+
+| Finding | App | Issue |
+| --- | --- | --- |
+| The font panel's browser titles ("Family", "Typeface") are drawn upside down and cut in half, on libs-gui's grey bezel (GNUstep's theme draws them upright) | MarkdownViewer (font panel) | #74 |
+| Split view dividers are `controlShadowColor`, `#7C7C7C` in the light palette and darker than the window in the dark one; thick dividers draw NeXT's dimple | MarkdownViewer, font panel | #75 |
+| Open dialogs show one file type at a time, the first chosen: ScreenshotTool's Open lists only PNG files (JPEG, TIFF and projects hidden), MarkdownViewer's Import only HTML; types are named like "SCREENSHOTTOOL files" | ScreenshotTool, MarkdownViewer | #76, #20 |
+| Menu titles past a narrow window's edge are cut off and can't be reached: Gorm's document window cuts "Windows" and hides Help | Gorm | #77 |
+| No keyboard access to the menu bar: Alt, F10 and Alt+F do nothing (keys posted to the window; to confirm with a real keyboard) | MarkdownViewer | #78 |
+| Alerts are captioned "Alert" (`NSAlert`) or nothing (`NSRunAlertPanel`), not the app's name | ScreenshotTool, Gorm | #79 |
+| Checkboxes with the box after the title (`NSImageRight`, all over Gorm's inspectors) draw the box first, with the title right-aligned away from it | Gorm | #80 |
+| Under compact metrics a checked radio looks empty: the 12px dot nearly fills the smaller indicator, leaving a thin accent ring | Gorm | #81 |
+| In high contrast an open pop-up doesn't mark its selected item (the light palette's fill and pill are skipped) | MarkdownViewer | #82 |
+| A selected outline row's text is white on the Dusk theme's light highlight | MarkdownViewer | #66 |
+| Document windows are titled "TableRenderDemo.md  --  ~/git/ObjcMarkdown" | MarkdownViewer, ScreenshotTool | #33 |
+| Preferences, Open Location, the inspector and the font panel get a maximize button | MarkdownViewer, Gorm | #67 |
+| With `-WinUIThemeMetrics winui`, Gorm's own palettes and inspectors clip ("Radi", "Cus", "Miniaturiz"); as the README says, Gorm itself is meant to run compact | Gorm | by design (#31, #32) |
+
+Worked without findings: MarkdownViewer's main window (toolbar, segmented
+Read/Edit/Split, formatting bar, explorer outline, editor and preview) in
+light, dark and Dusk; its Preferences tabs, Open Location window and native
+Open dialog; ScreenshotTool's toolbar layout, tool popovers, text bar,
+Preferences tabs and Save dialogs; Gorm's document window, palette panel and
+the WinUI palette, which loads and shows its controls at WinUI's sizes.
+
 ## Not yet exercised
 
-- **ObjcMarkdown** now runs here (`MarkdownViewer-dev.ps1`), and its
-  MarkdownViewer loads the installed theme (2026-10-06, built from
-  `effae64`), but hasn't been reviewed under it. Earlier it didn't build, for
-  reasons in that repository, not the theme:
-  - `main` (`e71e0ed`): `OMMarkdownRendererMath.m` calls static functions
-    that `fe770f5` ("Split OMMarkdownRenderer.m along its topics") left in
-    `OMMarkdownRenderer.m` (danjboyd/ObjcMarkdown#55).
-  - Before the split (`3df2bf2`): the GNUmakefile's MinGW `mode_t` defines
-    (`_MODE_T_`, `_MODE_T_DEFINED`, `__mode_t_defined`) now stop the
-    upgraded headers declaring `mode_t` at all (danjboyd/ObjcMarkdown#56).
-    Without them, MarkdownViewer fails to link:
-    `OMRenderedObjectAttributeName`, `OMTextTableAttributeName` and
-    `OMTextTableRowAttributeName` aren't exported from the ObjcMarkdown DLL
-    (danjboyd/ObjcMarkdown#57).
-- **Gorm** isn't installed on this machine.
-- **TinyRetroPad** is a Win32 assembly program, not a GNUstep app.
+- **Menus, context menus and toolbar drop-downs in the apps.** libs-gui's
+  menu tracking reads the real pointer (`-mouseLocationOutsideOfEventStream`
+  on periodic events), so clicks posted to a window don't open them, and the
+  2026-10-08 pass couldn't move the pointer (other tests shared the desktop).
+  About panels and commands only in menus went untested; pop-up buttons do
+  open, and ThemeDemo's scripts cover menu drawing.
+- **Tool tips and hover** in the apps, for the same reason.
+- **Dragging from Gorm's palettes:** a posted drag doesn't start one, so
+  dropping a control into a real .gorm file is still untried (#32).
+- **MarkdownViewer's Print** exports a PDF and opens it in the default
+  viewer; it shows no print panel (#69 needs another app).
+- **TinyRetroPad** is a Win32 assembly program (MASM and Crinkler), not a
+  GNUstep app, so it can't load the theme; at most it's a reference for a
+  Notepad-style Win32 menu bar.
 
 ## Not theme bugs
+
+- **ScreenshotTool's toolbar icons aren't tinted** (they keep their files'
+  `#3D3846`, nearly invisible in the dark palette). The app names each
+  symbolic icon "...-symbolic" so themes tint it, but hands the controls
+  copies, and `-[NSImage copy]` clears the name in libs-gui. An app fix
+  (danjboyd/ScreenshotTool#136).
+- **ScreenshotTool's Preferences mixes text sizes:** the app sets 12, 13,
+  14 and 18pt fonts itself.
+- **ScreenshotTool's Preferences has the menu bar** because it's a window
+  that can become main; MarkdownViewer's, a panel, has none.
+- **The Dusk run's title bar stayed light:** `--contrast-theme` recolours the
+  app without turning on high contrast, so DWM draws the normal caption.
 
 - **ScreenshotTool opens its launch arguments as files.** Launched with
   `-GSTheme PATH`, it tries to open `-GSTheme` as an image and shows
