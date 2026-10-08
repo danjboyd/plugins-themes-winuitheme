@@ -1,6 +1,6 @@
 # Handoff: Adwaita parity work
 
-State as of 2026-10-07, for picking the work up in a fresh session. The goal
+State as of 2026-10-08, for picking the work up in a fresh session. The goal
 (tracking issue #50): unmodified GNUstep apps look like first-rate WinUI 3
 apps under this theme, at parity with what the Adwaita theme
 (`C:\Users\Support\git\plugins-themes-Adwaita`) does for GNOME. The audit
@@ -29,7 +29,7 @@ in `Docs/IMPROVEMENTS.md`.
 
 ## Where things stand
 
-Phases A to G are merged into `main`:
+Phases A to H are merged into `main`:
 
 | PR | Branch | Issues |
 | --- | --- | --- |
@@ -42,9 +42,28 @@ Phases A to G are merged into `main`:
 | #65 | `fix-early-template-tint` | #64 |
 | #68 | `adwaita-parity-phase-g` | #62 (LGPL-2.1-or-later), #13, #57, #56, #58 |
 | #70 | `fix-missing-indicator-images` | buttons as radios without gui's images |
+| #71 | `adwaita-parity-phase-h` | #26, #48, #49, #31 |
 
-Phase H, on `adwaita-parity-phase-h` from `main` (`dfcf15d`): #26, #48, #49
-and #31. The issues close when their commits (`Fixes #N`) reach `main`.
+Phase I, on `adwaita-parity-phase-i` from `main` (`a0c38be`), isn't pushed
+yet: #27 (boxes as cards, forms as TextBoxes), #45 (contrast themes' system
+colours), #32 (the Gorm palette, `Palettes/WinUI`) and #17 (ThemeDemo
+command scripts). The issues close when their commits (`Fixes #N`) reach
+`main`.
+
+**Upstream patch waiting for the owner:** libs-back branch `win32pbs-images`
+(`C:\Users\Support\git\gnustep\libs-back`, commit `f01cbbb`, not pushed)
+makes `win32pbs.m` bridge images both ways: CF_DIB, CF_BITMAP and "PNG" to
+NSTIFFPboardType and NSPasteboardTypePNG, and TIFF or PNG back as CF_DIB and
+"PNG", rendered on demand like the text. It adds `Tests/win32/pasteboard.m`
+(16 checks, which fail on the unpatched gpbs). It was compiled with clang;
+GCC only checked its syntax, since no GCC-built gnustep-base exists here
+(gcc-objc 14.2 was unpacked in a scratch directory, not installed). The
+only GNUstep AI policy found is apps-gorm's `POLICY_AI.md` (tests, the
+contributor's own review, no Apple-only syntax, disclosure); the commit
+message discloses the assistance. Before posting: review it, check the FSF
+copyright assignment, and decide on two behaviour changes (CF_UNICODETEXT is
+published only when the pasteboard has text; text views that take images
+now paste an image from apps that offer both).
 
 ScreenshotTool's Windows MSI (danjboyd/ScreenshotTool#120) bundles the theme
 at `c9dbf91` and was tested on a clean OCI Windows Server 2025 VM. Clean
@@ -71,25 +90,27 @@ in a CLANG64 shell; never install it into
 
 | Area | Issues |
 | --- | --- |
-| Fidelity | #27 NSBox/forms as cards; #22 tool tips (colours done in #39; padding and font remain); #30 popup window owner/tool-window style |
-| System | #45 high-contrast system colours; #47 Mica (investigate, upstream) |
-| Nib apps | #32 Gorm palette; #33 document window titles |
-| Testing | #17 ThemeDemo automation; #19 real-app backlog; #20 native dialogs at run time |
+| Fidelity | #22 tool tips (colours done in #39; padding and font remain); #30 popup window owner/tool-window style; #66 selected row text colour (unreadable in high contrast) |
+| Windows | #72 window tabs (Windows 11 title-bar tabs on the shared code in danjboyd/gnustep-window-tabbing; Adwaita builds that first); #67 dialogs get a maximize button (libs-back); #69 print panel drops PrintDlgW's choices |
+| System | #47 Mica (investigate, upstream) |
+| Nib apps | #33 document window titles |
+| Testing | #19 real-app backlog; #20 native dialogs at run time |
 
 **Suggested next five:**
 
-1. **#27 NSBox and forms as cards:** WinUI's settings surfaces, and the
-   last unthemed group on ThemeDemo's More Surfaces page.
-2. **#45 high-contrast system colours:** high contrast skips the most probe
-   checks, and #46 now refreshes colours live.
-3. **#17 ThemeDemo command automation:** the date picker flyout, the browser
-   and the tab views were checked by hand in ThemeDemo; scripted pages would
-   cover them.
-4. **#32 Gorm palette:** with compact metrics (#31) in, a palette of
-   WinUI-sized controls lets apps be laid out for WinUI's metrics instead.
-5. **Pasting images on Windows:** libs-back's `win32pbs.m` bridges only text
-   (`CF_UNICODETEXT`), so ScreenshotTool's "paste one from the clipboard"
-   can't work on Windows. An upstream libs-back patch (formal process).
+1. **#66 selected row text colour:** unreadable in high contrast, and with
+   #45 the contrast themes' Hilight and HilightText are now real colours to
+   match.
+2. **Post the libs-back image patch** (above), once reviewed: pasting
+   images on Windows for ScreenshotTool.
+3. **#72 window tabs:** read the shared spec and comment on what the
+   Windows backend needs (ordering windows out, frames, the title bar),
+   then draw the tabs once Adwaita has settled the theme methods.
+4. **#22 tool tips:** WinUI's padding and font remain; ThemeDemo's
+   commands (#17) can now script and capture them.
+5. **#19 real apps:** Gorm with the new palette (#32), ObjcMarkdown and
+   ScreenshotTool, run through the scripted ThemeDemo captures where they
+   fit.
 
 ### Known gaps in finished work
 
@@ -132,6 +153,31 @@ in a CLANG64 shell; never install it into
 - **Browser (#58):** rows have no hover fill. The columns are cards 8pt
   apart, as in the reference app, rather than one surface split by
   hairlines.
+- **Boxes (#27):** a box title keeps the size the box was laid out for
+  (GNUstep's small system font by default), in BodyStrong's weight; WinUI's
+  BodyStrong is 14px, which would overflow the title's rect.
+- **Contrast themes (#45):** checked with Windows' own theme files
+  (`--contrast-theme`), not by turning high contrast on, which would
+  disturb the desktop. The GetSysColor path and a live switch between
+  contrast themes are untested. GNUstep has no link colour, so
+  HotTrackingColor goes unused.
+- **Gorm palette (#32):** checked in a Gorm 1.5.0 built in a scratch
+  directory, not installed, and by archiving the palette's view as Gorm
+  saves; dropping a control into a real .gorm file wasn't tried. Caption,
+  Subtitle and Title keep fixed sizes under compact metrics and text
+  scaling. The palette needed the theme to enable NSSwitch after
+  `-initWithCoder:` (gui 0.32 leaves it disabled; QuirkProbe
+  `switch-decoded-enabled`).
+- **ThemeDemo commands (#17):**
+  - An alert closes up to about a second after `dismiss-alert`, when its
+    modal loop next runs; wait before capturing what's under it.
+  - Windows' fade-in makes a screen capture of a new window translucent for
+    a second or more on this VM; window captures use PrintWindow instead.
+  - A ring can be left along a control's edge when a key press turned
+    keyboard focus on and focus then moves with no event at all (only
+    scripts do that).
+  - On other platforms the FIFO is opened but screen captures aren't
+    implemented.
 - **Overriding NSBrowser methods breaks the fonts.** GSTheme sends each
   overridden class a message while it loads the theme, before the theme's
   font defaults are set. +[NSBrowser initialize] makes a title cell, which
@@ -173,16 +219,21 @@ in a CLANG64 shell; never install it into
 `Tests/Scripts/Invoke-QuirkProbe.ps1` runs `Examples/QuirkProbe`.
 
 - **Configurations:** light, dark, high-contrast, light-150 (150% desktop
-  scale), large-text (150% Windows text size) and compact (compact metrics,
-  #31). The exit code is the number of failures.
+  scale), large-text (150% Windows text size), compact (compact metrics,
+  #31), and dusk and desert (two of Windows' contrast themes, #45). The
+  exit code is the number of failures.
 - **Options:**
   - `-NoPointer` skips checks that move the real pointer;
   - `-Configuration light,dark` picks configurations;
   - `-Theme <path>` checks another build;
   - `-OutputDirectory <dir>` saves renders.
-- **Coverage:** 99 checks in light, dark and the 150% configurations (101 in
-  the compact one), and 4 more that move the pointer. In high contrast some
-  checks skip with a reason.
+- **Coverage:** 108 checks in light, dark and the 150% configurations (110 in
+  the compact one), 4 of them moving the pointer. In high contrast and the
+  contrast themes some checks skip with a reason.
+- **ThemeDemo scripts:** `Tests/Scripts/Invoke-ThemeDemoScript.ps1 -Script
+  FILE -OutputDirectory DIR` drives ThemeDemo with commands (#17, listed in
+  `Examples/ThemeDemo/README.md`) for states the probe can't render: open
+  menus, alerts, focus from the keyboard, the title bar.
 - **Desktop scale:** the theme scales metrics by `--scale`, the probe's
   drawing stays 1:1; `QuirkProbeDesktopScale()` gives the factor.
 

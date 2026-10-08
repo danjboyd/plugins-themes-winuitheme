@@ -101,6 +101,72 @@ as a user default, which wins over the Info.plist:
 defaults write SystemPreferences WinUIThemeMetrics compact
 ```
 
+### Designing a WinUI app in Gorm
+
+Gorm itself runs with compact metrics (its own windows come from Gorm files
+laid out at GNUstep's). An app meant to look like a WinUI app needs its
+windows laid out at WinUI's metrics instead:
+
+1. Declare it in the app's Info.plist, so it runs with WinUI's metrics even
+   though it has a main Gorm file:
+
+   ```
+   WinUIThemeMetrics = winui;
+   ```
+
+   With GNUstep Make, put this in `APPNAMEInfo.plist` next to the makefile.
+2. Install the WinUI palette (`Palettes/WinUI`): controls at WinUI's sizes,
+   32pt Button and AccentButton (the default button, Return as its key
+   equivalent), TextBox, ComboBox (a pop-up button, and an editable combo
+   box), AutoSuggestBox (a search field), CheckBox, RadioButton and
+   ToggleSwitch (`NSSwitch`), and labels in WinUI's type ramp. Gorm's own
+   palettes make 22pt controls. It needs Gorm installed (it links Gorm's
+   InterfaceBuilder library):
+
+   ```sh
+   make palette installpalette GNUSTEP_INSTALLATION_DOMAIN=USER
+   defaults write Gorm UserPalettes \
+     "(\"$(cygpath -m "$(gnustep-config --variable=GNUSTEP_USER_LIBRARY)")/ApplicationSupport/Palettes/WinUI.palette\")"
+   ```
+
+   (or open it once with Palettes > Open... in Gorm's Tools menu, which
+   remembers it). It appears as the last icon in Gorm's palette panel.
+3. Lay its windows out in Gorm running with WinUI's metrics, so what you see
+   is what the app will show:
+
+   ```sh
+   openapp Gorm -WinUIThemeMetrics winui
+   ```
+
+   Gorm's own panels and inspectors are cramped at this size, but the
+   document's windows show the app's real text and control sizes. Size push
+   buttons, text fields and pop-ups 32pt high and keep to WinUI's 4pt grid:
+   8pt between related controls, more between groups.
+4. Leave control fonts at the system font's default size (Gorm's default,
+   and the palette's). Those are archived as "the system font" with no size
+   and follow the metrics the app runs with: 14px Segoe UI Variable under
+   WinUI's, 12pt under compact. The palette's Body label is the system font
+   and its BodyStrong the bold system font (the theme's Semibold), both at
+   the default size. Caption (12px), Subtitle (20px Semibold) and Title
+   (28px Semibold) have WinUI's fixed sizes: they're archived as the system
+   and bold system fonts at that size, so they keep the theme's face but not
+   a size change. Any font given an explicit size keeps it.
+
+## High Contrast
+
+With a Windows contrast theme on (Aquatic, Desert, Dusk, Night sky or a
+custom one), apps take that theme's colours, as WinUI apps do through their
+`SystemColor*` resources: Window and WindowText for surfaces and text,
+Hilight and HilightText for selection and the accent, GrayText for disabled
+text, and ButtonFace and ButtonText for buttons. They follow a change of
+theme while running, and the title bar is left to Windows.
+
+To check an app under a contrast theme without changing the desktop, name
+one: `--contrast-theme dusk` on the command line, or the
+`WinUIThemeContrastTheme` default (`aquatic`, `desert`, `dusk`,
+`night-sky`, or a `.theme` file's path). The colours are read from Windows'
+own theme files.
+
 ## Real-App Gate
 
 Before release, the theme must validate against `ObjcMarkdown` in the sibling

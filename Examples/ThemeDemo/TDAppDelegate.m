@@ -562,6 +562,9 @@ TDMenuBarFixture(NSRect frame)
     {
       [self captureAndTerminateIfRequested];
     }
+  /* Scripted commands (#17): --command-script and --command-fifo. */
+  _commandRunner = [[TDCommandRunner alloc] initWithTarget: self];
+  [_commandRunner startFromArguments: [[NSProcessInfo processInfo] arguments]];
 }
 
 - (void) installMainMenu
@@ -1796,6 +1799,8 @@ TDAlertResultString(NSInteger result)
   [form addEntry: @"Author:"];
   [[form cellAtIndex: 0] setStringValue: @"Release notes"];
   [[form cellAtIndex: 1] setStringValue: @"Docs team"];
+  /* TextBox height; NSForm otherwise splits its frame between the entries. */
+  [form setCellSize: NSMakeSize(320.0, 32.0)];
   [form setInterlineSpacing: 10.0];
   [form sizeToCells];
   [[box contentView] addSubview: form];
@@ -1980,6 +1985,8 @@ objectValueForTableColumn: (NSTableColumn *)tableColumn
 
   documentView = [self documentViewForPage: page];
   [_scrollView setDocumentView: documentView];
+  /* Tab goes through the page's controls, as in an app built in Gorm. */
+  [_window recalculateKeyViewLoop];
   [_window setTitle: [NSString stringWithFormat: @"ThemeDemo - %@", TDStringOrEmpty([page objectForKey: @"title"])]];
 }
 
@@ -1987,6 +1994,39 @@ objectValueForTableColumn: (NSTableColumn *)tableColumn
 {
   (void)sender;
   [self updateDisplayedPage];
+}
+
+#pragma mark TDCommandTarget
+
+- (NSWindow *) demoWindow
+{
+  return _window;
+}
+
+- (NSPopUpButton *) pageSelector
+{
+  return _pageSelector;
+}
+
+- (BOOL) selectPageWithID: (NSString *)pageID
+{
+  NSInteger index = [_pageSelector indexOfItemWithRepresentedObject: pageID];
+
+  if (index < 0)
+    {
+      return NO;
+    }
+  [_pageSelector selectItemAtIndex: index];
+  [self updateDisplayedPage];
+  return YES;
+}
+
+- (NSInteger) runSaveChangesAlert
+{
+  NSInteger result = [TDSaveChangesAlert() runModal];
+
+  ASSIGN(_lastAlertResult, TDAlertResultString(result));
+  return result;
 }
 
 @end

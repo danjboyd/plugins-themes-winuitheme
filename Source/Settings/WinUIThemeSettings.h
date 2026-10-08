@@ -42,6 +42,7 @@ typedef enum
   NSArray *_accentPalette;
   WinUIThemeColorScheme _colorScheme;
   BOOL _highContrast;
+  NSDictionary *_contrastColors;
   BOOL _reducedTransparency;
   BOOL _dynamicScrollbars;
   CGFloat _desktopScaleFactor;
@@ -64,6 +65,13 @@ typedef enum
 - (WinUIThemeColorScheme) colorScheme;
 - (BOOL) prefersDarkAppearance;
 - (BOOL) highContrastEnabled;
+/* High contrast's colours (#45), by the names Windows' contrast themes give
+   them: Window, WindowText, Hilight, HilightText, HotTrackingColor,
+   GrayText, ButtonFace and ButtonText. Windows' own while its high contrast
+   is on; a theme named by WinUIThemeContrastTheme or --contrast-theme
+   (Aquatic, Desert, Dusk, Night sky, or a .theme file's path), for testing;
+   black and white otherwise. nil while high contrast is off. */
+- (NSColor *) contrastColor: (NSString *)name;
 - (BOOL) reducedTransparencyEnabled;
 /* Windows' "Automatically hide scroll bars" (Accessibility > Visual
    effects): YES unless it's off. */

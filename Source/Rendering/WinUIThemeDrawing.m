@@ -1267,11 +1267,26 @@ WinUIThemeTextInputHasFocus(NSView *view)
 void
 WinUIThemeDrawTextBoxChrome(WinUITheme *theme, NSRect frame, NSView *view, BOOL enabled)
 {
+  BOOL focused = enabled && WinUIThemeTextInputHasFocus(view);
+  BOOL hovered = NO;
+
+  if (enabled && view != nil)
+    {
+      WinUIThemeTrackHover(view);
+      hovered = WinUIThemeViewIsHovered(view);
+    }
+  WinUIThemeDrawTextBoxChromeInState(theme, frame, (view != nil && [view isFlipped]),
+                                     enabled, hovered, focused);
+}
+
+/* The TextBox in a given state, for views holding several (form cells). */
+void
+WinUIThemeDrawTextBoxChromeInState(WinUITheme *theme, NSRect frame, BOOL flipped,
+                                   BOOL enabled, BOOL hovered, BOOL focused)
+{
   NSGraphicsContext *context = [NSGraphicsContext currentContext];
   BOOL dark = [[theme settings] prefersDarkAppearance];
   BOOL highContrast = [[theme settings] highContrastEnabled];
-  BOOL focused = enabled && WinUIThemeTextInputHasFocus(view);
-  BOOL hovered = NO;
   NSColor *text = WinUIThemeColorFromTheme(theme, @"labelColor", [NSColor controlTextColor]);
   NSColor *accent = WinUIThemeColorFromTheme(theme, @"accentColor", [NSColor selectedControlColor]);
   NSColor *fill = nil;
@@ -1280,13 +1295,7 @@ WinUIThemeDrawTextBoxChrome(WinUITheme *theme, NSRect frame, NSView *view, BOOL 
   CGFloat bottomWidth = 1.0;
   NSRect drawRect = NSInsetRect(NSIntegralRect(frame), 0.5, 0.5);
   NSBezierPath *path = WinUIThemeRoundedPath(drawRect, WinUIThemeControlCornerRadius(theme));
-  BOOL flipped = (view != nil && [view isFlipped]);
 
-  if (enabled && view != nil)
-    {
-      WinUIThemeTrackHover(view);
-      hovered = WinUIThemeViewIsHovered(view);
-    }
   fill = WinUIThemeTextBoxFillColor(theme, enabled, hovered, focused);
   if (highContrast)
     {

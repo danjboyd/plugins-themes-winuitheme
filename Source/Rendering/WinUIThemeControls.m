@@ -97,13 +97,18 @@ WinUIThemeDrawButtonChrome(WinUITheme *theme, NSRect frame, NSView *view, BOOL e
   NSRect drawRect = NSInsetRect(NSIntegralRect(frame), 0.5, 0.5);
   NSBezierPath *buttonPath = nil;
 
+  /* High contrast (#45): ButtonFace with ButtonText at rest, the
+     highlight when default, hovered or pressed, GrayText disabled. */
   if (highContrast)
     {
-      fillColor = (defaultButton || pressed) ? accent : window;
-      strokeColor = enabled ? text
+      BOOL highlighted = enabled && (defaultButton || pressed || hover);
+
+      fillColor = highlighted ? accent
+        : WinUIThemeColorFromTheme(theme, @"controlColor", window);
+      strokeColor = enabled ? WinUIThemeColorFromTheme(theme, @"buttonTextColor", text)
         : WinUIThemeColorFromTheme(theme, @"disabledControlTextColor", [NSColor disabledControlTextColor]);
       bottomStrokeColor = strokeColor;
-      titleColor = (defaultButton || pressed)
+      titleColor = highlighted
         ? WinUIThemeColorFromTheme(theme, @"selectedControlTextColor", [NSColor selectedControlTextColor])
         : strokeColor;
     }
@@ -890,6 +895,14 @@ WinUIThemeDrawProgressRing(WinUITheme *theme, NSRect bounds, NSColor *color,
   if (aType != NSNoBorder && WinUIThemeIsBrowserColumn(view))
     {
       WinUIThemeDrawBrowserColumnCard(self, frame);
+      return;
+    }
+  /* Line and groove borders (#27): a DividerStrokeColorDefault hairline,
+     not libs-gui's dark line or NeXT's groove. */
+  if (aType == NSLineBorder || aType == NSGrooveBorder)
+    {
+      [WinUIThemeDividerColor(self) set];
+      NSFrameRectWithWidth(NSIntegralRect(frame), 1.0);
       return;
     }
 
@@ -2251,6 +2264,27 @@ static const CGFloat WinUIThemeSearchDeleteWidth = 28.0;
   return control;
 }
 
+/* Its -initWithCoder: leaves _enabled NO as well, unless a keyed archive
+   holds NSEnabled, and a .gorm file never does: a switch laid out in Gorm
+   (the WinUI palette's ToggleSwitch, #32) came up disabled. A decoded
+   switch is enabled unless its archive says otherwise, as later libs-gui
+   does. */
+- (id) _overrideNSSwitchMethod_initWithCoder: (NSCoder *)coder
+{
+  typedef id (*InitWithCoderIMP)(id, SEL, NSCoder *);
+  InitWithCoderIMP originalIMP
+    = (InitWithCoderIMP)WinUIThemeOriginalMethod(_cmd, self, [NSSwitch class]);
+  BOOL archivesEnabled = ([coder allowsKeyedCoding]
+                          && [coder containsValueForKey: @"NSEnabled"]);
+  id control = (originalIMP != NULL) ? originalIMP(self, _cmd, coder) : self;
+
+  if (control != nil && !archivesEnabled)
+    {
+      [control setEnabled: YES];
+    }
+  return control;
+}
+
 - (void) _overrideNSButtonCellMethod_drawWithFrame: (NSRect)cellFrame
                                             inView: (NSView *)controlView
 {
@@ -2349,8 +2383,11 @@ static const CGFloat WinUIThemeSearchDeleteWidth = 28.0;
       BOOL hasCustomAlternateImage = ([cell alternateImage] != nil
                                       && [cell alternateImage] != [NSImage imageNamed: @"common_retH"]);
       BOOL enabled = [cell isEnabled];
+      /* High contrast's buttons are ButtonFace with ButtonText (#45). */
+      BOOL contrastButton = ([[theme settings] highContrastEnabled] && [cell isBordered]);
       NSColor *textColor = enabled
-        ? WinUIThemeColorFromTheme(theme, @"labelColor", [NSColor controlTextColor])
+        ? WinUIThemeColorFromTheme(theme, contrastButton ? @"buttonTextColor" : @"labelColor",
+                                   [NSColor controlTextColor])
         : WinUIThemeColorFromTheme(theme, @"disabledControlTextColor", [NSColor disabledControlTextColor]);
       NSRect titleRect = WinUIThemeButtonTitleRect(cell, cellFrame);
 
@@ -2394,9 +2431,12 @@ static const CGFloat WinUIThemeSearchDeleteWidth = 28.0;
 
       defaultButton = WinUIThemeButtonIsDefault(cell);
 
-      /* High contrast fills a pressed button with the highlight colour, so
-         its title takes the highlight text colour, as a default button's. */
-      if (enabled && (defaultButton || ([cell isHighlighted] && [[theme settings] highContrastEnabled])))
+      /* High contrast fills a pressed or hovered button with the highlight
+         colour, so its title takes the highlight text colour, as a default
+         button's. */
+      if (enabled && (defaultButton
+                      || (contrastButton && ([cell isHighlighted]
+                                             || WinUIThemeViewIsHovered(controlView)))))
         {
           textColor = WinUIThemeColorFromTheme(theme,
                                                @"selectedControlTextColor",

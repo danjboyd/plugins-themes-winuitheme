@@ -34,6 +34,7 @@ WinUITheme_OBJC_FILES = \
 	Source/Rendering/WinUIThemeDatePicker.m \
 	Source/Rendering/WinUIThemeBrowser.m \
 	Source/Rendering/WinUIThemeColorWell.m \
+	Source/Rendering/WinUIThemeBoxes.m \
 	Source/Rendering/WinUIThemeMenusAndData.m \
 	Source/Rendering/WinUIThemeMenuTracking.m \
 	Source/Rendering/WinUIThemeApplicationMenu.m \
@@ -53,3 +54,12 @@ WinUITheme_BUNDLE_LIBS += -luuid -lgdi32
 include $(GNUSTEP_MAKEFILES)/bundle.make
 
 -include GNUmakefile.postamble
+
+# The Gorm palette of controls at WinUI's sizes (see the README).
+.PHONY: palette installpalette
+
+palette:
+	$(MAKE) -C Palettes/WinUI
+
+installpalette:
+	$(MAKE) -C Palettes/WinUI install
