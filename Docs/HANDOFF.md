@@ -1,6 +1,6 @@
 # Handoff: Adwaita parity work
 
-State as of 2026-10-08, for picking the work up in a fresh session. The goal
+State as of 2026-10-08 (evening), for picking the work up in a fresh session. The goal
 (tracking issue #50): unmodified GNUstep apps look like first-rate WinUI 3
 apps under this theme, at parity with what the Adwaita theme
 (`C:\Users\Support\git\plugins-themes-Adwaita`) does for GNOME. The audit
@@ -29,7 +29,7 @@ in `Docs/IMPROVEMENTS.md`.
 
 ## Where things stand
 
-Phases A to I are merged into `main`:
+Phases A to J and these fixes are merged into `main`:
 
 | PR | Branch | Issues |
 | --- | --- | --- |
@@ -44,26 +44,58 @@ Phases A to I are merged into `main`:
 | #70 | `fix-missing-indicator-images` | buttons as radios without gui's images |
 | #71 | `adwaita-parity-phase-h` | #26, #48, #49, #31 |
 | #73 | `adwaita-parity-phase-i` | #27, #45, #32, #17 |
+| #84 | `adwaita-parity-phase-j` | #66, #22, part of #72 (tabs), part of #19 (real-app pass) |
+| #85 | `window-tabs-off-by-default` | window tabs behind `WinUIThemeWindowTabs` (#72) |
+| #88 | `fix-overlay-scrollers-autohide` | #87 |
+| #90 | `version-0.1.0-alpha1` | the first release |
 
-Phase J, on `adwaita-parity-phase-j` from `main` (`d0da342`): #66 (selected
-row text), #22 (tool tip padding and font), window tabs (part of #72:
-above the content, drawn as WinUI's TabView, on the vendored shared code)
-and the 2026-10-08 real-app pass (part of #19, filed as #74-#82). The issues
-close when their commits (`Fixes #N`) reach `main`.
+**Releases.** The owner approved the release process on 2026-10-08:
+- semver pre-release tags (`0.1.0-alphaN`);
+- a "Version X" commit that sets `GSThemeVersion` in `WinUIThemeInfo.plist`
+  and adds the release's section to `CHANGELOG.md`;
+- an annotated tag on `main`;
+- a GitHub pre-release with the notes and the bundle zip built in CLANG64;
+- apps pin a tag, not `main`.
 
-**Window tabs (#72):** the shared code (danjboyd/gnustep-window-tabbing,
-`2fcb697`) is vendored in `ThirdParty/gnustep-window-tabbing`; update it by
-copying and recording the hash in the README. The theme installs it from
-`-activate`, so `NSWindow` has Apple's tabbing API before an app's first
-window. The bar sits above the content because libs-back leaves the title
-bar to Windows; title-bar tabs are #83 (libs-back work first). The spec
-comment (gnustep-window-tabbing#1) reports two shared-code problems the
-theme works round: closing the selected tab quit the app, and a tab grew by
-the menu bar. Still to do for #72: check ObjcMarkdown's tabs (its
-`window-tabs` branch, ObjcMarkdown#101, isn't pushed yet).
+**0.1.0-alpha1** is tag `0.1.0-alpha1` on `eb9f8b8`. ObjcMarkdown's MSI is
+pinned to it (its `packaging/manifests/windows-msi.manifest.json`); it was
+pinned at `48d21f0`, from April, before.
 
-**Upstream patch waiting for the owner:** libs-back branch `win32pbs-images`
-(`C:\Users\Support\git\gnustep\libs-back`, commit `f01cbbb`, not pushed)
+Phase K, on `adwaita-parity-phase-k` from `main` (`eb9f8b8`): #80 and #81
+(Gorm's inspectors), #76 (file dialog filters), #86 and #89 (ScreenshotTool's
+cell sizes and toolbar images), #74 and #75 (browser titles, split
+dividers), the window tabs redone on the reviewed shared code (part of #72),
+and `Docs/ADWAITA_PARITY_MATRIX.md`, the Adwaita session's comparison and
+proposed order.
+
+**Window tabs (#72):**
+- **Shared code:** danjboyd/gnustep-window-tabbing at `4cb1b63`, the commit
+  the owner reviewed, vendored in `Source/WindowTabbing` with a relative
+  `GSWINDOWTABBING_DIR`. Installed from `-initWithBundle:`, before super,
+  only when the `WinUIThemeWindowTabs` default is YES (off by default).
+- **MinGW:** `4cb1b63` needs `<dlfcn.h>`, which MinGW lacks, so the theme
+  carries `Source/Native/Compat/dlfcn.h`.
+- **Upstream fixes, applying them waits on the owner:**
+  - `e49226b`: exports, removing the dllimport and LNK4217 warnings;
+  - `a5cb18a`: a Windows path for the two-copies check, removing the
+    shim;
+  - `adfa7b4`: the include order.
+
+  All three were tried on top of `4cb1b63` in a scratch build and build
+  cleanly here. Phase 2 (`ed47a49`: dragging, scrolling, the bar's fades)
+  also carries a maximized state to the selected tab and keeps a tab's
+  frame when a menu bar is added. Taking it would let the theme drop its
+  placement fix and its `-addMenuView:` overrides.
+- **Checked with ObjcMarkdown** (`main` with #108) in light and dark,
+  results on #72. Before defaulting it on, check by hand:
+  - snap with Win+arrow;
+  - a real click on a new tab's close button (a posted one was ignored
+    twice in six runs).
+- **Title-bar tabs** are #83, which needs libs-back work first.
+
+**Upstream:** gnustep/libs-back#246 (posted 2026-10-08 after the owner's
+review; branch `win32pbs-images` on danjboyd/libs-back, rebased onto
+upstream `9c7bcce`)
 makes `win32pbs.m` bridge images both ways: CF_DIB, CF_BITMAP and "PNG" to
 NSTIFFPboardType and NSPasteboardTypePNG, and TIFF or PNG back as CF_DIB and
 "PNG", rendered on demand like the text. It adds `Tests/win32/pasteboard.m`
@@ -72,10 +104,10 @@ GCC only checked its syntax, since no GCC-built gnustep-base exists here
 (gcc-objc 14.2 was unpacked in a scratch directory, not installed). The
 only GNUstep AI policy found is apps-gorm's `POLICY_AI.md` (tests, the
 contributor's own review, no Apple-only syntax, disclosure); the commit
-message discloses the assistance. Before posting: review it, check the FSF
-copyright assignment, and decide on two behaviour changes (CF_UNICODETEXT is
-published only when the pasteboard has text; text views that take images
-now paste an image from apps that offer both).
+message discloses the assistance. Its two behaviour changes went in as
+written (CF_UNICODETEXT is published only when the pasteboard has text;
+text views that take images paste an image from apps that offer both). The
+FSF copyright assignment is still the owner's to settle with GNUstep.
 
 ScreenshotTool's Windows MSI (danjboyd/ScreenshotTool#120) bundles the theme
 at `c9dbf91` and was tested on a clean OCI Windows Server 2025 VM. Clean
@@ -92,34 +124,39 @@ Other repositories:
 - Adwaita theme: #45 (plist).
 
 The theme is also installed system-wide
-(`/clang64/lib/GNUstep/Themes/WinUITheme.theme`, built from `effae64`), so
+(`/clang64/lib/GNUstep/Themes/WinUITheme.theme`), so
 MarkdownViewer loads it; `C:\Users\Support\GNUstep\Defaults\NSGlobalDomain.plist`
 selects it. Reinstall with `make GNUSTEP_INSTALLATION_DOMAIN=SYSTEM install`
 in a CLANG64 shell; never install it into
 `C:\Users\Support\GNUstep\Library\Themes`, where a copy would shadow it.
+It was last installed from `b3a6b20`. If an app holds the DLL, rename it to
+`*.dll.old` first: Windows allows renaming a loaded DLL. Delete it after the
+app closes.
 
 ### Open issues not yet addressed
 
 | Area | Issues |
 | --- | --- |
-| Fidelity | #74 browser titles upside down (font panel); #75 split view dividers; #80 `NSImageRight` checkboxes; #81 radio dot at compact size; #82 pop-up selection in high contrast; #30 popup window owner/tool-window style |
-| Windows | #76 file dialogs show one type at a time; #77 menu bar overflow; #78 menu bar keyboard access (confirm with a real keyboard); #79 alert captions; #72/#83 window tabs (ObjcMarkdown check; title bar); #67 dialogs get a maximize button (libs-back); #69 print panel drops PrintDlgW's choices |
+| ObjcMarkdown 0.2.2 | #78 menu keyboard access (a must-fix); #33 window titles ("README.md - Markdown Viewer", an edited marker, CFBundleDisplayName); #92 Redo as Ctrl+Y (lower) |
+| Windows | #69 print panel drops PrintDlgW's choices; #20 native dialogs at run time; #77 menu bar overflow; #79 alert captions; #30 popup windows' owner and styles; #67 dialogs get a maximize button (libs-back); #72 tabs on by default (#83 title-bar tabs) |
+| Fidelity | #82 pop-up selection in high contrast; #91 single-row chrome (`GSThemeToolbarInMenuBar`, after ObjcMarkdown 0.2.2) |
 | System | #47 Mica (investigate, upstream) |
-| Nib apps | #33 document window titles |
-| Testing | #19 real-app backlog (menus, tool tips and hover in the apps need the real pointer); #20 native dialogs at run time |
+| Testing | #19 real-app backlog (menus, tool tips and hover in the apps need the real pointer) |
 
-**Suggested next five:**
+**Suggested next five** (the parity matrix's order; the owner decides):
 
-1. **Post the libs-back image patch** (above), once the owner has reviewed
-   it: pasting images on Windows for ScreenshotTool.
-2. **#76 file dialog filters:** ScreenshotTool's Open hides every file but
-   PNGs; the most visible real-app bug.
-3. **#80 and #81, Gorm's inspectors:** `NSImageRight` checkboxes and the
-   compact radio dot, both small and seen all over Gorm.
-4. **#74 and #75, the font panel and split views:** upside-down browser
-   titles and dark dividers in MarkdownViewer.
-5. **#77 and #78, the menu bar:** overflow in narrow windows and keyboard
-   access (Alt, F10); check #78 with a real keyboard first.
+1. **Test isolation:** run QuirkProbe with scratch GNUstep defaults (a
+   private `GNUstep.conf`; Adwaita's `run-quirk-probe.sh`, `5131af2`). Make
+   the checks that move the real pointer opt-in.
+2. **#78 menu keyboard access**, with #77's overflow: Alt, F10 and
+   Alt+letter, arrows, Enter and Esc. It's an ObjcMarkdown 0.2.2 blocker.
+   The model for overflow is Adwaita's #25.
+3. **#33 window titles** (ObjcMarkdown 0.2.2).
+4. **#69 print and #20 dialogs:** the model is Adwaita's
+   `GnomeThemePrintDialog.m` and its check-print-dialog.
+5. **Release 0.1.0-alpha2** once phase K and these land; then the matrix's
+   parity items (measured reference checks, #30, per-window nib metrics,
+   the README gallery).
 
 ### Known gaps in finished work
 
@@ -261,7 +298,7 @@ in a CLANG64 shell; never install it into
   - `-Configuration light,dark` picks configurations;
   - `-Theme <path>` checks another build;
   - `-OutputDirectory <dir>` saves renders.
-- **Coverage:** 120 checks in light, dark and the 150% configurations (122 in
+- **Coverage:** 137 checks in light, dark and the 150% configurations (139 in
   the compact one), 4 of them moving the pointer. In high contrast and the
   contrast themes some checks skip with a reason.
 - **ThemeDemo scripts:** `Tests/Scripts/Invoke-ThemeDemoScript.ps1 -Script
@@ -355,7 +392,8 @@ How checks are written (`Examples/QuirkProbe/QuirkProbe.m`):
   | Focus visual | `WinUIThemeFocus.m` |
   | DWM and window integration | `Source/Native/WinUIThemeWindowIntegration.m` |
   | Boxes and forms (#27) | `WinUIThemeBoxes.m` |
-  | Window tabs (#72) | `WinUIThemeWindowTabs.m`, shared code in `ThirdParty/` |
+  | Window tabs (#72) | `WinUIThemeWindowTabs.m`, shared code in `Source/WindowTabbing` |
+  | Cell sizes (#86) | `WinUIThemeCellSizes.m` |
 
 - **Porting from Adwaita:** its versions of most of these are in
   `plugins-themes-Adwaita/Source/Rendering/`. Ported pieces include the

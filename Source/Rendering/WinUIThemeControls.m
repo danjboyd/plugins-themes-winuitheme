@@ -330,8 +330,10 @@ WinUIThemeDrawCheckboxOrRadioIndicator(WinUITheme *theme,
   if (radio && (state == NSOnState || (pressed && state == NSOffState)))
     {
       /* A checked radio's centre; pressed, an unchecked one shows it too,
-         in the border's colour. */
-      CGFloat dot = round((pressed ? 10.0 : (hover ? 14.0 : 12.0)) * scale);
+         in the border's colour. WinUI's is 12 of its 20px (14 under the
+         pointer, 10 pressed): a share of the indicator, so the accent ring
+         stays at compact metrics' smaller size (#81). */
+      CGFloat dot = round(indicatorSize * (pressed ? 0.5 : (hover ? 0.7 : 0.6)));
 
       WinUIThemeDrawRadioDot(WinUIThemeCenteredRect(indicatorRect, dot, dot),
                              state == NSOnState ? markColor : borderColor);
@@ -367,14 +369,26 @@ WinUIThemeDrawCheckboxOrRadioCell(NSButtonCell *cell,
     BOOL enabled = [cell isEnabled];
     NSRect contentRect = [cell drawingRectForBounds: cellFrame];
     CGFloat indicatorSize = WinUIThemeIndicatorSizeForHeight(theme, contentRect.size.height);
-    NSRect indicatorRect = NSMakeRect(contentRect.origin.x + WinUIThemeIndicatorLeading,
+    /* The box after the title (NSImageRight), as Gorm's inspectors lay
+       out their switches in a column (#80): the title first, in the cell's
+       alignment, then the gap and the box at the trailing edge. */
+    BOOL trailing = ([cell imagePosition] == NSImageRight);
+    NSRect indicatorRect = NSMakeRect(trailing ? NSMaxX(contentRect) - WinUIThemeIndicatorLeading - indicatorSize
+                                               : contentRect.origin.x + WinUIThemeIndicatorLeading,
                                       floor(NSMidY(contentRect) - (indicatorSize / 2.0)),
                                       indicatorSize,
                                       indicatorSize);
     NSRect titleRect = contentRect;
 
-    titleRect.origin.x = NSMaxX(indicatorRect) + WinUIThemeIndicatorLabelGap;
-    titleRect.size.width = MAX(0.0, NSMaxX(contentRect) - titleRect.origin.x);
+    if (trailing)
+      {
+        titleRect.size.width = MAX(0.0, NSMinX(indicatorRect) - WinUIThemeIndicatorLabelGap - NSMinX(contentRect));
+      }
+    else
+      {
+        titleRect.origin.x = NSMaxX(indicatorRect) + WinUIThemeIndicatorLabelGap;
+        titleRect.size.width = MAX(0.0, NSMaxX(contentRect) - titleRect.origin.x);
+      }
     WinUIThemeDrawCheckboxOrRadioIndicator(theme, cell, indicatorRect, controlView, radio);
 
     WinUIThemeDrawIndicatorLabel(cell, titleRect, controlView, enabled);

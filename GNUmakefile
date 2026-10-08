@@ -35,6 +35,7 @@ WinUITheme_OBJC_FILES = \
 	Source/Rendering/WinUIThemeBrowser.m \
 	Source/Rendering/WinUIThemeColorWell.m \
 	Source/Rendering/WinUIThemeBoxes.m \
+	Source/Rendering/WinUIThemeCellSizes.m \
 	Source/Rendering/WinUIThemeMenusAndData.m \
 	Source/Rendering/WinUIThemeMenuTracking.m \
 	Source/Rendering/WinUIThemeApplicationMenu.m \
@@ -49,12 +50,17 @@ WinUITheme_OBJC_FILES = \
 	Source/Rendering/WinUIThemeWindowTabs.m
 
 # Window tabs (#72): Apple's NSWindow tabbing API from the shared
-# gnustep-window-tabbing code, vendored in ThirdParty (see its section in the
-# README). The theme draws the tab bar (WinUIThemeWindowTabs.m).
-GSWINDOWTABBING_DIR ?= ThirdParty/gnustep-window-tabbing
+# gnustep-window-tabbing code, copied into Source/WindowTabbing at the commit
+# the README gives. The directory is relative (gnustep-make puts objects at
+# obj/<target>.obj/<source path>), and the files are added before
+# bundle.make reads the lists. The theme draws the bar (WinUIThemeWindowTabs.m).
+GSWINDOWTABBING_DIR = Source/WindowTabbing
 include $(GSWINDOWTABBING_DIR)/GSWindowTabbing.make
 WinUITheme_OBJC_FILES += $(GSWINDOWTABBING_OBJC_FILES)
 ADDITIONAL_INCLUDE_DIRS += $(GSWINDOWTABBING_INCLUDE_DIRS)
+# MinGW has no <dlfcn.h>; the shared code's check for a second copy of its
+# classes uses dladdr() (Source/Native/Compat/dlfcn.h).
+ADDITIONAL_INCLUDE_DIRS += -ISource/Native/Compat
 
 WinUITheme_BUNDLE_LIBS += -luuid -lgdi32
 

@@ -39,6 +39,11 @@
 static const CGFloat WinUIThemeBrowserRowHeight = 32.0;
 static const CGFloat WinUIThemeBrowserColumnGap = 8.0;
 static const CGFloat WinUIThemeBrowserTextInset = 12.0;
+/* A column title's text at its rows' text edge: the row's 4pt item inset
+   and 12pt text inset, plus the column scroll view's 2pt bezel border,
+   less the 3pt that NSCell's -titleRectForBounds: adds for a bezelled cell
+   (title cells call themselves bezelled). */
+static const CGFloat WinUIThemeBrowserTitleInset = 4.0 + 12.0 + 2.0 - 3.0;
 
 @interface NSCell (WinUIThemeBrowserPrivate)
 - (BOOL) _inEditing;
@@ -131,6 +136,23 @@ WinUIThemeDrawBranchChevron(NSPoint centre, NSColor *color)
   [path stroke];
 }
 
+/* Body Strong, smaller only where Windows' text size would otherwise
+   overflow NSBrowser's fixed 21pt title height. */
+static NSFont *
+WinUIThemeBrowserTitleFont(WinUITheme *theme, NSFont *font, CGFloat height)
+{
+  NSFont *body = WinUIThemePreferredControlFont(theme, font, NO);
+  CGFloat size = [body pointSize];
+  NSFont *strong = WinUIThemeSemiboldFont(body, size);
+
+  while (strong != nil && size > 9.0 && ceil([strong defaultLineHeightForFont]) > height)
+    {
+      size -= 1.0;
+      strong = WinUIThemeSemiboldFont(body, size);
+    }
+  return (strong != nil) ? strong : font;
+}
+
 @implementation WinUITheme (Browser)
 
 - (CGFloat) browserColumnSeparation
@@ -173,6 +195,51 @@ WinUIThemeDrawBranchChevron(NSPoint centre, NSColor *color)
           [browser drawTitleOfColumn: column inRect: titleRect];
         }
     }
+}
+
+/* Column titles (#74), and the font panel's "Size" label, which uses the
+   same cell: WinUI has no titled list column, so they're drawn as its
+   section labels, Body Strong in the secondary text colour on the
+   window, no bezel, at the rows' text edge. libs-gui drew its grey bezel
+   behind them (the theme has no GSBrowserHeader tiles). */
+- (NSColor *) browserHeaderTextColor
+{
+  return WinUIThemeColorFromTheme(self, @"secondaryLabelColor", [NSColor controlTextColor]);
+}
+
+/* Nothing behind the title. The cell is shared by every browser and set
+   up once (the font panel's label by the panel), so its colour, font and
+   alignment follow the theme here, before its text is drawn. */
+- (void) drawBrowserHeaderCell: (NSTableHeaderCell *)cell
+                     withFrame: (NSRect)rect
+                        inView: (NSView *)view
+{
+  NSColor *color = [self browserHeaderTextColor];
+  NSFont *font = WinUIThemeBrowserTitleFont(self, [cell font], NSHeight(rect));
+
+  (void)view;
+  if ([cell alignment] == WinUIThemeCenterTextAlignment())
+    {
+      [cell setAlignment: NSLeftTextAlignment];
+    }
+  if ([[cell textColor] isEqual: color] == NO)
+    {
+      [cell setTextColor: color];
+    }
+  if (font != nil && [[cell font] isEqual: font] == NO)
+    {
+      [cell setFont: font];
+    }
+}
+
+/* The title's full height, its text at the rows' text edge. */
+- (NSRect) browserHeaderDrawingRectForCell: (NSTableHeaderCell *)cell
+                                 withFrame: (NSRect)rect
+{
+  (void)cell;
+  rect.origin.x += WinUIThemeBrowserTitleInset;
+  rect.size.width = MAX(0.0, NSWidth(rect) - WinUIThemeBrowserTitleInset);
+  return rect;
 }
 
 /* A row: the selection (subtle fill and accent pill), the cell's image,

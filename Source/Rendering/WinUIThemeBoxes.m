@@ -102,6 +102,33 @@ WinUIThemeDrawBoxTitle(WinUITheme *theme, NSBox *box, CGFloat x)
       withAttributes: attributes];
 }
 
+/* Split view dividers (#75): WinUI separates panes with a 1px
+   DividerStrokeColorDefault line and no grip. libs-gui stroked a thin
+   divider in whatever colour was set (controlShadowColor, cached at
+   -initWithFrame:, for its drag feedback), the darkest line in
+   MarkdownViewer's window, and drew a thick one as NeXT's dimple. Both
+   are now the hairline, along the middle of the divider, whose rect (the
+   hit area) stays as the app set it. Hooks on these two rather than
+   -drawDividerInRect:, so an app's own -drawDividerInRect: still wins. */
+static void
+WinUIThemeDrawSplitViewDivider(NSSplitView *splitView, NSRect rect)
+{
+  NSRect line = rect;
+
+  if ([splitView isVertical])
+    {
+      line.origin.x = floor(NSMidX(rect) - 0.5);
+      line.size.width = 1.0;
+    }
+  else
+    {
+      line.origin.y = floor(NSMidY(rect) - 0.5);
+      line.size.height = 1.0;
+    }
+  [[splitView dividerColor] set];
+  NSRectFill(line);
+}
+
 @implementation WinUITheme (Boxes)
 
 /* Only the card is drawn, with rounded corners, so what's under the box
@@ -228,6 +255,53 @@ WinUIThemeDrawBoxTitle(WinUITheme *theme, NSBox *box, CGFloat x)
         && NSMouseInRect(point, entry, [controlView isFlipped]);
     }
   WinUIThemeDrawTextBoxChromeInState(theme, entry, [controlView isFlipped], enabled, hovered, focused);
+}
+
+- (void) _overrideNSSplitViewMethod_drawThinDividerInRect: (NSRect)rect
+{
+  typedef void (*DrawIMP)(id, SEL, NSRect);
+  DrawIMP originalIMP = (DrawIMP)WinUIThemeOriginalMethod(_cmd, self, [NSSplitView class]);
+
+  if (WinUIThemeBoxTheme() == nil)
+    {
+      if (originalIMP != NULL)
+        {
+          originalIMP(self, _cmd, rect);
+        }
+      return;
+    }
+  WinUIThemeDrawSplitViewDivider((NSSplitView *)self, rect);
+}
+
+- (void) _overrideNSSplitViewMethod_drawThickDividerInRect: (NSRect)rect
+{
+  typedef void (*DrawIMP)(id, SEL, NSRect);
+  DrawIMP originalIMP = (DrawIMP)WinUIThemeOriginalMethod(_cmd, self, [NSSplitView class]);
+
+  if (WinUIThemeBoxTheme() == nil)
+    {
+      if (originalIMP != NULL)
+        {
+          originalIMP(self, _cmd, rect);
+        }
+      return;
+    }
+  WinUIThemeDrawSplitViewDivider((NSSplitView *)self, rect);
+}
+
+/* The divider's colour, read when it's asked for, so it follows palette
+   changes (libs-gui keeps the one it found at -initWithFrame:). */
+- (NSColor *) _overrideNSSplitViewMethod_dividerColor
+{
+  typedef NSColor *(*ColorIMP)(id, SEL);
+  ColorIMP originalIMP = (ColorIMP)WinUIThemeOriginalMethod(_cmd, self, [NSSplitView class]);
+  WinUITheme *theme = WinUIThemeBoxTheme();
+
+  if (theme == nil)
+    {
+      return (originalIMP != NULL) ? originalIMP(self, _cmd) : [NSColor controlShadowColor];
+    }
+  return WinUIThemeDividerColor(theme);
 }
 
 @end

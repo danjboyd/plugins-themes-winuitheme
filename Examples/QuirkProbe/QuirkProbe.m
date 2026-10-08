@@ -115,6 +115,52 @@ QuirkProbeRender(NSView *view)
   return rep;
 }
 
+/* A toolbar icon as ScreenshotTool's (#89): "-symbolic", 32x32pt from a
+   24px bitmap, a 20px square of ink in it. */
+static NSImage *
+QuirkProbeToolbarSymbolicImage(void)
+{
+  NSImage *image = [NSImage imageNamed: @"probe-toolbar-symbolic"];
+  NSBitmapImageRep *rep = nil;
+  unsigned char *data = NULL;
+  NSInteger x, y;
+
+  if (image != nil)
+    {
+      return image;
+    }
+  rep = AUTORELEASE([[NSBitmapImageRep alloc]
+                      initWithBitmapDataPlanes: NULL
+                                    pixelsWide: 24
+                                    pixelsHigh: 24
+                                 bitsPerSample: 8
+                               samplesPerPixel: 4
+                                      hasAlpha: YES
+                                      isPlanar: NO
+                                colorSpaceName: NSCalibratedRGBColorSpace
+                                   bytesPerRow: 0
+                                  bitsPerPixel: 0]);
+  data = [rep bitmapData];
+  for (y = 0; y < 24; y++)
+    {
+      for (x = 0; x < 24; x++)
+        {
+          unsigned char *pixel = data + y * [rep bytesPerRow] + x * 4;
+          BOOL ink = (x >= 2 && x < 22 && y >= 2 && y < 22);
+
+          pixel[0] = 0;
+          pixel[1] = 0;
+          pixel[2] = 0;
+          pixel[3] = ink ? 255 : 0;
+        }
+    }
+  [rep setSize: NSMakeSize(32, 32)];
+  image = AUTORELEASE([[NSImage alloc] initWithSize: NSMakeSize(32, 32)]);
+  [image addRepresentation: rep];
+  [image setName: @"probe-toolbar-symbolic"];
+  return image;
+}
+
 /* Device pixels per point in a render of `view`. */
 static CGFloat
 QuirkProbeScale(NSBitmapImageRep *rep, NSView *view)
@@ -309,6 +355,7 @@ QuirkProbeModuleOfAddress(void *address)
 @interface NSWindow (QuirkProbeTabbing)
 - (void) addTabbedWindow: (NSWindow *)window ordered: (NSWindowOrderingMode)ordered;
 - (NSArray *) tabbedWindows;
+- (void) selectNextTab: (id)sender;
 @end
 
 @interface NSView (QuirkProbeTabBar)
@@ -429,6 +476,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkTheme;
 - (void) checkSubclassImageCell;
 - (void) checkToolbarImageItem;
+- (void) checkToolbarIconSize;
 - (void) checkScrollerEdge;
 - (void) checkTextAlignment;
 - (void) checkTableHeader;
@@ -450,10 +498,13 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkLevelIndicator;
 - (void) checkDatePicker;
 - (void) checkBrowser;
+- (void) checkBrowserTitles;
+- (void) checkSplitViewDividers;
 - (void) checkColorWell;
 - (void) checkBoxes;
 - (void) checkContrastTheme;
 - (void) checkSegmentedControl;
+- (void) checkCellSizes;
 - (void) checkTabView;
 - (void) checkMetricsChoice;
 - (void) checkTableDefaults;
@@ -468,9 +519,11 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkListSelection;
 - (void) checkSelectedRowText;
 - (void) checkToolTip;
+- (void) checkInspectorIndicators;
 - (void) checkSearchField;
 - (void) checkHorizontalOnlyScroller;
 - (void) checkWindowTabs;
+- (void) checkFileDialogFilters;
 - (void) createLateWindow: (NSTimer *)timer;
 - (void) checkLateWindow: (NSTimer *)timer;
 - (void) checkMenuBarTitles: (NSWindow *)window;
@@ -492,6 +545,20 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 }
 
 - (BOOL) isOpaque
+{
+  return YES;
+}
+
+@end
+
+/* A flipped container, as a split view is: the font panel's browsers and
+   its "Size" label sit in a plain view inside one. */
+@interface QuirkProbeFlippedView : NSView
+@end
+
+@implementation QuirkProbeFlippedView
+
+- (BOOL) isFlipped
 {
   return YES;
 }
@@ -634,6 +701,28 @@ QuirkProbeSelectedRowInk(NSTableView *view, NSInteger row, NSBitmapImageRep *rep
   return count;
 }
 
+/* The accent colour's pixels (the checked box or radio), whatever the
+   palette: within 40 of selectedControlColor in each channel. */
+static NSUInteger QuirkProbeAccentRGB[3];
+
+static BOOL
+QuirkProbeIsPaletteAccent(NSUInteger red, NSUInteger green, NSUInteger blue)
+{
+  return labs((long)red - (long)QuirkProbeAccentRGB[0]) <= 40
+    && labs((long)green - (long)QuirkProbeAccentRGB[1]) <= 40
+    && labs((long)blue - (long)QuirkProbeAccentRGB[2]) <= 40;
+}
+
+static void
+QuirkProbeLoadAccent(void)
+{
+  NSColor *accent = [[NSColor selectedControlColor] colorUsingColorSpaceName: NSCalibratedRGBColorSpace];
+
+  QuirkProbeAccentRGB[0] = (NSUInteger)lrint([accent redComponent] * 255.0);
+  QuirkProbeAccentRGB[1] = (NSUInteger)lrint([accent greenComponent] * 255.0);
+  QuirkProbeAccentRGB[2] = (NSUInteger)lrint([accent blueComponent] * 255.0);
+}
+
 @implementation QuirkProbe
 
 - (id) init
@@ -771,7 +860,8 @@ QuirkProbeSelectedRowInk(NSTableView *view, NSInteger row, NSBitmapImageRep *rep
   NSToolbarItem *item = [[NSToolbarItem alloc] initWithItemIdentifier: identifier];
 
   [item setLabel: @"Image"];
-  [item setImage: [self magentaImage]];
+  [item setImage: [[toolbar identifier] isEqualToString: @"QuirkProbeIconSizeToolbar"]
+                   ? QuirkProbeToolbarSymbolicImage() : [self magentaImage]];
   /* The alignment check needs a view item (the theme draws its label)
      with a label much narrower than the view. */
   if ([[toolbar identifier] isEqualToString: @"QuirkProbeAlignmentToolbar"])
@@ -820,7 +910,10 @@ QuirkProbeSelectedRowInk(NSTableView *view, NSInteger row, NSBitmapImageRep *rep
            atRow: (NSInteger)row
           column: (NSInteger)column
 {
-  [cell setStringValue: [NSString stringWithFormat: @"Item %ld.%ld", (long)column, (long)row]];
+  /* checkBrowserTitles' browsers (tag 100) compare their titles' "TTTT"
+     with rows that start the same way. */
+  [cell setStringValue: ([browser tag] == 100) ? [NSString stringWithFormat: @"TTTT %ld", (long)row]
+                                               : [NSString stringWithFormat: @"Item %ld.%ld", (long)column, (long)row]];
   [cell setLeaf: column >= [browser tag]];
 }
 
@@ -1023,6 +1116,98 @@ objectValueForTableColumn: (NSTableColumn *)column
                                       (long)contrast]];
       }
   }
+}
+
+/* The ink of the toolbar's icon, on the toolbar's background. */
+static QuirkProbeInk
+QuirkProbeToolbarIconInk(NSView *toolbarView)
+{
+  NSBitmapImageRep *rep = QuirkProbeRender(toolbarView);
+  NSUInteger red, green, blue;
+
+  QuirkProbePixel(rep, [rep pixelsWide] - 4, [rep pixelsHigh] / 2, &red, &green, &blue);
+  QuirkProbeInkBackground = red + green + blue;
+  return QuirkProbeMeasureIn(rep, QuirkProbeIsInk,
+                             NSMakeRect(0, 0, [rep pixelsWide], [rep pixelsHigh] - 2));
+}
+
+/* An image toolbar item keeps its size through a relayout (issue #89).
+   The theme set the item's own NSImage to the icon's 20pt, so the app's
+   image changed under it, and after a relayout ScreenshotTool's 32pt
+   icons drew at about 12px. WinUI's AppBarButton draws its icon at 20px
+   whatever the source's size. */
+- (void) checkToolbarIconSize
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(320, 440, 360, 140)
+                                     title: @"QuirkProbe Toolbar Icon"];
+  NSToolbar *toolbar = [[NSToolbar alloc] initWithIdentifier: @"QuirkProbeIconSizeToolbar"];
+  NSImage *image = QuirkProbeToolbarSymbolicImage();
+  NSView *toolbarView = nil;
+  CGFloat scale;
+  QuirkProbeInk before, after;
+  NSSize sizeBefore, sizeAfter;
+  NSString *detail = nil;
+
+  [toolbar setDelegate: self];
+  [toolbar setDisplayMode: NSToolbarDisplayModeIconOnly];
+  [window setToolbar: toolbar];
+  RELEASE(toolbar);
+  [window orderFront: nil];
+  [window display];
+  toolbarView = QuirkProbeFindViewOfClass([[window contentView] superview],
+                                          NSClassFromString(@"GSToolbarView"));
+  if (toolbarView == nil)
+    {
+      [self skip: @"toolbar-icon-size" detail: @"no GSToolbarView in the window"];
+      [self skip: @"toolbar-icon-image-kept" detail: @"no GSToolbarView in the window"];
+      return;
+    }
+  scale = QuirkProbeScale(QuirkProbeRender(toolbarView), toolbarView);
+  sizeBefore = [image size];
+  before = QuirkProbeToolbarIconInk(toolbarView);
+  [self saveView: toolbarView named: @"toolbar-icon-before"];
+
+  /* Relaid out twice: the window narrower, as ScreenshotTool's when it
+     opens a file, and the display mode switched and back. */
+  [window setFrame: NSMakeRect(320, 440, 300, 140) display: YES];
+  [toolbar setDisplayMode: NSToolbarDisplayModeIconAndLabel];
+  [window display];
+  [toolbar setDisplayMode: NSToolbarDisplayModeIconOnly];
+  [window setFrame: NSMakeRect(320, 440, 340, 140) display: YES];
+  /* And the app sets the item's image again, as validation may. */
+  [[[toolbar items] objectAtIndex: 0] setImage: image];
+  [window display];
+  sizeAfter = [image size];
+  after = QuirkProbeToolbarIconInk(toolbarView);
+  [self saveView: toolbarView named: @"toolbar-icon-after"];
+
+  /* The 20px square in a 24px bitmap, drawn at 20pt: about 17pt. */
+  detail = [NSString stringWithFormat: @"the icon's ink %.0fx%.0fpt, %.0fx%.0fpt after two relayouts",
+                                       before.width / scale, before.height / scale,
+                                       after.width / scale, after.height / scale];
+  if (before.count > 0 && llabs((long long)(before.width - after.width)) <= 1
+      && llabs((long long)(before.height - after.height)) <= 1
+      && fabs(after.height / scale - 20.0 * 20.0 / 24.0) <= 2.0)
+    {
+      [self pass: @"toolbar-icon-size" detail: detail];
+    }
+  else
+    {
+      [self fail: @"toolbar-icon-size" detail: [detail stringByAppendingString: @" (expected about 17)"]];
+    }
+
+  detail = [NSString stringWithFormat: @"the item's image %.0fx%.0fpt, %.0fx%.0fpt after layout (its own 32x32)",
+                                       sizeBefore.width, sizeBefore.height, sizeAfter.width, sizeAfter.height];
+  if (NSEqualSizes(sizeBefore, NSMakeSize(32, 32)) && NSEqualSizes(sizeAfter, NSMakeSize(32, 32)))
+    {
+      [self pass: @"toolbar-icon-image-kept" detail: detail];
+    }
+  else
+    {
+      [self fail: @"toolbar-icon-image-kept" detail: detail];
+    }
+  [window setToolbar: nil];
+  [window orderOut: nil];
 }
 
 /* Vertical scrollers sit on the trailing (right) edge (issue #4). */
@@ -3173,6 +3358,346 @@ QuirkProbeBrowser(QuirkProbe *probe, NSView *content, NSRect frame, NSInteger le
   [window orderOut: nil];
 }
 
+/* What's wrong with a "TTTT" title drawn in `pixels` (a render's pixel
+   rect, top-left origin) over the window colour `window` (red + green +
+   blue), or nil. It should sit on no bezel (the rect's trailing end is
+   the window's colour), be upright (the T's crossbars, its heaviest row,
+   in the top third of its ink), whole (clear of the rect's top and
+   bottom, at least 6pt tall), and start `textEdge` pixels in, give or
+   take 2pt. */
+static NSString *
+QuirkProbeColumnTitleProblem(NSBitmapImageRep *rep, NSRect pixels, CGFloat scale,
+                             NSUInteger window, CGFloat textEdge, NSString **measured)
+{
+  NSUInteger red = 0, green = 0, blue = 0, background, heaviest = 0;
+  NSInteger y, heaviestY = 0;
+  QuirkProbeInk ink;
+
+  QuirkProbePixel(rep, (NSInteger)(NSMaxX(pixels) - 6 * scale), (NSInteger)NSMidY(pixels), &red, &green, &blue);
+  background = red + green + blue;
+  QuirkProbeInkBackground = window;
+  ink = QuirkProbeMeasureIn(rep, QuirkProbeIsInk, pixels);
+  for (y = ink.minY; ink.count > 0 && y < ink.minY + ink.height; y++)
+    {
+      NSUInteger count = QuirkProbeRowCount(rep, QuirkProbeIsInk, y, (NSInteger)NSMinX(pixels), (NSInteger)NSMaxX(pixels));
+
+      if (count > heaviest)
+        {
+          heaviest = count;
+          heaviestY = y;
+        }
+    }
+  *measured = [NSString stringWithFormat:
+    @"ink %.0fx%.0fpt, %.0fpt in and %.0fpt down the %.0fpt rect, heaviest row %.0fpt down the ink; behind it %lu (window %lu)",
+    ink.width / scale, ink.height / scale, (ink.minX - NSMinX(pixels)) / scale,
+    (ink.minY - NSMinY(pixels)) / scale, NSHeight(pixels) / scale, (heaviestY - ink.minY) / scale,
+    (unsigned long)background, (unsigned long)window];
+  if (llabs((long long)background - (long long)window) > 9)
+    {
+      return @"a bezel behind the title";
+    }
+  if (ink.count == 0)
+    {
+      return @"no title";
+    }
+  if (ink.minY <= (NSInteger)NSMinY(pixels) || ink.minY + ink.height >= (NSInteger)NSMaxY(pixels)
+      || ink.height < 6.0 * scale)
+    {
+      return @"the title is cut off";
+    }
+  if ((heaviestY - ink.minY) * 3 > ink.height)
+    {
+      return @"the title is upside down";
+    }
+  if (fabs((ink.minX - NSMinX(pixels)) - textEdge) > 2.0 * scale)
+    {
+      return @"the title isn't at the rows' text edge";
+    }
+  return nil;
+}
+
+/* Column titles (#74): the font panel's "Family" and "Typeface" were drawn
+   upside down and cut in half, on libs-gui's grey bezel, and its "Size"
+   label (a text field with the browser's title cell) on the bezel too.
+   WinUI has no titled list column; the nearest, a section label, is
+   secondary text on the window, no bezel, at the rows' text edge. Two
+   titled browsers, one in the window and one as the font panel has them
+   (a plain view in a flipped split view), and that label. */
+- (void) checkBrowserTitles
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(180, 160, 560, 300)
+                                     title: @"QuirkProbe Browser Titles"];
+  NSView *content = [window contentView];
+  NSView *flipped = AUTORELEASE([[QuirkProbeFlippedView alloc] initWithFrame: NSMakeRect(330, 10, 220, 280)]);
+  NSView *pane = AUTORELEASE([[NSView alloc] initWithFrame: NSMakeRect(0, 0, 220, 280)]);
+  NSBrowser *plain = AUTORELEASE([[NSBrowser alloc] initWithFrame: NSMakeRect(20, 20, 290, 220)]);
+  NSBrowser *nested = AUTORELEASE([[NSBrowser alloc] initWithFrame: NSMakeRect(0, 0, 120, 220)]);
+  Class titleCellClass = NSClassFromString(@"GSBrowserTitleCell");
+  NSTextField *label = AUTORELEASE([[NSTextField alloc] initWithFrame: NSMakeRect(130, 199, 80, 21)]);
+  NSBitmapImageRep *rep = nil;
+  NSMatrix *matrix = nil;
+  NSUInteger red = 0, green = 0, blue = 0, windowSum, card;
+  CGFloat scale, textEdge;
+  NSArray *browsers = [NSArray arrayWithObjects: plain, nested, nil];
+  NSUInteger index;
+
+  [content addSubview: flipped];
+  [flipped addSubview: pane];
+  [content addSubview: plain];
+  [pane addSubview: nested];
+  for (index = 0; index < [browsers count]; index++)
+    {
+      NSBrowser *browser = [browsers objectAtIndex: index];
+
+      [browser setTag: 100];
+      [browser setDelegate: (id)self];
+      [browser setMaxVisibleColumns: 1];
+      [browser setHasHorizontalScroller: NO];
+      [browser setTitled: YES];
+      [browser loadColumnZero];
+      [browser setTitle: @"TTTT" ofColumn: 0];
+    }
+  if (titleCellClass != Nil)
+    {
+      [label setCell: AUTORELEASE([titleCellClass new])];
+    }
+  [label setFont: [NSFont boldSystemFontOfSize: 0]];
+  [label setAlignment: NSCenterTextAlignment];
+  [label setDrawsBackground: YES];
+  [label setEditable: NO];
+  [label setTextColor: [NSColor windowFrameTextColor]];
+  [label setBackgroundColor: [NSColor controlShadowColor]];
+  [label setStringValue: @"TTTT"];
+  [pane addSubview: label];
+
+  [window makeKeyAndOrderFront: nil];
+  [window display];
+  rep = QuirkProbeRender(content);
+  scale = QuirkProbeScale(rep, content);
+  [self saveView: content named: @"browser-titles"];
+  QuirkProbePixel(rep, 2, 2, &red, &green, &blue);
+  windowSum = red + green + blue;
+
+  /* The rows' text edge: where row 0's "TTTT 0" starts, from its
+     column's leading edge. */
+  matrix = [plain matrixInColumn: 0];
+  {
+    NSRect column = QuirkProbePixelRect(content, [content convertRect: [[matrix enclosingScrollView] bounds]
+                                                              fromView: [matrix enclosingScrollView]], scale);
+    NSRect row = QuirkProbePixelRect(content, [content convertRect: [matrix cellFrameAtRow: 0 column: 0]
+                                                           fromView: matrix], scale);
+    QuirkProbeInk rowInk;
+
+    QuirkProbePixel(rep, (NSInteger)NSMidX(row), (NSInteger)NSMinY(row) + 1, &red, &green, &blue);
+    card = red + green + blue;
+    QuirkProbeInkBackground = card;
+    rowInk = QuirkProbeMeasureIn(rep, QuirkProbeIsInk, NSInsetRect(row, 1.0, 1.0));
+    textEdge = rowInk.count > 0 ? rowInk.minX - NSMinX(column) : 16.0 * scale;
+  }
+
+  {
+    NSString *measured[3] = { nil, nil, nil };
+    NSString *problems[3] = { nil, nil, nil };
+    NSString *names[3] = { @"in the window", @"in a flipped split view", @"the Size label" };
+    NSRect rects[3];
+    NSUInteger failures = 0, i;
+
+    rects[0] = [content convertRect: [plain titleFrameOfColumn: 0] fromView: plain];
+    rects[1] = [content convertRect: [nested titleFrameOfColumn: 0] fromView: nested];
+    rects[2] = [content convertRect: [label bounds] fromView: label];
+    for (i = 0; i < 3; i++)
+      {
+        problems[i] = QuirkProbeColumnTitleProblem(rep, QuirkProbePixelRect(content, rects[i], scale), scale,
+                                                   windowSum, textEdge, &measured[i]);
+        if (problems[i] != nil)
+          {
+            failures++;
+          }
+      }
+    if (titleCellClass == Nil)
+      {
+        failures++;
+        problems[2] = @"libs-gui has no GSBrowserTitleCell";
+      }
+    if (failures == 0)
+      {
+        [self pass: @"browser-column-titles" detail: [NSString stringWithFormat:
+          @"upright on the window at the rows' %.0fpt edge, in the window, a flipped split view and the Size label (%@)",
+          textEdge / scale, measured[1]]];
+      }
+    else
+      {
+        NSMutableArray *details = [NSMutableArray array];
+
+        for (i = 0; i < 3; i++)
+          {
+            [details addObject: [NSString stringWithFormat: @"%@: %@ (%@)", names[i],
+              problems[i] ?: @"fine", measured[i]]];
+          }
+        [self fail: @"browser-column-titles" detail: [NSString stringWithFormat:
+          @"rows' text edge %.0fpt; %@", textEdge / scale, [details componentsJoinedByString: @"; "]]];
+      }
+  }
+  [window orderOut: nil];
+}
+
+/* A split view of two empty panes, laid out. */
+static NSSplitView *
+QuirkProbeSplitView(NSView *content, NSRect frame, BOOL vertical, NSSplitViewDividerStyle style)
+{
+  NSSplitView *split = AUTORELEASE([[NSSplitView alloc] initWithFrame: frame]);
+  NSRect half = vertical ? NSMakeRect(0, 0, NSWidth(frame) / 2, NSHeight(frame))
+                         : NSMakeRect(0, 0, NSWidth(frame), NSHeight(frame) / 2);
+
+  [split setVertical: vertical];
+  [split setDividerStyle: style];
+  [split addSubview: AUTORELEASE([[NSView alloc] initWithFrame: half])];
+  [split addSubview: AUTORELEASE([[NSView alloc] initWithFrame: half])];
+  [split adjustSubviews];
+  [content addSubview: split];
+  return split;
+}
+
+/* The 0-255 channels of `color`. */
+static void
+QuirkProbeRGB(NSColor *color, NSInteger rgb[3])
+{
+  NSColor *calibrated = [color colorUsingColorSpaceName: NSCalibratedRGBColorSpace];
+
+  rgb[0] = (NSInteger)lround([calibrated redComponent] * 255.0);
+  rgb[1] = (NSInteger)lround([calibrated greenComponent] * 255.0);
+  rgb[2] = (NSInteger)lround([calibrated blueComponent] * 255.0);
+}
+
+/* The largest channel difference between a pixel and `rgb`. */
+static NSInteger
+QuirkProbeChannelDistance(NSBitmapImageRep *rep, NSInteger x, NSInteger y, NSInteger rgb[3])
+{
+  NSUInteger red = 0, green = 0, blue = 0;
+
+  if (QuirkProbePixel(rep, x, y, &red, &green, &blue) == NO)
+    {
+      return 255;
+    }
+  return MAX(llabs((long long)red - rgb[0]), MAX(llabs((long long)green - rgb[1]), llabs((long long)blue - rgb[2])));
+}
+
+/* Split view dividers (#75): WinUI separates panes with a 1px
+   DividerStrokeColorDefault line (black or white at 8% over the window;
+   WindowText in high contrast) and no grip. libs-gui drew a thin divider
+   in controlShadowColor, the darkest line in MarkdownViewer's window, and
+   a thick one (the font panel's, GNUstep's default) as NeXT's dimple. A
+   thin vertical divider's colour against the palette's, and a thick
+   horizontal one: a hairline across it, nothing else, at its full 6pt
+   (the hit area apps rely on). */
+- (void) checkSplitViewDividers
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(200, 180, 420, 260)
+                                     title: @"QuirkProbe Split Views"];
+  NSView *content = [window contentView];
+  NSSplitView *thin = QuirkProbeSplitView(content, NSMakeRect(20, 20, 180, 220), YES, NSSplitViewDividerStyleThin);
+  NSSplitView *thick = QuirkProbeSplitView(content, NSMakeRect(220, 20, 180, 220), NO, NSSplitViewDividerStyleThick);
+  BOOL highContrast = QuirkProbeHasArgument(@"--high-contrast", nil);
+  NSInteger windowRGB[3], textRGB[3], expected[3], reported[3];
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale;
+  NSUInteger i;
+
+  QuirkProbeRGB([NSColor windowBackgroundColor], windowRGB);
+  QuirkProbeRGB([NSColor controlTextColor], textRGB);
+  for (i = 0; i < 3; i++)
+    {
+      expected[i] = highContrast ? textRGB[i] : (NSInteger)lround(windowRGB[i] + (textRGB[i] - windowRGB[i]) * 0.08);
+    }
+  QuirkProbeRGB([thin dividerColor], reported);
+
+  [window orderFront: nil];
+  [window display];
+  rep = QuirkProbeRender(content);
+  scale = QuirkProbeScale(rep, content);
+  [self saveView: content named: @"split-view-dividers"];
+
+  /* The thin divider: the palette's divider, and -dividerColor says so
+     (libs-gui caches controlShadowColor at -initWithFrame:). */
+  {
+    NSRect leading = [[[thin subviews] objectAtIndex: 0] frame];
+    NSRect divider = NSMakeRect(NSMaxX(leading), 0, [thin dividerThickness], NSHeight([thin bounds]));
+    NSRect pixels = QuirkProbePixelRect(content, [content convertRect: divider fromView: thin], scale);
+    NSInteger x = (NSInteger)NSMinX(pixels), y = (NSInteger)NSMidY(pixels);
+    NSInteger drawn = QuirkProbeChannelDistance(rep, x, y, expected);
+    NSInteger said = MAX(llabs(reported[0] - expected[0]), MAX(llabs(reported[1] - expected[1]), llabs(reported[2] - expected[2])));
+    NSUInteger red = 0, green = 0, blue = 0;
+
+    QuirkProbePixel(rep, x, y, &red, &green, &blue);
+    if (drawn <= 6 && said <= 6)
+      {
+        [self pass: @"split-view-thin-divider" detail: [NSString stringWithFormat:
+          @"#%02lX%02lX%02lX, the palette's divider #%02lX%02lX%02lX, which -dividerColor returns",
+          (unsigned long)red, (unsigned long)green, (unsigned long)blue,
+          (long)expected[0], (long)expected[1], (long)expected[2]]];
+      }
+    else
+      {
+        [self fail: @"split-view-thin-divider" detail: [NSString stringWithFormat:
+          @"drawn #%02lX%02lX%02lX, -dividerColor #%02lX%02lX%02lX; the palette's divider is #%02lX%02lX%02lX",
+          (unsigned long)red, (unsigned long)green, (unsigned long)blue,
+          (long)reported[0], (long)reported[1], (long)reported[2],
+          (long)expected[0], (long)expected[1], (long)expected[2]]];
+      }
+  }
+
+  /* The thick divider: rows of it are either the hairline all the way
+     across or the window all the way across. */
+  {
+    NSRect leading = [[[thick subviews] objectAtIndex: 0] frame];
+    NSRect divider = NSMakeRect(0, NSMaxY(leading), NSWidth([thick bounds]), [thick dividerThickness]);
+    NSRect pixels = QuirkProbePixelRect(content, [content convertRect: divider fromView: thick], scale);
+    NSInteger x, y, lineRows = 0, windowRows = 0, otherRows = 0;
+    NSInteger x0 = (NSInteger)NSMinX(pixels), x1 = (NSInteger)NSMaxX(pixels);
+
+    for (y = (NSInteger)NSMinY(pixels); y < (NSInteger)NSMaxY(pixels); y++)
+      {
+        NSInteger onLine = 0, onWindow = 0;
+
+        for (x = x0; x < x1; x++)
+          {
+            if (QuirkProbeChannelDistance(rep, x, y, expected) <= 6)
+              {
+                onLine++;
+              }
+            else if (QuirkProbeChannelDistance(rep, x, y, windowRGB) <= 6)
+              {
+                onWindow++;
+              }
+          }
+        if (onLine == x1 - x0)
+          {
+            lineRows++;
+          }
+        else if (onWindow == x1 - x0)
+          {
+            windowRows++;
+          }
+        else
+          {
+            otherRows++;
+          }
+      }
+    if ([thick dividerThickness] >= 6.0 && lineRows >= 1 && lineRows <= (NSInteger)ceil(scale) && otherRows == 0)
+      {
+        [self pass: @"split-view-thick-divider" detail: [NSString stringWithFormat:
+          @"a %ld px hairline across the %.0fpt divider, no dimple", (long)lineRows, [thick dividerThickness]]];
+      }
+    else
+      {
+        [self fail: @"split-view-thick-divider" detail: [NSString stringWithFormat:
+          @"the %.0fpt divider has %ld rows of the divider colour, %ld of the window, %ld of anything else (a dimple?)",
+          [thick dividerThickness], (long)lineRows, (long)windowRows, (long)otherRows]];
+      }
+  }
+  [window orderOut: nil];
+}
+
 static BOOL
 QuirkProbeIsSwatchRed(NSUInteger red, NSUInteger green, NSUInteger blue)
 {
@@ -3688,6 +4213,137 @@ QuirkProbeAccentRuns(NSBitmapImageRep *rep, NSInteger y, CGFloat scale, CGFloat 
           @"%lu accent runs, the first centred at %.0fpt", (unsigned long)runs, centre]];
       }
   }
+  [window orderOut: nil];
+}
+
+/* -cellSize gives the height the theme draws a control at (issue #86). An
+   app that sizes its controls from -cellSize got WinUI's 32pt push
+   buttons, but segmented controls, sliders and TextBoxes only as tall as
+   their text: the selected segment's pill and the slider's thumb were
+   clipped, and a text field sat shorter than the button beside it. WinUI's
+   Segmented, Slider (its touch target) and TextBox are as tall as a
+   Button, 32px (24px compact). */
+- (void) checkCellSizes
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(240, 200, 420, 260)
+                                     title: @"QuirkProbe Cell Sizes"];
+  NSView *content = [window contentView];
+  NSButton *button = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(20, 210, 100, 32)]);
+  NSSegmentedControl *segments = QuirkProbeSegments(content, NSMakeRect(20, 160, 300, 20),
+                                                    NSSegmentSwitchTrackingSelectOne);
+  NSSlider *slider = AUTORELEASE([[NSSlider alloc] initWithFrame: NSMakeRect(20, 110, 240, 20)]);
+  NSTextField *field = AUTORELEASE([[NSTextField alloc] initWithFrame: NSMakeRect(20, 60, 200, 20)]);
+  NSTextField *readOnly = AUTORELEASE([[NSTextField alloc] initWithFrame: NSMakeRect(20, 10, 200, 20)]);
+  NSControl *controls[4];
+  NSString *names[4] = { @"cell-size-segmented", @"cell-size-slider",
+                         @"cell-size-text-field", @"cell-size-read-only-field" };
+  CGFloat buttonHeight, desktop = QuirkProbeDesktopScale();
+  CGFloat thumb = round(20.0 * desktop);
+  NSUInteger index;
+
+  [button setTitle: @"OK"];
+  [button setBezelStyle: NSRoundedBezelStyle];
+  [content addSubview: button];
+  [segments setSelectedSegment: 0];
+  [slider setMinValue: 0.0];
+  [slider setMaxValue: 100.0];
+  [slider setDoubleValue: 50.0];
+  [content addSubview: slider];
+  [field setStringValue: @"Text"];
+  [content addSubview: field];
+  [readOnly setStringValue: @"Read only"];
+  [readOnly setEditable: NO];
+  [readOnly setBezeled: YES];
+  [content addSubview: readOnly];
+  controls[0] = segments;
+  controls[1] = slider;
+  controls[2] = field;
+  controls[3] = readOnly;
+
+  buttonHeight = [[button cell] cellSize].height;
+  for (index = 0; index < 4; index++)
+    {
+      CGFloat height = [[controls[index] cell] cellSize].height;
+      NSString *detail = [NSString stringWithFormat: @"%.0fpt tall, a push button %.0fpt",
+                                                     height, buttonHeight];
+
+      [controls[index] setFrameSize: NSMakeSize(NSWidth([controls[index] frame]), height)];
+      if (fabs(height - buttonHeight) <= 0.5)
+        {
+          [self pass: names[index] detail: detail];
+        }
+      else
+        {
+          [self fail: names[index] detail: detail];
+        }
+    }
+
+  /* Drawn in a frame of that height, nothing is clipped: the selected
+     segment's 3x16pt pill and the slider's whole thumb show. */
+  [window orderFront: nil];
+  [window display];
+  if (QuirkProbeHasArgument(@"--high-contrast", nil))
+    {
+      [self skip: @"cell-size-segmented-unclipped" detail: @"high contrast draws the selection as the highlight"];
+    }
+  else
+    {
+      NSBitmapImageRep *rep = QuirkProbeRender(segments);
+      CGFloat scale = QuirkProbeScale(rep, segments);
+      QuirkProbeInk pill = QuirkProbeMeasureIn(rep, QuirkProbeIsAccentBlue, NSZeroRect);
+      NSString *detail = [NSString stringWithFormat: @"in %.0fpt: a %.0fx%.0fpt accent pill",
+                                                     NSHeight([segments frame]),
+                                                     pill.width / scale, pill.height / scale];
+
+      [self saveView: segments named: @"cell-size-segmented"];
+      if (pill.count > 0 && fabs(pill.width / scale - 16.0) <= 1.5 && fabs(pill.height / scale - 3.0) <= 1.0
+          && pill.minY + pill.height < [rep pixelsHigh] - 1)
+        {
+          [self pass: @"cell-size-segmented-unclipped" detail: detail];
+        }
+      else
+        {
+          [self fail: @"cell-size-segmented-unclipped" detail: [detail stringByAppendingString: @", expected 16x3"]];
+        }
+    }
+  {
+    NSBitmapImageRep *rep = QuirkProbeRender(slider);
+    CGFloat scale = QuirkProbeScale(rep, slider);
+    NSInteger x = (NSInteger)(NSWidth([slider bounds]) / 2.0 * scale);
+    NSInteger y, top = -1, bottom = -1;
+    NSUInteger red, green, blue;
+    NSString *detail = nil;
+
+    [self saveView: slider named: @"cell-size-slider"];
+    QuirkProbePixel(rep, 1, 1, &red, &green, &blue);
+    QuirkProbeInkBackground = red + green + blue;
+    /* The thumb's edge in light mode is a stroke only a few levels from
+       the window: anything off the background counts. */
+    for (y = 0; y < [rep pixelsHigh]; y++)
+      {
+        QuirkProbePixel(rep, x, y, &red, &green, &blue);
+        if (llabs((long long)(red + green + blue) - (long long)QuirkProbeInkBackground) > 12)
+          {
+            if (top < 0)
+              {
+                top = y;
+              }
+            bottom = y;
+          }
+      }
+    detail = [NSString stringWithFormat: @"in %.0fpt: the thumb is %.0fpt tall (%.0fpt expected)",
+                                         NSHeight([slider frame]),
+                                         (top >= 0) ? (bottom - top + 1) / scale : 0.0, thumb];
+    if (top > 0 && bottom < [rep pixelsHigh] - 1 && (bottom - top + 1) >= (thumb - 1.5) * scale)
+      {
+        [self pass: @"cell-size-slider-unclipped" detail: detail];
+      }
+    else
+      {
+        [self fail: @"cell-size-slider-unclipped" detail: detail];
+      }
+  }
+  [segments removeFromSuperview];
   [window orderOut: nil];
 }
 
@@ -4698,6 +5354,23 @@ QuirkProbeStripInk(NSScrollView *scrollView, NSUInteger fill, CGFloat inset)
    short with an ellipsis, and a "+" right after the last tab only when
    something answers -newWindowForTab:. Before, NSWindow had no tabbing at
    all. */
+
+/* A key press with the Ctrl key, as `window` gets it. */
+static NSEvent *
+QuirkProbeTabKey(NSWindow *window, NSString *characters, NSUInteger modifiers)
+{
+  return [NSEvent keyEventWithType: NSKeyDown
+                          location: NSZeroPoint
+                     modifierFlags: modifiers
+                         timestamp: 0
+                      windowNumber: [window windowNumber]
+                           context: nil
+                        characters: characters
+       charactersIgnoringModifiers: characters
+                         isARepeat: NO
+                           keyCode: 0];
+}
+
 - (void) checkWindowTabs
 {
   BOOL highContrast = QuirkProbeHasArgument(@"--high-contrast", @"yes");
@@ -4728,6 +5401,8 @@ QuirkProbeStripInk(NSScrollView *scrollView, NSUInteger fill, CGFloat inset)
       [self fail: @"window-tab-close-button" detail: missing];
       [self fail: @"window-tab-title-fitted" detail: missing];
       [self fail: @"window-tab-new-button" detail: missing];
+      [self fail: @"window-tab-shortcut-over-text-view" detail: missing];
+      [self fail: @"window-tab-takes-placement" detail: missing];
       [self fail: @"window-tab-keeps-group-frame" detail: missing];
       [self fail: @"window-tab-close-shows-neighbour" detail: missing];
       return;
@@ -4753,6 +5428,8 @@ QuirkProbeStripInk(NSScrollView *scrollView, NSUInteger fill, CGFloat inset)
       [self fail: @"window-tab-close-button" detail: detail];
       [self fail: @"window-tab-title-fitted" detail: detail];
       [self fail: @"window-tab-new-button" detail: detail];
+      [self fail: @"window-tab-shortcut-over-text-view" detail: detail];
+      [self fail: @"window-tab-takes-placement" detail: detail];
       [self fail: @"window-tab-keeps-group-frame" detail: detail];
       [self fail: @"window-tab-close-shows-neighbour" detail: detail];
       [second close];
@@ -4915,6 +5592,98 @@ QuirkProbeStripInk(NSScrollView *scrollView, NSUInteger fill, CGFloat inset)
         }
       _offersNewTab = NO;
     }
+
+  /* Ctrl+Tab and Ctrl+Page Down select the next tab ahead of a text view
+     with focus, whichever modifier the Ctrl key arrives as: Command under
+     GNUstep's default key mapping (the theme's), Control otherwise. The
+     shared code before 4cb1b63 let the text view take them (a tab
+     inserted, a page scrolled). */
+  {
+    NSTextView *secondText = AUTORELEASE([[NSTextView alloc] initWithFrame: NSMakeRect(10, 10, 200, 60)]);
+    NSTextView *firstText = AUTORELEASE([[NSTextView alloc] initWithFrame: NSMakeRect(10, 10, 200, 60)]);
+    BOOL byTab;
+    BOOL byPage;
+    NSString *typed;
+
+    [content addSubview: secondText];
+    [second makeFirstResponder: secondText];
+    [[first contentView] addSubview: firstText];
+    [first makeFirstResponder: firstText];
+    [second sendEvent: QuirkProbeTabKey(second, @"\t", NSCommandKeyMask)];
+    byTab = [first isVisible] && [second isVisible] == NO;
+    [first sendEvent: QuirkProbeTabKey(first, [NSString stringWithFormat: @"%C", (unichar)NSPageDownFunctionKey],
+                                       NSControlKeyMask)];
+    byPage = [second isVisible] && [first isVisible] == NO;
+    typed = [[secondText string] stringByAppendingString: [firstText string]];
+    if (byTab && byPage && [typed length] == 0)
+      {
+        [self pass: @"window-tab-shortcut-over-text-view" detail:
+          @"Command+Tab and Control+Page Down selected the next tab; the text views got nothing"];
+      }
+    else
+      {
+        [self fail: @"window-tab-shortcut-over-text-view" detail:
+          [NSString stringWithFormat: @"Ctrl+Tab selected the next tab %d, Ctrl+Page Down %d, the text views got %lu characters",
+                    (int)byTab, (int)byPage, (unsigned long)[typed length]]];
+      }
+    if ([second isVisible] == NO)
+      {
+        [second makeKeyAndOrderFront: nil];
+      }
+    [second makeFirstResponder: nil];
+    [first makeFirstResponder: nil];
+    [secondText removeFromSuperview];
+    [firstText removeFromSuperview];
+  }
+
+  /* Windows keeps maximized per window: a tab selected while its group
+     was maximized took the group's frame but wasn't maximized (the caption
+     button and a double-click didn't restore it), and one maximized
+     before came back maximized in a restored group. The selected tab now
+     takes the previous one's placement. */
+#ifdef _WIN32
+  {
+    HWND firstHandle = (HWND)(intptr_t)[first windowNumber];
+    HWND secondHandle = (HWND)(intptr_t)[second windowNumber];
+    BOOL tookMaximized;
+    BOOL tookRestored;
+
+    [second makeKeyAndOrderFront: nil];
+    QuirkProbeDispatchEvents(0.2);
+    ShowWindow(secondHandle, SW_MAXIMIZE);
+    QuirkProbeDispatchEvents(0.4);
+    [second selectNextTab: nil];
+    QuirkProbeDispatchEvents(0.4);
+    tookMaximized = [first isVisible] && IsZoomed(firstHandle);
+    ShowWindow(firstHandle, SW_RESTORE);
+    QuirkProbeDispatchEvents(0.4);
+    [first selectNextTab: nil];
+    QuirkProbeDispatchEvents(0.4);
+    tookRestored = [second isVisible] && IsZoomed(secondHandle) == 0;
+    if (tookMaximized && tookRestored)
+      {
+        [self pass: @"window-tab-takes-placement" detail:
+          @"a tab selected in a maximized group is maximized, and one maximized before is restored in a restored group"];
+      }
+    else
+      {
+        [self fail: @"window-tab-takes-placement" detail:
+          [NSString stringWithFormat: @"selected in a maximized group: maximized %d; selected in a restored group: restored %d",
+                    (int)tookMaximized, (int)tookRestored]];
+      }
+    /* Only the tab on screen: restoring a hidden one would show it. */
+    if ([second isVisible] == NO)
+      {
+        [second makeKeyAndOrderFront: nil];
+        QuirkProbeDispatchEvents(0.3);
+      }
+    if (IsZoomed(secondHandle))
+      {
+        ShowWindow(secondHandle, SW_RESTORE);
+      }
+    QuirkProbeDispatchEvents(0.3);
+  }
+#endif
 
   /* A new tab takes its group's frame. The theme gives a window made
      after launch the main menu's bar when it becomes main, which made it
@@ -6022,6 +6791,101 @@ QuirkProbeInkIn(NSBitmapImageRep *rep, NSRect area, NSInteger fill, NSInteger th
   [window orderOut: nil];
 }
 
+/* Checkboxes and radios as Gorm's inspectors have them (issues #80 and
+   #81): a switch with its box after the title (NSImageRight) has the box
+   at the trailing edge, not first with the title right-aligned away from
+   it; and a checked radio smaller than WinUI's 20px keeps an accent ring
+   round its dot (the dot was a fixed 12px, which filled a compact radio). */
+- (void) checkInspectorIndicators
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(420, 300, 260, 100)
+                                     title: @"QuirkProbe Indicators"];
+  NSButton *trailing = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(20, 60, 220, 22)]);
+  NSButton *radio = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(20, 20, 120, 16)]);
+  NSBitmapImageRep *rep;
+  QuirkProbeInk accent;
+  CGFloat scale;
+
+  QuirkProbeLoadAccent();
+  [trailing setButtonType: NSSwitchButton];
+  [trailing setTitle: @"Release when closed"];
+  [trailing setImagePosition: NSImageRight];
+  [trailing setAlignment: NSRightTextAlignment];
+  [trailing setState: NSOnState];
+  [radio setButtonType: NSRadioButton];
+  [radio setTitle: @"Buffered"];
+  [radio setState: NSOnState];
+  [[window contentView] addSubview: trailing];
+  [[window contentView] addSubview: radio];
+  [window orderFront: nil];
+  [window display];
+
+  rep = QuirkProbeRender(trailing);
+  scale = QuirkProbeScale(rep, trailing);
+  [self saveView: trailing named: @"switch-image-right"];
+  /* The checked box's accent in the leading and trailing 30pt (the
+     title, in the middle, may share the accent's colour in high
+     contrast). */
+  {
+    NSInteger edge = (NSInteger)(30 * scale);
+    QuirkProbeInk leading = QuirkProbeMeasureIn(rep, QuirkProbeIsPaletteAccent,
+                                                NSMakeRect(0, 0, edge, [rep pixelsHigh]));
+    QuirkProbeInk end = QuirkProbeMeasureIn(rep, QuirkProbeIsPaletteAccent,
+                                            NSMakeRect([rep pixelsWide] - edge, 0, edge, [rep pixelsHigh]));
+
+    if (end.count >= (NSUInteger)(40 * scale * scale) && leading.count < (NSUInteger)(10 * scale * scale))
+      {
+        [self pass: @"switch-image-right" detail: [NSString stringWithFormat:
+          @"the box is at the trailing edge of a %.0fpt switch (%lu accent px there, %lu at the start)",
+          NSWidth([trailing bounds]), (unsigned long)end.count, (unsigned long)leading.count]];
+      }
+    else
+      {
+        [self fail: @"switch-image-right" detail: [NSString stringWithFormat:
+          @"%lu accent px at the start of the switch, %lu at its end: the box is drawn first",
+          (unsigned long)leading.count, (unsigned long)end.count]];
+      }
+  }
+
+  /* The ring: accent from the indicator's edge to the dot, along its
+     middle row. */
+  rep = QuirkProbeRender(radio);
+  scale = QuirkProbeScale(rep, radio);
+  [self saveView: radio named: @"radio-dot-small"];
+  accent = QuirkProbeMeasureIn(rep, QuirkProbeIsPaletteAccent, NSMakeRect(0, 0, 30 * scale, [rep pixelsHigh]));
+  if (accent.count == 0)
+    {
+      [self fail: @"radio-ring-small" detail: @"no accent: the checked radio isn't drawn"];
+    }
+  else
+    {
+      NSInteger y = accent.minY + accent.height / 2;
+      NSInteger x = accent.minX;
+      NSInteger run = 0;
+      NSUInteger red, green, blue;
+
+      while (x < accent.minX + accent.width && QuirkProbePixel(rep, x, y, &red, &green, &blue)
+             && QuirkProbeIsPaletteAccent(red, green, blue))
+        {
+          run++;
+          x++;
+        }
+      if (run >= 2.5 * scale && run < accent.width / 2)
+        {
+          [self pass: @"radio-ring-small" detail: [NSString stringWithFormat:
+            @"a %.0fpt radio keeps a %.1fpt accent ring round its dot",
+            accent.width / scale, run / scale]];
+        }
+      else
+        {
+          [self fail: @"radio-ring-small" detail: [NSString stringWithFormat:
+            @"a %.0fpt radio's accent ring is %.1fpt: it reads as unchecked",
+            accent.width / scale, run / scale]];
+        }
+    }
+  [window orderOut: nil];
+}
+
 /* WinUI's AutoSuggestBox (issue #9): an empty search field shows only
    the magnifier, at its trailing edge, nothing before its text; with
    text, the delete cross shows just before the magnifier. */
@@ -6379,6 +7243,221 @@ QuirkProbeLastItemOfMenu(NSString *title)
     }
 }
 
+/* Windows' name for an extension's files, as the theme asks for it, or
+   nil. */
+static NSString *
+QuirkProbeRegisteredTypeName(NSString *extension)
+{
+  typedef HRESULT (WINAPI *AssocQueryStringWFunc)(DWORD, int, LPCWSTR, LPCWSTR, LPWSTR, DWORD *);
+  HMODULE module = LoadLibraryW(L"shlwapi.dll");
+  AssocQueryStringWFunc function = (module != NULL)
+    ? (AssocQueryStringWFunc)GetProcAddress(module, "AssocQueryStringW") : NULL;
+  NSString *dotted = [@"." stringByAppendingString: extension];
+  WCHAR association[64];
+  WCHAR buffer[260];
+  DWORD length = 260;
+  HRESULT result;
+
+  if (function == NULL || [dotted length] >= 64)
+    {
+      return nil;
+    }
+  [dotted getCharacters: (unichar *)association];
+  association[[dotted length]] = 0;
+  buffer[0] = 0;
+  result = function(0, 3 /* ASSOCSTR_FRIENDLYDOCNAME */, association, NULL, buffer, &length);
+  if (FAILED(result) || result == S_FALSE || buffer[0] == 0)
+    {
+      return nil;
+    }
+  buffer[259] = 0;
+  return [[NSString stringWithCharacters: (const unichar *)buffer length: wcslen(buffer)]
+           stringByTrimmingCharactersInSet: [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+}
+
+static NSString *
+QuirkProbeFilterList(NSArray *filters)
+{
+  NSMutableArray *names = [NSMutableArray array];
+  NSUInteger index;
+
+  for (index = 0; index < [filters count]; index++)
+    {
+      [names addObject: [[filters objectAtIndex: index] objectForKey: @"name"]];
+    }
+  return [NSString stringWithFormat: @"[%@]", [names componentsJoinedByString: @" | "]];
+}
+
+static NSArray *
+QuirkProbeFilterPatterns(NSArray *filters)
+{
+  NSMutableArray *patterns = [NSMutableArray array];
+  NSUInteger index;
+
+  for (index = 0; index < [filters count]; index++)
+    {
+      [patterns addObject: [[filters objectAtIndex: index] objectForKey: @"pattern"]];
+    }
+  return patterns;
+}
+
+/* The native Open and Save dialogs' type filters (#76). An Open panel that
+   allows several types showed one type at a time, the first selected:
+   ScreenshotTool's Open hid every file but PNGs. The dialogs are modal and
+   Windows' own, so the probe asks the theme for the filters it gives them
+   (+[WinUITheme fileDialogFilters:]); a theme without it fails. */
+- (void) checkFileDialogFilters
+{
+  Class themeClass = NSClassFromString(@"WinUITheme");
+  SEL selector = NSSelectorFromString(@"fileDialogFilters:");
+  NSArray *ids = [NSArray arrayWithObjects: @"file-dialog-open-all-supported",
+                          @"file-dialog-aliases-merged", @"file-dialog-type-names",
+                          @"file-dialog-save-selects-name-type", @"file-dialog-other-types", nil];
+  NSArray *images = [NSArray arrayWithObjects: @"png", @"jpg", @"jpeg", @"tif", @"tiff", nil];
+  NSDictionary *reply;
+  NSArray *filters;
+  NSArray *patterns;
+  NSArray *expected;
+  NSString *pngName;
+  NSString *expectedName;
+  NSUInteger selected;
+  NSUInteger index;
+
+  if (themeClass == Nil || [themeClass respondsToSelector: selector] == NO)
+    {
+      for (index = 0; index < [ids count]; index++)
+        {
+          [self fail: [ids objectAtIndex: index] detail:
+            @"the theme has no +fileDialogFilters: (before #76, an Open dialog showed one type at a time)"];
+        }
+      return;
+    }
+
+  /* Open, ScreenshotTool's image types: everything at once, selected. */
+  reply = [themeClass performSelector: selector withObject:
+    [NSDictionary dictionaryWithObjectsAndKeys: images, @"types", nil]];
+  filters = [reply objectForKey: @"filters"];
+  patterns = QuirkProbeFilterPatterns(filters);
+  selected = [[reply objectForKey: @"selectedIndex"] unsignedIntegerValue];
+  if ([filters count] > 0
+      && [[patterns objectAtIndex: 0] isEqualToString: @"*.png;*.jpg;*.jpeg;*.tif;*.tiff"]
+      && [[[filters objectAtIndex: 0] objectForKey: @"name"]
+           hasSuffix: @" (*.png;*.jpg;*.jpeg;*.tif;*.tiff)"]
+      && selected == 0)
+    {
+      [self pass: @"file-dialog-open-all-supported" detail:
+        [NSString stringWithFormat: @"selected first of %@", QuirkProbeFilterList(filters)]];
+    }
+  else
+    {
+      [self fail: @"file-dialog-open-all-supported" detail:
+        [NSString stringWithFormat: @"selected %lu of %@; want a first filter of every type, selected",
+                                    (unsigned long)selected, QuirkProbeFilterList(filters)]];
+    }
+
+  /* jpg/jpeg and tif/tiff are one format each; htm/html share a name. */
+  expected = [NSArray arrayWithObjects: @"*.png;*.jpg;*.jpeg;*.tif;*.tiff", @"*.png",
+                      @"*.jpg;*.jpeg", @"*.tif;*.tiff", nil];
+  {
+    NSDictionary *web = [themeClass performSelector: selector withObject:
+      [NSDictionary dictionaryWithObjectsAndKeys:
+        [NSArray arrayWithObjects: @"html", @"htm", @"rtf", nil], @"types", nil]];
+    NSArray *webPatterns = QuirkProbeFilterPatterns([web objectForKey: @"filters"]);
+    NSArray *webExpected = [NSArray arrayWithObjects: @"*.html;*.htm;*.rtf",
+                                    @"*.html;*.htm", @"*.rtf", nil];
+
+    if ([patterns isEqualToArray: expected] && [webPatterns isEqualToArray: webExpected])
+      {
+        [self pass: @"file-dialog-aliases-merged" detail:
+          [NSString stringWithFormat: @"%@; %@", [patterns componentsJoinedByString: @" | "],
+                                      [webPatterns componentsJoinedByString: @" | "]]];
+      }
+    else
+      {
+        [self fail: @"file-dialog-aliases-merged" detail:
+          [NSString stringWithFormat: @"patterns %@ and %@; want %@ and %@",
+                                      [patterns componentsJoinedByString: @" | "],
+                                      [webPatterns componentsJoinedByString: @" | "],
+                                      [expected componentsJoinedByString: @" | "],
+                                      [webExpected componentsJoinedByString: @" | "]]];
+      }
+  }
+
+  /* Each type carries Windows' name for it, else "PNG files". */
+  pngName = ([filters count] > 1) ? [[filters objectAtIndex: 1] objectForKey: @"name"] : nil;
+  expectedName = QuirkProbeRegisteredTypeName(@"png");
+  expectedName = [NSString stringWithFormat: @"%@ (*.png)",
+                           expectedName != nil ? expectedName : @"PNG files"];
+  if ([pngName isEqualToString: expectedName])
+    {
+      [self pass: @"file-dialog-type-names" detail: pngName];
+    }
+  else
+    {
+      [self fail: @"file-dialog-type-names" detail:
+        [NSString stringWithFormat: @"the PNG filter is \"%@\"; want \"%@\"", pngName, expectedName]];
+    }
+
+  /* Save: one filter per type, the suggested name's selected. */
+  {
+    NSDictionary *named = [themeClass performSelector: selector withObject:
+      [NSDictionary dictionaryWithObjectsAndKeys: images, @"types",
+                    [NSNumber numberWithBool: YES], @"saving", @"photo.JPEG", @"fileName", nil]];
+    NSDictionary *bare = [themeClass performSelector: selector withObject:
+      [NSDictionary dictionaryWithObjectsAndKeys: images, @"types",
+                    [NSNumber numberWithBool: YES], @"saving", @"Untitled", @"fileName", nil]];
+    NSArray *savePatterns = QuirkProbeFilterPatterns([named objectForKey: @"filters"]);
+    NSArray *saveExpected = [NSArray arrayWithObjects: @"*.png", @"*.jpg;*.jpeg",
+                                     @"*.tif;*.tiff", nil];
+    NSUInteger namedIndex = [[named objectForKey: @"selectedIndex"] unsignedIntegerValue];
+    NSUInteger bareIndex = [[bare objectForKey: @"selectedIndex"] unsignedIntegerValue];
+
+    if ([savePatterns isEqualToArray: saveExpected] && namedIndex == 1 && bareIndex == 0)
+      {
+        [self pass: @"file-dialog-save-selects-name-type" detail:
+          [NSString stringWithFormat: @"%@; photo.JPEG selects %lu, Untitled %lu",
+                                      [savePatterns componentsJoinedByString: @" | "],
+                                      (unsigned long)namedIndex, (unsigned long)bareIndex]];
+      }
+    else
+      {
+        [self fail: @"file-dialog-save-selects-name-type" detail:
+          [NSString stringWithFormat: @"%@; photo.JPEG selects %lu, Untitled %lu; want %@, 1 and 0",
+                                      [savePatterns componentsJoinedByString: @" | "],
+                                      (unsigned long)namedIndex, (unsigned long)bareIndex,
+                                      [saveExpected componentsJoinedByString: @" | "]]];
+      }
+  }
+
+  /* "All files" only when the panel allows other types; no types, no
+     filters (every file shows). */
+  {
+    NSDictionary *other = [themeClass performSelector: selector withObject:
+      [NSDictionary dictionaryWithObjectsAndKeys: [NSArray arrayWithObject: @"png"], @"types",
+                    [NSNumber numberWithBool: YES], @"allowsOtherFileTypes", nil]];
+    NSDictionary *none = [themeClass performSelector: selector withObject:
+      [NSDictionary dictionary]];
+    NSArray *otherPatterns = QuirkProbeFilterPatterns([other objectForKey: @"filters"]);
+
+    if ([otherPatterns isEqualToArray: [NSArray arrayWithObjects: @"*.png", @"*.*", nil]]
+        && [patterns containsObject: @"*.*"] == NO
+        && [[none objectForKey: @"filters"] count] == 0)
+      {
+        [self pass: @"file-dialog-other-types" detail:
+          [NSString stringWithFormat: @"%@; without types none",
+                                      QuirkProbeFilterList([other objectForKey: @"filters"])]];
+      }
+    else
+      {
+        [self fail: @"file-dialog-other-types" detail:
+          [NSString stringWithFormat: @"allowing other types %@, not %@, without types %lu filters",
+                                      [otherPatterns componentsJoinedByString: @" | "],
+                                      [patterns componentsJoinedByString: @" | "],
+                                      (unsigned long)[[none objectForKey: @"filters"] count]]];
+      }
+  }
+}
+
 - (void) finish
 {
   printf("SUMMARY %lu passed, %lu failed, %lu known, %lu skipped\n",
@@ -6407,6 +7486,7 @@ QuirkProbeLastItemOfMenu(NSString *title)
   [self checkAccentColor];
   [self checkSubclassImageCell];
   [self checkToolbarImageItem];
+  [self checkToolbarIconSize];
   [self checkScrollerEdge];
   [self checkTableHeader];
   [self checkTextAlignment];
@@ -6425,10 +7505,13 @@ QuirkProbeLastItemOfMenu(NSString *title)
   [self checkLevelIndicator];
   [self checkDatePicker];
   [self checkBrowser];
+  [self checkBrowserTitles];
+  [self checkSplitViewDividers];
   [self checkColorWell];
   [self checkBoxes];
   [self checkContrastTheme];
   [self checkSegmentedControl];
+  [self checkCellSizes];
   [self checkTabView];
   [self checkMetricsChoice];
   [self checkTableDefaults];
@@ -6443,10 +7526,12 @@ QuirkProbeLastItemOfMenu(NSString *title)
   [self checkListSelection];
   [self checkSelectedRowText];
   [self checkToolTip];
+  [self checkInspectorIndicators];
   [self checkSearchField];
   [self checkHorizontalOnlyScroller];
   [self checkWindowTabs];
   [self checkPopUpClick];
+  [self checkFileDialogFilters];
   [self after: QuirkProbeSettleDelay perform: @selector(createLateWindow:)];
 }
 

@@ -48,9 +48,8 @@ Source/                    Theme implementation
 Source/Settings/           Settings and metrics model
 Source/Rendering/          Palette and future rendering code
 Source/Native/             Reserved for later Windows adapters
+Source/WindowTabbing/      Shared window tabbing code (vendored)
 Resources/                 Theme bundle metadata and future assets
-ThirdParty/gnustep-window-tabbing/
-                           Shared window tabbing code (vendored)
 Examples/ThemeDemo/        GNUstep-side review harness
 Examples/Shared/PageContract/
 Reference/WinUI3ReferenceApp/
@@ -173,22 +172,32 @@ own theme files.
 
 Apps get Apple's `NSWindow` tabbing API (`-addTabbedWindow:ordered:`,
 `tabbingIdentifier`, `tabGroup`, `-newWindowForTab:`, `-selectNextTab:` and
-the rest) from the shared code in `ThirdParty/gnustep-window-tabbing`. The
-theme installs it from `-activate` when `NSWindow` lacks it; GSTheme
-activates the user's theme as `NSApplication` is made, so the API is there
-before an app sets up its first window. Apps that check
+the rest) from the shared code in `Source/WindowTabbing`. The
+theme installs it from `-initWithBundle:`, before calling GSTheme's, when
+`NSWindow` lacks it: GSTheme records the methods a theme overrides there,
+and an override installed after the tabbing hooks calls them as its
+original. GSTheme loads the user's theme as `NSApplication` is made, so
+the API is there before an app sets up its first window. Apps that check
 `[NSWindow instancesRespondToSelector: @selector(addTabbedWindow:ordered:)]`
 (ObjcMarkdown) find it.
 
 **Off by default for now** (#72): apps that find the API use it (ObjcMarkdown
-turns its documents into window tabs), and the tabs haven't been checked
-with ObjcMarkdown yet. `WinUIThemeWindowTabs YES` (a user default, or
-`-WinUIThemeWindowTabs YES` on the command line) turns them on;
+turns its documents into window tabs). `WinUIThemeWindowTabs YES` (a user
+default, or `-WinUIThemeWindowTabs YES` on the command line) turns them on;
 QuirkProbe runs with it on.
+
+On Windows: the hidden tabs are ordered out, so the taskbar and Alt+Tab
+show one entry per group; selecting a tab gives it the group's frame and,
+from the theme, its Windows placement (maximized, and the size to restore
+to); closing the selected tab shows its neighbour first, so the app doesn't
+take it for its last window; Ctrl+Tab, Ctrl+Shift+Tab and Ctrl+Page
+Up/Down switch tabs even from a text view. A tab keeps its group's frame
+when the theme gives it the menu bar.
 
 The theme draws the bar as WinUI's TabView (Notepad, Terminal), from its
 `generic.xaml` resources: a 40px strip (8px above 32px tabs) on a step
-darker than the window, tabs 100 to 240px wide sharing it, titles at 12px
+darker than the window, tabs 100 to 240px wide sharing it from 4px in from
+each end, titles at 12px
 ending in an ellipsis; the selected tab in the window's colour with 8px top
 corners and small flares into the strip's foot, semibold, with no line under
 it so it runs into the content; other tabs with a hover fill and a divider
@@ -204,9 +213,12 @@ server leaves the title bar to Windows, so here the bar has its own row
 above the content, under the menu bar and the toolbar.
 
 An app that compiles the shared code in itself, as its `Examples/TabDemo`
-does, can't run under the theme: the process then has two copies of
-`NSWindowTabGroup` and the other classes, and crashes. Apps should rely on
-the theme (or libs-gui, later) for the API.
+does, brings a second copy of `NSWindowTabGroup` and the other classes.
+Since `4cb1b63` the copy whose classes the runtime kept does the work and
+the other defers to it (it tells them apart with `dladdr()`, which MinGW
+lacks: `Source/Native/Compat/dlfcn.h` gives the theme one). That hasn't
+been tried on Windows; apps should rely on the theme (or libs-gui, later)
+for the API.
 
 ## Real-App Gate
 
@@ -220,11 +232,13 @@ WinUITheme is licensed under the GNU Lesser General Public License, version
 the whole repository: the theme sources, the examples, the scripts, the WinUI 3
 reference app and the resources.
 
-`ThirdParty/gnustep-window-tabbing` is a copy of
+`Source/WindowTabbing` is a copy of
 [danjboyd/gnustep-window-tabbing](https://github.com/danjboyd/gnustep-window-tabbing)
-at `2fcb697` (its `Headers`, `Source`, `GSWindowTabbing.make` and
-`LICENSE`, unchanged), also LGPL-2.1-or-later. To update it, copy those
-from a checkout of that repository over the directory and record the new
-hash here.
+at `4cb1b63` (`4cb1b63798c5927ea39fa50f5dcf84fd5b167da1`: its `Headers`,
+`Source`, `GSWindowTabbing.make` and `LICENSE`, unchanged), also
+LGPL-2.1-or-later. Don't edit it here: change the shared repository, then
+replace the directory with those files from a checkout
+(`git archive <commit> Headers Source GSWindowTabbing.make LICENSE`) and
+record the new hash here.
 
 See [COPYING.LIB](./COPYING.LIB).

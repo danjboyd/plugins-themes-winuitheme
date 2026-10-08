@@ -809,12 +809,11 @@ WinUIThemeDrawAttributedStringWithEditorLayout(NSTextFieldCell *cell,
     }
   else
     {
-      DPStranslate(context, rect.origin.x, NSMaxY(rect));
-      DPSscale(context, 1.0, -1.0);
-      GSWSetViewIsFlipped(context, YES);
-      [layoutManager drawBackgroundForGlyphRange: glyphRange atPoint: NSZeroPoint];
-      [layoutManager drawGlyphsForGlyphRange: glyphRange atPoint: NSZeroPoint];
-      GSWSetViewIsFlipped(context, NO);
+      /* Text fields are flipped; this is a cell drawn by some other view,
+         such as a browser's column title (#74). Flipping the context by
+         hand here drew the glyphs mirrored, upside down at the foot of
+         the rect, so string drawing handles it, as Adwaita's theme does. */
+      [string drawInRect: rect];
     }
 
   DPSgrestore(context);

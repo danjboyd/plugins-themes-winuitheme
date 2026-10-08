@@ -40,15 +40,24 @@
 @end
 
 static char WinUIThemeTintedImagesKey;
+/* On a sized copy: the image it was made from, whose name says whether
+   it's a template (a copy has no name). */
+static char WinUIThemeSizedImageSourceKey;
 
 BOOL
 WinUIThemeImageIsTemplate(NSImage *image)
 {
   NSString *name = nil;
+  NSImage *source = nil;
 
   if (image == nil)
     {
       return NO;
+    }
+  source = objc_getAssociatedObject(image, &WinUIThemeSizedImageSourceKey);
+  if (source != nil)
+    {
+      return WinUIThemeImageIsTemplate(source);
     }
   if ([image respondsToSelector: @selector(isTemplate)] && [image isTemplate])
     {
@@ -56,6 +65,137 @@ WinUIThemeImageIsTemplate(NSImage *image)
     }
   name = [image name];
   return [name hasSuffix: @"Template"] || [name hasSuffix: @"-symbolic"];
+}
+
+/* An app's image drawn at another size, for a control that sizes what it
+   draws from -[NSImage size] (#89). It has no representations of its own:
+   it lists the source's, for tinting, and draws the source scaled. A copy
+   ([image copy] and -setSize:) would lose an image drawn with -lockFocus,
+   whose cached representation NSImage doesn't copy. */
+@interface WinUIThemeSizedImage : NSImage
+{
+  NSImage *_source;
+}
+- (id) initWithImage: (NSImage *)source size: (NSSize)size;
+@end
+
+@implementation WinUIThemeSizedImage
+
+- (id) initWithImage: (NSImage *)source size: (NSSize)size
+{
+  self = [super initWithSize: size];
+  if (self != nil)
+    {
+      ASSIGN(_source, source);
+      objc_setAssociatedObject(self, &WinUIThemeSizedImageSourceKey, source,
+                               OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+  return self;
+}
+
+- (void) dealloc
+{
+  RELEASE(_source);
+  [super dealloc];
+}
+
+- (id) copyWithZone: (NSZone *)zone
+{
+  return [[WinUIThemeSizedImage allocWithZone: zone] initWithImage: _source size: [self size]];
+}
+
+- (NSArray *) representations
+{
+  return [_source representations];
+}
+
+- (NSImageRep *) bestRepresentationForDevice: (NSDictionary *)deviceDescription
+{
+  return [_source bestRepresentationForDevice: deviceDescription];
+}
+
+- (BOOL) isValid
+{
+  return [_source isValid];
+}
+
+- (BOOL) isTemplate
+{
+  return [_source respondsToSelector: @selector(isTemplate)] && [_source isTemplate];
+}
+
+/* `rect` of this image in the source's coordinates. */
+- (NSRect) sourceRectFor: (NSRect)rect
+{
+  NSSize own = [self size];
+  NSSize source = [_source size];
+
+  if (NSIsEmptyRect(rect) || own.width <= 0.0 || own.height <= 0.0)
+    {
+      return NSZeroRect;
+    }
+  return NSMakeRect(rect.origin.x * source.width / own.width,
+                    rect.origin.y * source.height / own.height,
+                    rect.size.width * source.width / own.width,
+                    rect.size.height * source.height / own.height);
+}
+
+- (void) drawInRect: (NSRect)dstRect
+           fromRect: (NSRect)srcRect
+          operation: (NSCompositingOperation)op
+           fraction: (CGFloat)delta
+     respectFlipped: (BOOL)respectFlipped
+              hints: (NSDictionary *)hints
+{
+  [_source drawInRect: dstRect
+             fromRect: [self sourceRectFor: srcRect]
+            operation: op
+             fraction: delta
+       respectFlipped: respectFlipped
+                hints: hints];
+}
+
+- (void) drawInRect: (NSRect)dstRect
+           fromRect: (NSRect)srcRect
+          operation: (NSCompositingOperation)op
+           fraction: (CGFloat)delta
+{
+  [_source drawInRect: dstRect
+             fromRect: [self sourceRectFor: srcRect]
+            operation: op
+             fraction: delta];
+}
+
+- (void) drawAtPoint: (NSPoint)point
+            fromRect: (NSRect)srcRect
+           operation: (NSCompositingOperation)op
+            fraction: (CGFloat)delta
+{
+  NSRect rect = NSIsEmptyRect(srcRect)
+    ? NSMakeRect(0.0, 0.0, [self size].width, [self size].height) : srcRect;
+
+  [self drawInRect: NSMakeRect(point.x, point.y, rect.size.width, rect.size.height)
+          fromRect: srcRect
+         operation: op
+          fraction: delta];
+}
+
+@end
+
+NSImage *
+WinUIThemeSizedImageCopy(NSImage *image, NSSize size)
+{
+  if (image == nil || NSEqualSizes([image size], size))
+    {
+      return image;
+    }
+  return AUTORELEASE([[WinUIThemeSizedImage alloc] initWithImage: image size: size]);
+}
+
+NSImage *
+WinUIThemeSizedImageSource(NSImage *image)
+{
+  return (image != nil) ? objc_getAssociatedObject(image, &WinUIThemeSizedImageSourceKey) : nil;
 }
 
 /* The image's largest bitmap, as its PNG loads, or nil. */

@@ -110,6 +110,20 @@ WinUIThemeRightTextAlignment(void)
 
 - (id) initWithBundle: (NSBundle *)bundle
 {
+  /* Window tabs (#72): Apple's NSWindow tabbing API (the shared code in
+     Source/WindowTabbing, drawn by WinUIThemeWindowTabs.m), where NSWindow
+     lacks it. Before GSTheme's -initWithBundle: records the methods the
+     theme overrides, so that an override of -sendEvent:, -close or the
+     others calls the tabbing code's hook as its original; GSTheme loads
+     the user's theme as NSApplication is made, so the API is there before
+     an app sets up its first window (ObjcMarkdown checks for it then).
+     Off unless WinUIThemeWindowTabs is YES until the tabs are checked with
+     ObjcMarkdown: apps that find the API use it, and ObjcMarkdown's MSI
+     takes the theme from main. Later calls do nothing. */
+  if ([[NSUserDefaults standardUserDefaults] boolForKey: @"WinUIThemeWindowTabs"])
+    {
+      GSWindowTabbingInstall();
+    }
   self = [super initWithBundle: bundle];
   if (self != nil)
     {
@@ -176,17 +190,6 @@ WinUIThemeRightTextAlignment(void)
 
 - (void) activate
 {
-  /* Window tabs (#72): Apple's NSWindow tabbing API, where NSWindow
-     lacks it. GSTheme activates the user's theme as NSApplication is
-     made, so the API is there before an app sets up its first window
-     (ObjcMarkdown checks for it then). Off unless WinUIThemeWindowTabs
-     is YES until the tabs are checked with ObjcMarkdown: apps that find
-     the API use it, and ObjcMarkdown's MSI takes the theme from main. */
-  if ([[NSUserDefaults standardUserDefaults] boolForKey: @"WinUIThemeWindowTabs"])
-    {
-      GSWindowTabbingInstall();
-      WinUIThemeInstallWindowTabs();
-    }
   [self reloadConfiguration];
   [self applyRuntimeDefaults];
   _runtimeDefaultsApplied = YES;
