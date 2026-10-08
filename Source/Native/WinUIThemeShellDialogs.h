@@ -23,6 +23,7 @@
 
 #import <AppKit/AppKit.h>
 #import <GNUstepGUI/GSTheme.h>
+#import "../WinUITheme.h"
 
 @interface WinUIThemeSavePanel : NSSavePanel
 @end
@@ -34,6 +35,16 @@
 @end
 
 @interface WinUIThemePageLayout : GSPageLayout
+@end
+
+/* The type filters the native Open and Save dialogs offer (#76), for
+   QuirkProbe, which reaches it by name. `request` holds "types" (the
+   allowed file types), "saving" and "allowsOtherFileTypes" (NSNumbers) and
+   "fileName" (a save panel's suggested name). The answer holds "filters",
+   dictionaries of "name" and "pattern" in the dialog's order, and
+   "selectedIndex", the one selected (from 0). */
+@interface WinUITheme (FileDialogFilters)
++ (NSDictionary *) fileDialogFilters: (NSDictionary *)request;
 @end
 
 #endif

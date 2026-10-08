@@ -79,6 +79,321 @@ WinUIThemeInvokeModalDelegate(id delegate,
     }
 }
 
+#pragma mark File type filters (#76)
+
+/* Extensions that name one format. Windows registers each apart, often
+   with names of their own ("JPG File", "JPEG File"), so they're merged into
+   one filter whatever the registry says. */
+static BOOL
+WinUIThemeExtensionsAreAliases(NSString *first, NSString *second)
+{
+  static NSArray *groups = nil;
+  NSUInteger index = 0;
+
+  if ([first caseInsensitiveCompare: second] == NSOrderedSame)
+    {
+      return YES;
+    }
+  if (groups == nil)
+    {
+      groups = [[NSArray alloc] initWithObjects:
+        [NSArray arrayWithObjects: @"jpg", @"jpeg", @"jpe", @"jfif", nil],
+        [NSArray arrayWithObjects: @"tif", @"tiff", nil],
+        [NSArray arrayWithObjects: @"htm", @"html", nil],
+        [NSArray arrayWithObjects: @"mpg", @"mpeg", nil],
+        [NSArray arrayWithObjects: @"mid", @"midi", nil],
+        [NSArray arrayWithObjects: @"aif", @"aiff", nil],
+        [NSArray arrayWithObjects: @"yml", @"yaml", nil],
+        nil];
+    }
+
+  for (index = 0; index < [groups count]; index++)
+    {
+      NSArray *group = [groups objectAtIndex: index];
+
+      if ([group containsObject: [first lowercaseString]]
+          && [group containsObject: [second lowercaseString]])
+        {
+          return YES;
+        }
+    }
+  return NO;
+}
+
+/* The dialogs' own words, from the app's strings when it translates them,
+   else English. */
+static NSString *
+WinUIThemeFileDialogString(NSString *english)
+{
+  NSString *string = [[NSBundle mainBundle] localizedStringForKey: english
+                                                            value: english
+                                                            table: nil];
+
+  return ([string length] > 0) ? string : english;
+}
+
+/* Windows' name for files with this extension ("PNG File", "Rich Text
+   Format"), as Explorer's Type column shows it, or nil. */
+static NSString *
+WinUIThemeRegisteredTypeName(NSString *extension)
+{
+#ifdef _WIN32
+  typedef HRESULT (WINAPI *AssocQueryStringWFunc)(DWORD flags,
+                                                  int string,
+                                                  LPCWSTR association,
+                                                  LPCWSTR extra,
+                                                  LPWSTR output,
+                                                  DWORD *length);
+  static AssocQueryStringWFunc function = NULL;
+  static BOOL looked = NO;
+  const int friendlyDocName = 3; /* ASSOCSTR_FRIENDLYDOCNAME */
+  NSString *dotted = [@"." stringByAppendingString: extension];
+  NSUInteger dottedLength = [dotted length];
+  WCHAR association[64];
+  WCHAR buffer[260];
+  DWORD length = 260;
+  HRESULT result = E_FAIL;
+  NSString *name = nil;
+
+  if (looked == NO)
+    {
+      HMODULE module = GetModuleHandleW(L"shlwapi.dll");
+
+      if (module == NULL)
+        {
+          module = LoadLibraryW(L"shlwapi.dll");
+        }
+      if (module != NULL)
+        {
+          function = (AssocQueryStringWFunc)GetProcAddress(module, "AssocQueryStringW");
+        }
+      looked = YES;
+    }
+  if (function == NULL)
+    {
+      return nil;
+    }
+
+  if (dottedLength >= 64)
+    {
+      return nil;
+    }
+  [dotted getCharacters: (unichar *)association];
+  association[dottedLength] = 0;
+  buffer[0] = 0;
+  result = function(0, friendlyDocName, association, NULL, buffer, &length);
+  if (SUCCEEDED(result) && result != S_FALSE)
+    {
+      buffer[259] = 0;
+      name = [[NSString stringWithCharacters: (const unichar *)buffer
+                                      length: wcslen(buffer)]
+               stringByTrimmingCharactersInSet: [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    }
+  return ([name length] > 0) ? name : nil;
+#else
+  (void)extension;
+  return nil;
+#endif
+}
+
+/* The extensions in an allowed-types list: "png", ".png" and "*.png" are
+   the same; blanks, wildcards and repeats (in any case) are dropped. */
+static NSArray *
+WinUIThemeFilterExtensions(NSArray *types)
+{
+  NSMutableArray *extensions = [NSMutableArray array];
+  NSCharacterSet *invalid = [NSCharacterSet characterSetWithCharactersInString: @"*?;/\\"];
+  NSUInteger index = 0;
+
+  for (index = 0; index < [types count]; index++)
+    {
+      id entry = [types objectAtIndex: index];
+      NSString *extension = nil;
+      NSUInteger existing = 0;
+      BOOL repeated = NO;
+
+      if ([entry isKindOfClass: [NSString class]] == NO)
+        {
+          continue;
+        }
+
+      extension = [(NSString *)entry stringByTrimmingCharactersInSet:
+                    [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+      if ([extension hasPrefix: @"*"])
+        {
+          extension = [extension substringFromIndex: 1];
+        }
+      if ([extension hasPrefix: @"."])
+        {
+          extension = [extension substringFromIndex: 1];
+        }
+      if ([extension length] == 0
+          || [extension rangeOfCharacterFromSet: invalid].location != NSNotFound)
+        {
+          continue;
+        }
+
+      for (existing = 0; existing < [extensions count]; existing++)
+        {
+          if ([[extensions objectAtIndex: existing] caseInsensitiveCompare: extension]
+              == NSOrderedSame)
+            {
+              repeated = YES;
+              break;
+            }
+        }
+      if (repeated == NO)
+        {
+          [extensions addObject: extension];
+        }
+    }
+
+  return extensions;
+}
+
+static NSString *
+WinUIThemeFilterPattern(NSArray *extensions)
+{
+  NSMutableArray *patterns = [NSMutableArray array];
+  NSUInteger index = 0;
+
+  for (index = 0; index < [extensions count]; index++)
+    {
+      [patterns addObject: [@"*." stringByAppendingString: [extensions objectAtIndex: index]]];
+    }
+  return [patterns componentsJoinedByString: @";"];
+}
+
+static NSDictionary *
+WinUIThemeFilter(NSString *name, NSString *pattern)
+{
+  return [NSDictionary dictionaryWithObjectsAndKeys:
+    [NSString stringWithFormat: @"%@ (%@)", name, pattern], @"name",
+    pattern, @"pattern",
+    nil];
+}
+
+/* The filters a native Open or Save dialog offers for an allowed-types
+   list (#76), as dictionaries of "name" (as the dialog lists it) and
+   "pattern" ("*.jpg;*.jpeg"), with the one to select in *selectedIndex.
+
+   - One filter per type, named from the registry ("PNG File (*.png)"), or
+     "PNG files" when Windows has no name. Extensions of one format (jpg
+     and jpeg) or with one registered name (htm and html) share a filter.
+   - An Open dialog with more than one type starts with "All supported
+     files", selected, so it shows everything the app can open, as
+     NSOpenPanel does.
+   - A Save dialog selects the type of the name it suggests, or the first.
+   - "All files (*.*)" comes last when the panel allows other types.
+   - No types, no filters: the dialog shows every file. */
+static NSArray *
+WinUIThemeFileDialogFilters(NSArray *types,
+                            BOOL saving,
+                            BOOL allowsOtherFileTypes,
+                            NSString *fileName,
+                            NSUInteger *selectedIndex)
+{
+  NSArray *extensions = WinUIThemeFilterExtensions(types);
+  NSMutableArray *groupNames = [NSMutableArray array];
+  NSMutableArray *groupExtensions = [NSMutableArray array];
+  NSMutableArray *filters = [NSMutableArray array];
+  NSString *nameExtension = [fileName pathExtension];
+  NSUInteger selected = 0;
+  BOOL nameMatched = NO;
+  NSUInteger index = 0;
+
+  if (selectedIndex != NULL)
+    {
+      *selectedIndex = 0;
+    }
+  if ([extensions count] == 0)
+    {
+      return filters;
+    }
+
+  for (index = 0; index < [extensions count]; index++)
+    {
+      NSString *extension = [extensions objectAtIndex: index];
+      NSString *name = WinUIThemeRegisteredTypeName(extension);
+      NSUInteger group = 0;
+      BOOL merged = NO;
+
+      for (group = 0; group < [groupExtensions count] && merged == NO; group++)
+        {
+          NSMutableArray *members = [groupExtensions objectAtIndex: group];
+          NSUInteger member = 0;
+
+          if (name != nil
+              && [[groupNames objectAtIndex: group] caseInsensitiveCompare: name] == NSOrderedSame)
+            {
+              merged = YES;
+            }
+          for (member = 0; member < [members count] && merged == NO; member++)
+            {
+              merged = WinUIThemeExtensionsAreAliases([members objectAtIndex: member], extension);
+            }
+          if (merged)
+            {
+              [members addObject: extension];
+            }
+        }
+      if (merged == NO)
+        {
+          if (name == nil)
+            {
+              name = [NSString stringWithFormat: WinUIThemeFileDialogString(@"%@ files"),
+                               [extension uppercaseString]];
+            }
+          [groupNames addObject: name];
+          [groupExtensions addObject: [NSMutableArray arrayWithObject: extension]];
+        }
+    }
+
+  if (saving == NO && [groupExtensions count] > 1)
+    {
+      [filters addObject: WinUIThemeFilter(WinUIThemeFileDialogString(@"All supported files"),
+                                           WinUIThemeFilterPattern(extensions))];
+    }
+  for (index = 0; index < [groupExtensions count]; index++)
+    {
+      NSArray *members = [groupExtensions objectAtIndex: index];
+      NSUInteger member = 0;
+
+      if (saving && nameMatched == NO && [nameExtension length] > 0)
+        {
+          for (member = 0; member < [members count]; member++)
+            {
+              if ([[members objectAtIndex: member] caseInsensitiveCompare: nameExtension]
+                  == NSOrderedSame)
+                {
+                  selected = [filters count];
+                  nameMatched = YES;
+                }
+            }
+        }
+      [filters addObject: WinUIThemeFilter([groupNames objectAtIndex: index],
+                                           WinUIThemeFilterPattern(members))];
+    }
+  if (allowsOtherFileTypes)
+    {
+      /* A suggested name of another type keeps its extension. */
+      if (saving && nameMatched == NO && [nameExtension length] > 0)
+        {
+          selected = [filters count];
+        }
+      [filters addObject: [NSDictionary dictionaryWithObjectsAndKeys:
+        [NSString stringWithFormat: @"%@ (*.*)", WinUIThemeFileDialogString(@"All files")], @"name",
+        @"*.*", @"pattern",
+        nil]];
+    }
+
+  if (selectedIndex != NULL)
+    {
+      *selectedIndex = selected;
+    }
+  return filters;
+}
+
 #ifdef _WIN32
 typedef HRESULT (WINAPI *WinUIThemeCoInitializeExFunc)(LPVOID reserved,
                                                        DWORD coInit);
@@ -367,69 +682,30 @@ WinUIThemePathFromShellItem(IShellItem *item)
 }
 
 static COMDLG_FILTERSPEC *
-WinUIThemeCreateFilterSpecs(NSArray *types, UINT *countOut)
+WinUIThemeCreateFilterSpecs(NSArray *filters)
 {
-  NSMutableArray *extensions = [NSMutableArray array];
   COMDLG_FILTERSPEC *specs = NULL;
   NSUInteger index = 0;
 
-  if (countOut != NULL)
-    {
-      *countOut = 0;
-    }
-  if ([types count] == 0)
+  if ([filters count] == 0)
     {
       return NULL;
     }
 
-  for (index = 0; index < [types count]; index++)
-    {
-      NSString *entry = [types objectAtIndex: index];
-      NSString *extension = nil;
-
-      if ([entry isKindOfClass: [NSString class]] == NO)
-        {
-          continue;
-        }
-
-      extension = [(NSString *)entry stringByTrimmingCharactersInSet:
-                    [NSCharacterSet whitespaceAndNewlineCharacterSet]];
-      extension = [extension stringByReplacingOccurrencesOfString: @"*."
-                                                       withString: @""];
-      extension = [extension stringByReplacingOccurrencesOfString: @"."
-                                                       withString: @""];
-      if ([extension length] == 0)
-        {
-          continue;
-        }
-      [extensions addObject: extension];
-    }
-
-  if ([extensions count] == 0)
-    {
-      return NULL;
-    }
-
-  specs = calloc([extensions count], sizeof(COMDLG_FILTERSPEC));
+  specs = calloc([filters count], sizeof(COMDLG_FILTERSPEC));
   if (specs == NULL)
     {
       return NULL;
     }
 
-  for (index = 0; index < [extensions count]; index++)
+  for (index = 0; index < [filters count]; index++)
     {
-      NSString *extension = [extensions objectAtIndex: index];
-      NSString *name = [NSString stringWithFormat: @"%@ files", [extension uppercaseString]];
-      NSString *pattern = [NSString stringWithFormat: @"*.%@", extension];
+      NSDictionary *filter = [filters objectAtIndex: index];
 
-      specs[index].pszName = WinUIThemeCopyWideString(name);
-      specs[index].pszSpec = WinUIThemeCopyWideString(pattern);
+      specs[index].pszName = WinUIThemeCopyWideString([filter objectForKey: @"name"]);
+      specs[index].pszSpec = WinUIThemeCopyWideString([filter objectForKey: @"pattern"]);
     }
 
-  if (countOut != NULL)
-    {
-      *countOut = (UINT)[extensions count];
-    }
   return specs;
 }
 
@@ -489,12 +765,33 @@ WinUIThemeConfigureDialogFolder(IFileDialog *dialog, NSString *directory)
     }
 }
 
+/* The name a save panel suggests, or nil. */
+static NSString *
+WinUIThemeSavePanelFileName(NSSavePanel *panel)
+{
+  NSString *filename = nil;
+
+  if ([panel respondsToSelector: @selector(nameFieldStringValue)])
+    {
+      filename = [panel nameFieldStringValue];
+    }
+  if ([filename length] == 0)
+    {
+      filename = [[panel filename] lastPathComponent];
+    }
+  return ([filename length] > 0) ? filename : nil;
+}
+
 static void
 WinUIThemeConfigureDialogFileTypes(IFileDialog *dialog,
                                    NSArray *types,
-                                   BOOL allowsOtherFileTypes)
+                                   BOOL saving,
+                                   BOOL allowsOtherFileTypes,
+                                   NSString *fileName)
 {
   COMDLG_FILTERSPEC *specs = NULL;
+  NSArray *filters = nil;
+  NSUInteger selected = 0;
   UINT count = 0;
 
   if (dialog == NULL)
@@ -502,11 +799,15 @@ WinUIThemeConfigureDialogFileTypes(IFileDialog *dialog,
       return;
     }
 
-  specs = WinUIThemeCreateFilterSpecs(types, &count);
+  filters = WinUIThemeFileDialogFilters(types, saving, allowsOtherFileTypes,
+                                        fileName, &selected);
+  specs = WinUIThemeCreateFilterSpecs(filters);
+  count = (specs != NULL) ? (UINT)[filters count] : 0;
   if (specs != NULL && count > 0)
     {
       IFileDialog_SetFileTypes(dialog, count, specs);
-      IFileDialog_SetFileTypeIndex(dialog, 1);
+      /* IFileDialog numbers the filters from 1. */
+      IFileDialog_SetFileTypeIndex(dialog, (UINT)selected + 1);
       if (allowsOtherFileTypes == NO)
         {
           DWORD options = 0;
@@ -534,15 +835,7 @@ WinUIThemeConfigureSaveDialogFilename(IFileSaveDialog *dialog,
       return;
     }
 
-  if ([panel respondsToSelector: @selector(nameFieldStringValue)])
-    {
-      filename = [panel nameFieldStringValue];
-    }
-  if ([filename length] == 0)
-    {
-      filename = [[panel filename] lastPathComponent];
-    }
-
+  filename = WinUIThemeSavePanelFileName(panel);
   if ([filename length] > 0)
     {
       wideString = WinUIThemeCopyWideString(filename);
@@ -611,7 +904,9 @@ WinUIThemeRunNativeSaveDialog(WinUIThemeSavePanel *panel, NSWindow *ownerWindow)
   WinUIThemeConfigureDialogFolder((IFileDialog *)dialog, [panel directory]);
   WinUIThemeConfigureDialogFileTypes((IFileDialog *)dialog,
                                      [panel allowedFileTypes],
-                                     [panel allowsOtherFileTypes]);
+                                     YES,
+                                     [panel allowsOtherFileTypes],
+                                     WinUIThemeSavePanelFileName(panel));
   WinUIThemeConfigureSaveDialogFilename(dialog, panel);
 
   result = IFileDialog_Show((IFileDialog *)dialog, WinUIThemeOwnerWindowHandle(ownerWindow));
@@ -703,7 +998,9 @@ WinUIThemeRunNativeOpenDialog(WinUIThemeOpenPanel *panel, NSWindow *ownerWindow)
   WinUIThemeConfigureDialogFolder((IFileDialog *)dialog, [panel directory]);
   WinUIThemeConfigureDialogFileTypes((IFileDialog *)dialog,
                                      [panel allowedFileTypes],
-                                     [panel allowsOtherFileTypes]);
+                                     NO,
+                                     [panel allowsOtherFileTypes],
+                                     nil);
 
   result = IFileDialog_Show((IFileDialog *)dialog, WinUIThemeOwnerWindowHandle(ownerWindow));
   if (result == HRESULT_FROM_WIN32(ERROR_CANCELLED))
@@ -1070,6 +1367,36 @@ WinUIThemeRunNativeOpenDialog(WinUIThemeOpenPanel *panel, NSWindow *ownerWindow)
 
   WinUIThemeInvokeModalDelegate(delegate, didEndSelector, self, result, contextInfo);
   (void)docWindow;
+}
+
+@end
+
+@implementation WinUITheme (FileDialogFilters)
+
++ (NSDictionary *) fileDialogFilters: (NSDictionary *)request
+{
+  NSUInteger selected = 0;
+  NSArray *filters = nil;
+  NSArray *types = [request objectForKey: @"types"];
+  NSString *fileName = [request objectForKey: @"fileName"];
+
+  if ([types isKindOfClass: [NSArray class]] == NO)
+    {
+      types = nil;
+    }
+  if ([fileName isKindOfClass: [NSString class]] == NO)
+    {
+      fileName = nil;
+    }
+  filters = WinUIThemeFileDialogFilters(types,
+                                        [[request objectForKey: @"saving"] boolValue],
+                                        [[request objectForKey: @"allowsOtherFileTypes"] boolValue],
+                                        fileName,
+                                        &selected);
+  return [NSDictionary dictionaryWithObjectsAndKeys:
+    filters, @"filters",
+    [NSNumber numberWithUnsignedInteger: selected], @"selectedIndex",
+    nil];
 }
 
 @end

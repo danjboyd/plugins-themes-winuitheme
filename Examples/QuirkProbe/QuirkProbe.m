@@ -472,6 +472,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkSearchField;
 - (void) checkHorizontalOnlyScroller;
 - (void) checkWindowTabs;
+- (void) checkFileDialogFilters;
 - (void) createLateWindow: (NSTimer *)timer;
 - (void) checkLateWindow: (NSTimer *)timer;
 - (void) checkMenuBarTitles: (NSWindow *)window;
@@ -6497,6 +6498,221 @@ QuirkProbeLastItemOfMenu(NSString *title)
     }
 }
 
+/* Windows' name for an extension's files, as the theme asks for it, or
+   nil. */
+static NSString *
+QuirkProbeRegisteredTypeName(NSString *extension)
+{
+  typedef HRESULT (WINAPI *AssocQueryStringWFunc)(DWORD, int, LPCWSTR, LPCWSTR, LPWSTR, DWORD *);
+  HMODULE module = LoadLibraryW(L"shlwapi.dll");
+  AssocQueryStringWFunc function = (module != NULL)
+    ? (AssocQueryStringWFunc)GetProcAddress(module, "AssocQueryStringW") : NULL;
+  NSString *dotted = [@"." stringByAppendingString: extension];
+  WCHAR association[64];
+  WCHAR buffer[260];
+  DWORD length = 260;
+  HRESULT result;
+
+  if (function == NULL || [dotted length] >= 64)
+    {
+      return nil;
+    }
+  [dotted getCharacters: (unichar *)association];
+  association[[dotted length]] = 0;
+  buffer[0] = 0;
+  result = function(0, 3 /* ASSOCSTR_FRIENDLYDOCNAME */, association, NULL, buffer, &length);
+  if (FAILED(result) || result == S_FALSE || buffer[0] == 0)
+    {
+      return nil;
+    }
+  buffer[259] = 0;
+  return [[NSString stringWithCharacters: (const unichar *)buffer length: wcslen(buffer)]
+           stringByTrimmingCharactersInSet: [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+}
+
+static NSString *
+QuirkProbeFilterList(NSArray *filters)
+{
+  NSMutableArray *names = [NSMutableArray array];
+  NSUInteger index;
+
+  for (index = 0; index < [filters count]; index++)
+    {
+      [names addObject: [[filters objectAtIndex: index] objectForKey: @"name"]];
+    }
+  return [NSString stringWithFormat: @"[%@]", [names componentsJoinedByString: @" | "]];
+}
+
+static NSArray *
+QuirkProbeFilterPatterns(NSArray *filters)
+{
+  NSMutableArray *patterns = [NSMutableArray array];
+  NSUInteger index;
+
+  for (index = 0; index < [filters count]; index++)
+    {
+      [patterns addObject: [[filters objectAtIndex: index] objectForKey: @"pattern"]];
+    }
+  return patterns;
+}
+
+/* The native Open and Save dialogs' type filters (#76). An Open panel that
+   allows several types showed one type at a time, the first selected:
+   ScreenshotTool's Open hid every file but PNGs. The dialogs are modal and
+   Windows' own, so the probe asks the theme for the filters it gives them
+   (+[WinUITheme fileDialogFilters:]); a theme without it fails. */
+- (void) checkFileDialogFilters
+{
+  Class themeClass = NSClassFromString(@"WinUITheme");
+  SEL selector = NSSelectorFromString(@"fileDialogFilters:");
+  NSArray *ids = [NSArray arrayWithObjects: @"file-dialog-open-all-supported",
+                          @"file-dialog-aliases-merged", @"file-dialog-type-names",
+                          @"file-dialog-save-selects-name-type", @"file-dialog-other-types", nil];
+  NSArray *images = [NSArray arrayWithObjects: @"png", @"jpg", @"jpeg", @"tif", @"tiff", nil];
+  NSDictionary *reply;
+  NSArray *filters;
+  NSArray *patterns;
+  NSArray *expected;
+  NSString *pngName;
+  NSString *expectedName;
+  NSUInteger selected;
+  NSUInteger index;
+
+  if (themeClass == Nil || [themeClass respondsToSelector: selector] == NO)
+    {
+      for (index = 0; index < [ids count]; index++)
+        {
+          [self fail: [ids objectAtIndex: index] detail:
+            @"the theme has no +fileDialogFilters: (before #76, an Open dialog showed one type at a time)"];
+        }
+      return;
+    }
+
+  /* Open, ScreenshotTool's image types: everything at once, selected. */
+  reply = [themeClass performSelector: selector withObject:
+    [NSDictionary dictionaryWithObjectsAndKeys: images, @"types", nil]];
+  filters = [reply objectForKey: @"filters"];
+  patterns = QuirkProbeFilterPatterns(filters);
+  selected = [[reply objectForKey: @"selectedIndex"] unsignedIntegerValue];
+  if ([filters count] > 0
+      && [[patterns objectAtIndex: 0] isEqualToString: @"*.png;*.jpg;*.jpeg;*.tif;*.tiff"]
+      && [[[filters objectAtIndex: 0] objectForKey: @"name"]
+           hasSuffix: @" (*.png;*.jpg;*.jpeg;*.tif;*.tiff)"]
+      && selected == 0)
+    {
+      [self pass: @"file-dialog-open-all-supported" detail:
+        [NSString stringWithFormat: @"selected first of %@", QuirkProbeFilterList(filters)]];
+    }
+  else
+    {
+      [self fail: @"file-dialog-open-all-supported" detail:
+        [NSString stringWithFormat: @"selected %lu of %@; want a first filter of every type, selected",
+                                    (unsigned long)selected, QuirkProbeFilterList(filters)]];
+    }
+
+  /* jpg/jpeg and tif/tiff are one format each; htm/html share a name. */
+  expected = [NSArray arrayWithObjects: @"*.png;*.jpg;*.jpeg;*.tif;*.tiff", @"*.png",
+                      @"*.jpg;*.jpeg", @"*.tif;*.tiff", nil];
+  {
+    NSDictionary *web = [themeClass performSelector: selector withObject:
+      [NSDictionary dictionaryWithObjectsAndKeys:
+        [NSArray arrayWithObjects: @"html", @"htm", @"rtf", nil], @"types", nil]];
+    NSArray *webPatterns = QuirkProbeFilterPatterns([web objectForKey: @"filters"]);
+    NSArray *webExpected = [NSArray arrayWithObjects: @"*.html;*.htm;*.rtf",
+                                    @"*.html;*.htm", @"*.rtf", nil];
+
+    if ([patterns isEqualToArray: expected] && [webPatterns isEqualToArray: webExpected])
+      {
+        [self pass: @"file-dialog-aliases-merged" detail:
+          [NSString stringWithFormat: @"%@; %@", [patterns componentsJoinedByString: @" | "],
+                                      [webPatterns componentsJoinedByString: @" | "]]];
+      }
+    else
+      {
+        [self fail: @"file-dialog-aliases-merged" detail:
+          [NSString stringWithFormat: @"patterns %@ and %@; want %@ and %@",
+                                      [patterns componentsJoinedByString: @" | "],
+                                      [webPatterns componentsJoinedByString: @" | "],
+                                      [expected componentsJoinedByString: @" | "],
+                                      [webExpected componentsJoinedByString: @" | "]]];
+      }
+  }
+
+  /* Each type carries Windows' name for it, else "PNG files". */
+  pngName = ([filters count] > 1) ? [[filters objectAtIndex: 1] objectForKey: @"name"] : nil;
+  expectedName = QuirkProbeRegisteredTypeName(@"png");
+  expectedName = [NSString stringWithFormat: @"%@ (*.png)",
+                           expectedName != nil ? expectedName : @"PNG files"];
+  if ([pngName isEqualToString: expectedName])
+    {
+      [self pass: @"file-dialog-type-names" detail: pngName];
+    }
+  else
+    {
+      [self fail: @"file-dialog-type-names" detail:
+        [NSString stringWithFormat: @"the PNG filter is \"%@\"; want \"%@\"", pngName, expectedName]];
+    }
+
+  /* Save: one filter per type, the suggested name's selected. */
+  {
+    NSDictionary *named = [themeClass performSelector: selector withObject:
+      [NSDictionary dictionaryWithObjectsAndKeys: images, @"types",
+                    [NSNumber numberWithBool: YES], @"saving", @"photo.JPEG", @"fileName", nil]];
+    NSDictionary *bare = [themeClass performSelector: selector withObject:
+      [NSDictionary dictionaryWithObjectsAndKeys: images, @"types",
+                    [NSNumber numberWithBool: YES], @"saving", @"Untitled", @"fileName", nil]];
+    NSArray *savePatterns = QuirkProbeFilterPatterns([named objectForKey: @"filters"]);
+    NSArray *saveExpected = [NSArray arrayWithObjects: @"*.png", @"*.jpg;*.jpeg",
+                                     @"*.tif;*.tiff", nil];
+    NSUInteger namedIndex = [[named objectForKey: @"selectedIndex"] unsignedIntegerValue];
+    NSUInteger bareIndex = [[bare objectForKey: @"selectedIndex"] unsignedIntegerValue];
+
+    if ([savePatterns isEqualToArray: saveExpected] && namedIndex == 1 && bareIndex == 0)
+      {
+        [self pass: @"file-dialog-save-selects-name-type" detail:
+          [NSString stringWithFormat: @"%@; photo.JPEG selects %lu, Untitled %lu",
+                                      [savePatterns componentsJoinedByString: @" | "],
+                                      (unsigned long)namedIndex, (unsigned long)bareIndex]];
+      }
+    else
+      {
+        [self fail: @"file-dialog-save-selects-name-type" detail:
+          [NSString stringWithFormat: @"%@; photo.JPEG selects %lu, Untitled %lu; want %@, 1 and 0",
+                                      [savePatterns componentsJoinedByString: @" | "],
+                                      (unsigned long)namedIndex, (unsigned long)bareIndex,
+                                      [saveExpected componentsJoinedByString: @" | "]]];
+      }
+  }
+
+  /* "All files" only when the panel allows other types; no types, no
+     filters (every file shows). */
+  {
+    NSDictionary *other = [themeClass performSelector: selector withObject:
+      [NSDictionary dictionaryWithObjectsAndKeys: [NSArray arrayWithObject: @"png"], @"types",
+                    [NSNumber numberWithBool: YES], @"allowsOtherFileTypes", nil]];
+    NSDictionary *none = [themeClass performSelector: selector withObject:
+      [NSDictionary dictionary]];
+    NSArray *otherPatterns = QuirkProbeFilterPatterns([other objectForKey: @"filters"]);
+
+    if ([otherPatterns isEqualToArray: [NSArray arrayWithObjects: @"*.png", @"*.*", nil]]
+        && [patterns containsObject: @"*.*"] == NO
+        && [[none objectForKey: @"filters"] count] == 0)
+      {
+        [self pass: @"file-dialog-other-types" detail:
+          [NSString stringWithFormat: @"%@; without types none",
+                                      QuirkProbeFilterList([other objectForKey: @"filters"])]];
+      }
+    else
+      {
+        [self fail: @"file-dialog-other-types" detail:
+          [NSString stringWithFormat: @"allowing other types %@, not %@, without types %lu filters",
+                                      [otherPatterns componentsJoinedByString: @" | "],
+                                      [patterns componentsJoinedByString: @" | "],
+                                      (unsigned long)[[none objectForKey: @"filters"] count]]];
+      }
+  }
+}
+
 - (void) finish
 {
   printf("SUMMARY %lu passed, %lu failed, %lu known, %lu skipped\n",
@@ -6566,6 +6782,7 @@ QuirkProbeLastItemOfMenu(NSString *title)
   [self checkHorizontalOnlyScroller];
   [self checkWindowTabs];
   [self checkPopUpClick];
+  [self checkFileDialogFilters];
   [self after: QuirkProbeSettleDelay perform: @selector(createLateWindow:)];
 }
 
