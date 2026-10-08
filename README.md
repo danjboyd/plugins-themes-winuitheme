@@ -215,9 +215,9 @@ above the content, under the menu bar and the toolbar.
 An app that compiles the shared code in itself, as its `Examples/TabDemo`
 does, brings a second copy of `NSWindowTabGroup` and the other classes.
 Since `4cb1b63` the copy whose classes the runtime kept does the work and
-the other defers to it (it tells them apart with `dladdr()`, which MinGW
-lacks: `Source/Native/Compat/dlfcn.h` gives the theme one). That hasn't
-been tried on Windows; apps should rely on the theme (or libs-gui, later)
+the other defers to it (it tells them apart by module: `dladdr()`, or
+`GetModuleHandleExW` on Windows since `a5cb18a`). That hasn't been tried on
+Windows; apps should rely on the theme (or libs-gui, later)
 for the API.
 
 ## Real-App Gate
@@ -235,8 +235,12 @@ reference app and the resources.
 `Source/WindowTabbing` is a copy of
 [danjboyd/gnustep-window-tabbing](https://github.com/danjboyd/gnustep-window-tabbing)
 at `4cb1b63` (`4cb1b63798c5927ea39fa50f5dcf84fd5b167da1`: its `Headers`,
-`Source`, `GSWindowTabbing.make` and `LICENSE`, unchanged), also
-LGPL-2.1-or-later. Don't edit it here: change the shared repository, then
+`Source`, `GSWindowTabbing.make` and `LICENSE`), plus three of its later
+fixes for Windows, applied unchanged: `e49226b` (exports through
+`GSWT_EXPORT`), `a5cb18a` (the two-copies check without `<dlfcn.h>`) and
+`adfa7b4` (`<windows.h>` after GNUstep's headers). The commits between
+`4cb1b63` and them (dragging and scrolling tabs) aren't included. It is
+also LGPL-2.1-or-later. Don't edit it here: change the shared repository, then
 replace the directory with those files from a checkout
 (`git archive <commit> Headers Source GSWindowTabbing.make LICENSE`) and
 record the new hash here.
