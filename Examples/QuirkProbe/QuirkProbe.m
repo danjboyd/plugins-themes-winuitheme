@@ -336,6 +336,7 @@ QuirkProbeModuleOfAddress(void *address)
 - (void) checkDatePicker;
 - (void) checkBrowser;
 - (void) checkColorWell;
+- (void) checkBoxes;
 - (void) checkSegmentedControl;
 - (void) checkTabView;
 - (void) checkMetricsChoice;
@@ -3006,6 +3007,159 @@ QuirkProbeIsSwatchRed(NSUInteger red, NSUInteger green, NSUInteger blue)
   [window orderOut: nil];
 }
 
+/* The sum of a pixel's channels, or -1 outside the render. */
+static NSInteger
+QuirkProbeSumAt(NSBitmapImageRep *rep, NSInteger x, NSInteger y)
+{
+  NSUInteger red, green, blue;
+
+  return QuirkProbePixel(rep, x, y, &red, &green, &blue) ? (NSInteger)(red + green + blue) : -1;
+}
+
+/* NSBox and NSForm as WinUI cards and TextBoxes (issue #27): a grooved box
+   is a card with rounded corners, its title above it at its leading edge
+   rather than centred in the groove; a separator box is a faint divider,
+   not a dark line; a form's entry is a TextBox with rounded corners and a
+   strong bottom border, not a bezel filled white. */
+- (void) checkBoxes
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(220, 220, 300, 260)
+                                     title: @"QuirkProbe Boxes"];
+  NSView *content = [window contentView];
+  NSBox *box = AUTORELEASE([[NSBox alloc] initWithFrame: NSMakeRect(20, 100, 260, 140)]);
+  NSBox *separator = AUTORELEASE([[NSBox alloc] initWithFrame: NSMakeRect(20, 80, 260, 5)]);
+  NSForm *form = AUTORELEASE([[NSForm alloc] initWithFrame: NSMakeRect(20, 20, 260, 32)]);
+  BOOL highContrast = QuirkProbeHasArgument(@"--high-contrast", nil);
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale;
+  NSRect titleRect, cardRect, entryRect;
+  NSInteger windowSum, cardTop, cardLeft, cardBottom, middleX;
+  NSInteger cornerSum, edgeSum, insideSum;
+  QuirkProbeInk title;
+
+  [box setBoxType: NSBoxPrimary];
+  [box setBorderType: NSGrooveBorder];
+  [box setTitlePosition: NSAtTop];
+  [box setTitle: @"Editor"];
+  [content addSubview: box];
+  [separator setBoxType: NSBoxSeparator];
+  [content addSubview: separator];
+  [form addEntry: @"Name:"];
+  [form setFrameSize: NSMakeSize(260, 32)];
+  [form setCellSize: NSMakeSize(260, 32)];
+  [content addSubview: form];
+  [window orderFront: nil];
+  [window display];
+  rep = QuirkProbeRender(content);
+  scale = QuirkProbeScale(rep, content);
+  [self saveView: content named: @"boxes"];
+  windowSum = QuirkProbeSumAt(rep, 2, 2);
+  QuirkProbeInkBackground = (NSUInteger)MAX(0, windowSum);
+
+  /* The card: from the box's bottom to its title's bottom. */
+  titleRect = [box convertRect: [box titleRect] toView: content];
+  cardRect = [box convertRect: [box borderRect] toView: content];
+  cardRect.size.height = NSMinY(titleRect) - NSMinY(cardRect);
+  cardRect = QuirkProbePixelRect(content, cardRect, scale);
+  cardTop = (NSInteger)NSMinY(cardRect);
+  cardLeft = (NSInteger)NSMinX(cardRect);
+  cardBottom = (NSInteger)NSMaxY(cardRect) - 1;
+  middleX = (NSInteger)NSMidX(cardRect);
+  cornerSum = QuirkProbeSumAt(rep, cardLeft, cardTop);
+  edgeSum = QuirkProbeSumAt(rep, middleX, cardTop);
+  insideSum = QuirkProbeSumAt(rep, middleX, (cardTop + cardBottom) / 2);
+  if (ABS(cornerSum - windowSum) <= 30 && ABS(edgeSum - windowSum) > 12
+      && (highContrast || ABS(insideSum - windowSum) > 6) && ABS(edgeSum - insideSum) > 6)
+    {
+      [self pass: @"box-card" detail: [NSString stringWithFormat:
+        @"a card with rounded corners: corner %ld, edge %ld, fill %ld on a window of %ld",
+        (long)cornerSum, (long)edgeSum, (long)insideSum, (long)windowSum]];
+    }
+  else
+    {
+      [self fail: @"box-card" detail: [NSString stringWithFormat:
+        @"corner %ld, top edge %ld, fill %ld on a window of %ld: not a rounded card",
+        (long)cornerSum, (long)edgeSum, (long)insideSum, (long)windowSum]];
+    }
+
+  /* The title: above the card, at its leading edge. libs-gui centred it
+     across the groove, so its ink reached into the card. */
+  title = QuirkProbeMeasureIn(rep, QuirkProbeIsInk,
+                              NSMakeRect(cardLeft, cardTop - (NSInteger)(30 * scale),
+                                         NSWidth(cardRect), (NSInteger)(30 * scale)));
+  if (title.count > 0 && (title.minX - cardLeft) / scale <= 4.0
+      && title.minX + title.width / 2 < cardLeft + NSWidth(cardRect) / 3
+      && title.minY + title.height <= cardTop + 1)
+    {
+      [self pass: @"box-title" detail: [NSString stringWithFormat:
+        @"the title starts %.0fpt from the card's edge and ends above it",
+        (title.minX - cardLeft) / scale]];
+    }
+  else
+    {
+      [self fail: @"box-title" detail: [NSString stringWithFormat:
+        @"the title starts %.0fpt in, is %.0fpt wide and ends %.0fpt below the card's top (%lu px of ink)",
+        (title.minX - cardLeft) / scale, title.width / scale, (title.minY + title.height - cardTop) / scale,
+        (unsigned long)title.count]];
+    }
+
+  /* The separator: DividerStrokeColorDefault, faint (libs-gui's
+     controlShadowColor is twice as strong); the text colour in high
+     contrast. */
+  {
+    NSRect line = QuirkProbePixelRect(content, [separator convertRect: [separator borderRect] toView: content], scale);
+    NSInteger lineSum = QuirkProbeSumAt(rep, (NSInteger)NSMidX(line), (NSInteger)NSMinY(line));
+    NSInteger difference = ABS(lineSum - windowSum);
+
+    if (highContrast ? difference > 150 : (difference > 12 && difference < 90))
+      {
+        [self pass: @"box-separator" detail: [NSString stringWithFormat:
+          @"the divider is %ld from the window's %ld", (long)lineSum, (long)windowSum]];
+      }
+    else
+      {
+        [self fail: @"box-separator" detail: [NSString stringWithFormat:
+          @"the divider is %ld on a window of %ld", (long)lineSum, (long)windowSum]];
+      }
+  }
+
+  /* The form's entry: a TextBox beside the title, rounded, its bottom
+     border stronger than its top. */
+  {
+    NSFormCell *cell = [form cellAtIndex: 0];
+    NSRect cellFrame = [form cellFrameAtRow: 0 column: 0];
+    CGFloat titleWidth = [cell titleWidth];
+    NSInteger left, top, bottom, x;
+    NSInteger topSum, bottomSum, entryCorner;
+
+    cellFrame.origin.x += titleWidth + 3.0;
+    cellFrame.size.width -= titleWidth + 3.0;
+    entryRect = QuirkProbePixelRect(content, [form convertRect: cellFrame toView: content], scale);
+    left = (NSInteger)NSMinX(entryRect);
+    top = (NSInteger)NSMinY(entryRect);
+    bottom = (NSInteger)NSMaxY(entryRect) - 1;
+    x = left + (NSInteger)(20 * scale);
+    entryCorner = QuirkProbeSumAt(rep, left, top);
+    topSum = QuirkProbeSumAt(rep, x, top);
+    bottomSum = QuirkProbeSumAt(rep, x, bottom);
+    if (ABS(entryCorner - windowSum) <= 30
+        && (highContrast ? ABS(bottomSum - windowSum) > 150
+            : ABS(bottomSum - windowSum) > ABS(topSum - windowSum) + 30))
+      {
+        [self pass: @"form-entry-textbox" detail: [NSString stringWithFormat:
+          @"a rounded TextBox: corner %ld, top edge %ld, bottom edge %ld",
+          (long)entryCorner, (long)topSum, (long)bottomSum]];
+      }
+    else
+      {
+        [self fail: @"form-entry-textbox" detail: [NSString stringWithFormat:
+          @"corner %ld (window %ld), top edge %ld, bottom edge %ld: not a TextBox",
+          (long)entryCorner, (long)windowSum, (long)topSum, (long)bottomSum]];
+      }
+  }
+  [window orderOut: nil];
+}
+
 static NSSegmentedControl *
 QuirkProbeSegments(NSView *content, NSRect frame, NSInteger mode)
 {
@@ -5330,6 +5484,7 @@ QuirkProbeLastItemOfMenu(NSString *title)
   [self checkDatePicker];
   [self checkBrowser];
   [self checkColorWell];
+  [self checkBoxes];
   [self checkSegmentedControl];
   [self checkTabView];
   [self checkMetricsChoice];

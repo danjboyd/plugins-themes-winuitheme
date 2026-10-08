@@ -1796,6 +1796,8 @@ TDAlertResultString(NSInteger result)
   [form addEntry: @"Author:"];
   [[form cellAtIndex: 0] setStringValue: @"Release notes"];
   [[form cellAtIndex: 1] setStringValue: @"Docs team"];
+  /* TextBox height; NSForm otherwise splits its frame between the entries. */
+  [form setCellSize: NSMakeSize(320.0, 32.0)];
   [form setInterlineSpacing: 10.0];
   [form sizeToCells];
   [[box contentView] addSubview: form];

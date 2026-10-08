@@ -163,6 +163,8 @@ void WinUIThemeDrawInputChrome(WinUITheme *theme,
                                BOOL roundedRight);
 NSColor *WinUIThemeTextBoxFillColor(WinUITheme *theme, BOOL enabled, BOOL hovered, BOOL focused);
 void WinUIThemeDrawTextBoxChrome(WinUITheme *theme, NSRect frame, NSView *view, BOOL enabled);
+void WinUIThemeDrawTextBoxChromeInState(WinUITheme *theme, NSRect frame, BOOL flipped,
+                                        BOOL enabled, BOOL hovered, BOOL focused);
 void WinUIThemeDrawSegmentChrome(WinUITheme *theme,
                                  NSRect frame,
                                  BOOL enabled,
@@ -207,6 +209,9 @@ void WinUIThemeDrawBrowserColumnCard(WinUITheme *theme, NSRect frame);
 NSColor *WinUIThemeBrowserCardColor(WinUITheme *theme);
 /* CardStrokeColorDefault, for cards (browser columns, tab view content). */
 NSColor *WinUIThemeCardStrokeColor(WinUITheme *theme);
+/* DividerStrokeColorDefault, for separators and line borders
+   (WinUIThemeBoxes.m). */
+NSColor *WinUIThemeDividerColor(WinUITheme *theme);
 void WinUIThemeSyncBrowserColumn(NSScrollView *scrollView);
 
 #endif

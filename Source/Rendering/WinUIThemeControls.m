@@ -892,6 +892,14 @@ WinUIThemeDrawProgressRing(WinUITheme *theme, NSRect bounds, NSColor *color,
       WinUIThemeDrawBrowserColumnCard(self, frame);
       return;
     }
+  /* Line and groove borders (#27): a DividerStrokeColorDefault hairline,
+     not libs-gui's dark line or NeXT's groove. */
+  if (aType == NSLineBorder || aType == NSGrooveBorder)
+    {
+      [WinUIThemeDividerColor(self) set];
+      NSFrameRectWithWidth(NSIntegralRect(frame), 1.0);
+      return;
+    }
 
   [super drawBorderType: aType frame: frame view: view];
 }
