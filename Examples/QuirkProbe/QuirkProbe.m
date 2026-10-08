@@ -6045,25 +6045,61 @@ QuirkProbeInkIn(NSBitmapImageRep *rep, NSRect area, NSInteger fill, NSInteger th
   [window orderOut: nil];
 }
 
-/* Radios as Gorm's inspectors have them (issue #81): a checked radio
-   smaller than WinUI's 20px keeps an accent ring round its dot (the dot
-   was a fixed 12px, which filled a compact radio). */
+/* Checkboxes and radios as Gorm's inspectors have them (issues #80 and
+   #81): a switch with its box after the title (NSImageRight) has the box
+   at the trailing edge, not first with the title right-aligned away from
+   it; and a checked radio smaller than WinUI's 20px keeps an accent ring
+   round its dot (the dot was a fixed 12px, which filled a compact radio). */
 - (void) checkInspectorIndicators
 {
   NSWindow *window = [self windowWithFrame: NSMakeRect(420, 300, 260, 100)
                                      title: @"QuirkProbe Indicators"];
+  NSButton *trailing = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(20, 60, 220, 22)]);
   NSButton *radio = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(20, 20, 120, 16)]);
   NSBitmapImageRep *rep;
   QuirkProbeInk accent;
   CGFloat scale;
 
   QuirkProbeLoadAccent();
+  [trailing setButtonType: NSSwitchButton];
+  [trailing setTitle: @"Release when closed"];
+  [trailing setImagePosition: NSImageRight];
+  [trailing setAlignment: NSRightTextAlignment];
+  [trailing setState: NSOnState];
   [radio setButtonType: NSRadioButton];
   [radio setTitle: @"Buffered"];
   [radio setState: NSOnState];
+  [[window contentView] addSubview: trailing];
   [[window contentView] addSubview: radio];
   [window orderFront: nil];
   [window display];
+
+  rep = QuirkProbeRender(trailing);
+  scale = QuirkProbeScale(rep, trailing);
+  [self saveView: trailing named: @"switch-image-right"];
+  /* The checked box's accent in the leading and trailing 30pt (the
+     title, in the middle, may share the accent's colour in high
+     contrast). */
+  {
+    NSInteger edge = (NSInteger)(30 * scale);
+    QuirkProbeInk leading = QuirkProbeMeasureIn(rep, QuirkProbeIsPaletteAccent,
+                                                NSMakeRect(0, 0, edge, [rep pixelsHigh]));
+    QuirkProbeInk end = QuirkProbeMeasureIn(rep, QuirkProbeIsPaletteAccent,
+                                            NSMakeRect([rep pixelsWide] - edge, 0, edge, [rep pixelsHigh]));
+
+    if (end.count >= (NSUInteger)(40 * scale * scale) && leading.count < (NSUInteger)(10 * scale * scale))
+      {
+        [self pass: @"switch-image-right" detail: [NSString stringWithFormat:
+          @"the box is at the trailing edge of a %.0fpt switch (%lu accent px there, %lu at the start)",
+          NSWidth([trailing bounds]), (unsigned long)end.count, (unsigned long)leading.count]];
+      }
+    else
+      {
+        [self fail: @"switch-image-right" detail: [NSString stringWithFormat:
+          @"%lu accent px at the start of the switch, %lu at its end: the box is drawn first",
+          (unsigned long)leading.count, (unsigned long)end.count]];
+      }
+  }
 
   /* The ring: accent from the indicator's edge to the dot, along its
      middle row. */
