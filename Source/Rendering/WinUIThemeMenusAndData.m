@@ -1829,9 +1829,90 @@ WinUIThemeEndRow(BOOL began)
 
 @implementation WinUITheme (MenusAndDataOverrides)
 
-/* Tool tips (#39): WinUI's ToolTip, the flyout's colours and border with
-   4pt corners from DWM where it gives them (Windows 11), in place of
-   libs-gui's black box around text in the system tool-tip colours. */
+/* Tool tips (#39, #22): WinUI's ToolTip, the flyout's colours and border
+   with 4pt corners from DWM where it gives them (Windows 11), Caption text
+   inside ToolTipBorderPadding (9, 6, 9 and 8 points from the left, top,
+   right and bottom), in place of libs-gui's black box 2pt round its text in
+   the system tool-tip colours. */
+static const CGFloat WinUIThemeToolTipPaddingLeft = 9.0;
+static const CGFloat WinUIThemeToolTipPaddingTop = 6.0;
+static const CGFloat WinUIThemeToolTipPaddingRight = 9.0;
+static const CGFloat WinUIThemeToolTipPaddingBottom = 8.0;
+/* libs-gui's window round the text: 2pt each side, and a point it adds to
+   the text's size. */
+static const CGFloat WinUIThemeToolTipGNUstepMargin = 4.0;
+static const CGFloat WinUIThemeToolTipGNUstepFudge = 1.0;
+/* How much lower the theme put the tip than libs-gui asked, so that the
+   moves libs-gui makes as the pointer moves keep it there. */
+static CGFloat WinUIThemeToolTipDrop = 0.0;
+
+/* libs-gui sizes the tip's window to its text and 2pt each side, and
+   places it below the pointer. The theme pads it as WinUI does, keeping
+   its top edge where libs-gui put it (clear of the pointer) and on the
+   screen. */
+- (void) _overrideGSTTPanelMethod_setFrame: (NSRect)frame display: (BOOL)flag
+{
+  typedef void (*SetFrameIMP)(id, SEL, NSRect, BOOL);
+  SetFrameIMP originalIMP = (SetFrameIMP)WinUIThemeOriginalMethod(_cmd, self, NSClassFromString(@"GSTTPanel"));
+  NSWindow *window = (NSWindow *)self;
+  GSTheme *current = [GSTheme theme];
+  NSAttributedString *text = nil;
+
+  if ([current isKindOfClass: [WinUITheme class]] && NSIsEmptyRect(frame) == NO)
+    {
+      NSView *content = [window contentView];
+
+      if ([content isKindOfClass: NSClassFromString(@"GSTTView")])
+        {
+          text = [content valueForKey: @"text"];
+        }
+    }
+  if (text != nil)
+    {
+      NSSize textSize = [text size];
+      NSSize asked;
+
+      /* As libs-gui measures it: wrapped at 300pt. */
+      if (textSize.width > 300.0)
+        {
+          textSize = [text boundingRectWithSize: NSMakeSize(300.0, 1e7) options: 0].size;
+        }
+      asked = NSMakeSize(textSize.width + WinUIThemeToolTipGNUstepFudge + WinUIThemeToolTipGNUstepMargin,
+                         textSize.height + WinUIThemeToolTipGNUstepFudge + WinUIThemeToolTipGNUstepMargin);
+      NSRect visible = [[window screen] != nil ? [window screen] : [NSScreen mainScreen] visibleFrame];
+
+      if (fabs(NSWidth(frame) - asked.width) <= 1.0 && fabs(NSHeight(frame) - asked.height) <= 1.0)
+        {
+          /* A new tip: pad it. */
+          CGFloat width = NSWidth(frame) - WinUIThemeToolTipGNUstepMargin
+            + WinUIThemeToolTipPaddingLeft + WinUIThemeToolTipPaddingRight;
+          CGFloat height = NSHeight(frame) - WinUIThemeToolTipGNUstepMargin
+            + WinUIThemeToolTipPaddingTop + WinUIThemeToolTipPaddingBottom;
+
+          WinUIThemeToolTipDrop = height - NSHeight(frame);
+          frame.size = NSMakeSize(ceil(width), ceil(height));
+          frame.origin.y -= WinUIThemeToolTipDrop;
+        }
+      else if (NSEqualSizes(frame.size, [window frame].size))
+        {
+          /* libs-gui moving it with the pointer. */
+          frame.origin.y -= WinUIThemeToolTipDrop;
+        }
+      if (NSMinY(frame) < NSMinY(visible))
+        {
+          frame.origin.y = NSMinY(visible);
+        }
+      if (NSMaxX(frame) > NSMaxX(visible))
+        {
+          frame.origin.x = MAX(NSMinX(visible), NSMaxX(visible) - NSWidth(frame));
+        }
+    }
+  if (originalIMP != NULL)
+    {
+      originalIMP(self, _cmd, frame, flag);
+    }
+}
+
 - (void) _overrideGSTTViewMethod_drawRect: (NSRect)dirtyRect
 {
   typedef void (*DrawRectIMP)(id, SEL, NSRect);
@@ -1869,7 +1950,12 @@ WinUIThemeEndRow(BOOL began)
       [colored addAttribute: NSForegroundColorAttributeName
                       value: WinUIThemeColorFromTheme(theme, @"labelColor", [NSColor controlTextColor])
                       range: NSMakeRange(0, [colored length])];
-      [colored drawInRect: NSInsetRect(bounds, 2.0, 2.0)];
+      [colored drawInRect: NSMakeRect(NSMinX(bounds) + WinUIThemeToolTipPaddingLeft,
+                                      NSMinY(bounds) + WinUIThemeToolTipPaddingBottom,
+                                      NSWidth(bounds) - WinUIThemeToolTipPaddingLeft
+                                        - WinUIThemeToolTipPaddingRight,
+                                      NSHeight(bounds) - WinUIThemeToolTipPaddingTop
+                                        - WinUIThemeToolTipPaddingBottom)];
     }
 }
 

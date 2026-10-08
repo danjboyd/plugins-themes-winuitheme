@@ -351,6 +351,7 @@ QuirkProbeModuleOfAddress(void *address)
 - (void) checkComboBoxes;
 - (void) checkListSelection;
 - (void) checkSelectedRowText;
+- (void) checkToolTip;
 - (void) checkSearchField;
 - (void) checkHorizontalOnlyScroller;
 - (void) createLateWindow: (NSTimer *)timer;
@@ -5399,6 +5400,108 @@ QuirkProbeInkIn(NSBitmapImageRep *rep, NSRect area, NSInteger fill, NSInteger th
   [window orderOut: nil];
 }
 
+/* WinUI's ToolTip (issue #22): Caption text (12px times the text size)
+   inside ToolTipBorderPadding, 9pt from the left and 6pt from the top,
+   rather than libs-gui's 2pt round the text at the body size. The tip is
+   shown as GSToolTips shows it when its timer fires, and stays where
+   libs-gui put its top edge. */
+- (void) checkToolTip
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(300, 400, 240, 100)
+                                     title: @"QuirkProbe Tool Tip"];
+  NSView *anchor = [window contentView];
+  NSString *tip = @"Zoom: Fit to Window";
+  NSTimer *fake = [NSTimer timerWithTimeInterval: 1000 target: self selector: @selector(description)
+                                        userInfo: tip repeats: NO];
+  id tips = nil;
+  NSWindow *panel = nil;
+  NSEnumerator *enumerator;
+  NSWindow *each;
+  CGFloat textScale = [[NSUserDefaults standardUserDefaults] floatForKey: @"WinUIThemeTextScaleFactor"];
+  CGFloat expectedSize;
+
+  textScale = (textScale >= 100.0) ? textScale / 100.0 : 1.0;
+  expectedSize = round(12.0 * textScale);
+  [window orderFront: nil];
+  [anchor setToolTip: tip];
+  tips = [NSClassFromString(@"GSToolTips") performSelector: @selector(tipsForView:) withObject: anchor];
+  if (tips == nil || [tips respondsToSelector: @selector(_timedOut:)] == NO)
+    {
+      [self skip: @"tooltip-padding" detail: @"libs-gui's GSToolTips has no _timedOut:"];
+      [self skip: @"tooltip-font" detail: @"libs-gui's GSToolTips has no _timedOut:"];
+      [window orderOut: nil];
+      return;
+    }
+  [tips performSelector: @selector(_timedOut:) withObject: fake];
+  enumerator = [[NSApp windows] objectEnumerator];
+  while ((each = [enumerator nextObject]) != nil)
+    {
+      if ([each isKindOfClass: NSClassFromString(@"GSTTPanel")] && [each isVisible])
+        {
+          panel = each;
+        }
+    }
+  if (panel == nil)
+    {
+      [self fail: @"tooltip-padding" detail: @"no tool tip window appeared"];
+      [self fail: @"tooltip-font" detail: @"no tool tip window appeared"];
+    }
+  else
+    {
+      NSView *content = [panel contentView];
+      NSAttributedString *text = [content valueForKey: @"text"];
+      NSFont *font = ([text length] > 0) ? [text attribute: NSFontAttributeName atIndex: 0 effectiveRange: NULL] : nil;
+      NSBitmapImageRep *rep;
+      CGFloat scale;
+      NSUInteger red = 0, green = 0, blue = 0;
+      QuirkProbeInk ink;
+      CGFloat left, top;
+
+      [content display];
+      rep = QuirkProbeRender(content);
+      scale = QuirkProbeScale(rep, content);
+      [self saveView: content named: @"tooltip"];
+      QuirkProbePixel(rep, [rep pixelsWide] / 2, (NSInteger)(2 * scale), &red, &green, &blue);
+      QuirkProbeInkBackground = red + green + blue;
+      ink = QuirkProbeMeasureIn(rep, QuirkProbeIsInk,
+                                NSMakeRect(2 * scale, 2 * scale, [rep pixelsWide] - 4 * scale,
+                                           [rep pixelsHigh] - 4 * scale));
+      left = ink.minX / scale;
+      top = ink.minY / scale;
+      /* The ink starts a little inside the text's own box: a glyph's side
+         bearing, and above the capitals the line's leading, which grows
+         with the font. */
+      if (ink.count > 0 && left >= 8.0 && left <= 11.5 && top >= 6.0 && top <= 6.0 + 0.4 * expectedSize)
+        {
+          [self pass: @"tooltip-padding" detail: [NSString stringWithFormat:
+            @"the text starts %.1fpt from the left and %.1fpt from the top of a %.0fx%.0fpt tip",
+            left, top, NSWidth([content bounds]), NSHeight([content bounds])]];
+        }
+      else
+        {
+          [self fail: @"tooltip-padding" detail: [NSString stringWithFormat:
+            @"the text starts %.1fpt from the left and %.1fpt from the top (%lu px of ink): not WinUI's padding",
+            left, top, (unsigned long)ink.count]];
+        }
+      if (font != nil && fabs([font pointSize] - expectedSize) < 0.5)
+        {
+          [self pass: @"tooltip-font" detail: [NSString stringWithFormat:
+            @"%@ at %.0fpt, Caption", [font fontName], [font pointSize]]];
+        }
+      else
+        {
+          [self fail: @"tooltip-font" detail: [NSString stringWithFormat:
+            @"%@ at %.1fpt, expected Caption at %.0fpt", [font fontName], [font pointSize], expectedSize]];
+        }
+    }
+  if ([tips respondsToSelector: @selector(_endDisplay)])
+    {
+      [tips performSelector: @selector(_endDisplay)];
+    }
+  [anchor setToolTip: nil];
+  [window orderOut: nil];
+}
+
 /* WinUI's AutoSuggestBox (issue #9): an empty search field shows only
    the magnifier, at its trailing edge, nothing before its text; with
    text, the delete cross shows just before the magnifier. */
@@ -5818,6 +5921,7 @@ QuirkProbeLastItemOfMenu(NSString *title)
   [self checkComboBoxes];
   [self checkListSelection];
   [self checkSelectedRowText];
+  [self checkToolTip];
   [self checkSearchField];
   [self checkHorizontalOnlyScroller];
   [self checkPopUpClick];

@@ -94,7 +94,7 @@ TDControlNames(NSView *view)
           [names addObject: title];
         }
     }
-  else if ([view isKindOfClass: [NSButton class]])
+  else if ([view isKindOfClass: [NSButton class]] && [(NSButton *)view title] != nil)
     {
       [names addObject: [(NSButton *)view title]];
     }
@@ -108,7 +108,8 @@ TDControlNames(NSView *view)
         {
           [names addObject: [(NSTextFieldCell *)cell placeholderString]];
         }
-      if ([cell type] == NSTextCellType && [view isKindOfClass: [NSButton class]] == NO)
+      if ([cell type] == NSTextCellType && [view isKindOfClass: [NSButton class]] == NO
+          && [(NSControl *)view stringValue] != nil)
         {
           [names addObject: [(NSControl *)view stringValue]];
         }
@@ -629,6 +630,55 @@ TDWriteData(NSData *data, NSString *path)
 
 #pragma mark Commands
 
+/* A control's tool tip, shown as GSToolTips shows it when its timer fires
+   (the pointer isn't moved): below where the pointer is. */
+- (BOOL) showToolTipOf: (NSString *)name
+{
+  NSView *view = [self viewNamed: name];
+  NSString *tip = [view toolTip];
+  NSTimer *fake;
+
+  if ([tip length] == 0)
+    {
+      [self report: [NSString stringWithFormat: @"no control named %@ with a tool tip", name]];
+      return NO;
+    }
+  [self hideToolTip];
+  fake = [NSTimer timerWithTimeInterval: 1000 target: self selector: @selector(description)
+                               userInfo: tip repeats: NO];
+  _toolTips = [NSClassFromString(@"GSToolTips") performSelector: @selector(tipsForView:) withObject: view];
+  if ([_toolTips respondsToSelector: @selector(_timedOut:)] == NO)
+    {
+      _toolTips = nil;
+      return NO;
+    }
+  [_toolTips performSelector: @selector(_timedOut:) withObject: fake];
+  {
+    NSEnumerator *windows = [[NSApp windows] objectEnumerator];
+    NSWindow *window;
+
+    while ((window = [windows nextObject]) != nil)
+      {
+        if ([window isKindOfClass: NSClassFromString(@"GSTTPanel")] && [window isVisible])
+          {
+            [self report: [NSString stringWithFormat: @"tool tip at %@", NSStringFromRect([window frame])]];
+            return YES;
+          }
+      }
+  }
+  [self report: @"no tool tip showed"];
+  return NO;
+}
+
+- (void) hideToolTip
+{
+  if ([_toolTips respondsToSelector: @selector(_endDisplay)])
+    {
+      [_toolTips performSelector: @selector(_endDisplay)];
+    }
+  _toolTips = nil;
+}
+
 /* The key window's focused view, for a driver to check: a field's own
    name rather than its field editor's. */
 - (void) reportFocus
@@ -976,6 +1026,14 @@ TDWriteData(NSData *data, NSString *path)
   else if ([command isEqualToString: @"screenshot-screen"] && argument != nil)
     {
       ok = [self writeScreenOf: nil to: rest];
+    }
+  else if ([command isEqualToString: @"tooltip"] && argument != nil)
+    {
+      ok = [self showToolTipOf: rest];
+    }
+  else if ([command isEqualToString: @"tooltip-hide"])
+    {
+      [self hideToolTip];
     }
   else if ([command isEqualToString: @"report-focus"])
     {

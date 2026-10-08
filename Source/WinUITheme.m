@@ -373,7 +373,11 @@ WinUIThemeRightTextAlignment(void)
   [self addFont: interfaceFont forKey: @"NSControlContentFont" toDictionary: dictionary];
   [self addFont: interfaceFont forKey: @"NSLabelFont" toDictionary: dictionary];
   [self addFont: interfaceFont forKey: @"NSMessageFont" toDictionary: dictionary];
-  [self addFont: interfaceFont forKey: @"NSToolTipsFont" toDictionary: dictionary];
+  /* WinUI's ToolTip uses Caption, 12px times the text size (#22). */
+  [self addFont: [NSFont fontWithName: [interfaceFont fontName]
+                                 size: round(12.0 * [_settings textScaleFactor])]
+         forKey: @"NSToolTipsFont"
+   toDictionary: dictionary];
   /* Bold is WinUI's Semibold (#44): left unset, gui's bold system font
      wasn't Segoe at all. */
   [self addFont: [_settings semiboldInterfaceFontOfSize: [interfaceFont pointSize]]
