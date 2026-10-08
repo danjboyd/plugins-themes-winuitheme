@@ -49,6 +49,8 @@ Source/Settings/           Settings and metrics model
 Source/Rendering/          Palette and future rendering code
 Source/Native/             Reserved for later Windows adapters
 Resources/                 Theme bundle metadata and future assets
+ThirdParty/gnustep-window-tabbing/
+                           Shared window tabbing code (vendored)
 Examples/ThemeDemo/        GNUstep-side review harness
 Examples/Shared/PageContract/
 Reference/WinUI3ReferenceApp/
@@ -178,5 +180,12 @@ WinUITheme is licensed under the GNU Lesser General Public License, version
 2.1 or (at your option) any later version (LGPL-2.1-or-later). That covers
 the whole repository: the theme sources, the examples, the scripts, the WinUI 3
 reference app and the resources.
+
+`ThirdParty/gnustep-window-tabbing` is a copy of
+[danjboyd/gnustep-window-tabbing](https://github.com/danjboyd/gnustep-window-tabbing)
+at `2fcb697` (its `Headers`, `Source`, `GSWindowTabbing.make` and
+`LICENSE`, unchanged), also LGPL-2.1-or-later. To update it, copy those
+from a checkout of that repository over the directory and record the new
+hash here.
 
 See [COPYING.LIB](./COPYING.LIB).
