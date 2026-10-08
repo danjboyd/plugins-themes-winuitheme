@@ -45,7 +45,16 @@ WinUITheme_OBJC_FILES = \
 	Source/Rendering/WinUIThemeScrollers.m \
 	Source/Rendering/WinUIThemeFocus.m \
 	Source/Native/WinUIThemeShellDialogs.m \
-	Source/Native/WinUIThemeWindowIntegration.m
+	Source/Native/WinUIThemeWindowIntegration.m \
+	Source/Rendering/WinUIThemeWindowTabs.m
+
+# Window tabs (#72): Apple's NSWindow tabbing API from the shared
+# gnustep-window-tabbing code, vendored in ThirdParty (see its section in the
+# README). The theme draws the tab bar (WinUIThemeWindowTabs.m).
+GSWINDOWTABBING_DIR ?= ThirdParty/gnustep-window-tabbing
+include $(GSWINDOWTABBING_DIR)/GSWindowTabbing.make
+WinUITheme_OBJC_FILES += $(GSWINDOWTABBING_OBJC_FILES)
+ADDITIONAL_INCLUDE_DIRS += $(GSWINDOWTABBING_INCLUDE_DIRS)
 
 WinUITheme_BUNDLE_LIBS += -luuid -lgdi32
 

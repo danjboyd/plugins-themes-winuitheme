@@ -169,6 +169,39 @@ one: `--contrast-theme dusk` on the command line, or the
 `night-sky`, or a `.theme` file's path). The colours are read from Windows'
 own theme files.
 
+## Window Tabs
+
+Apps get Apple's `NSWindow` tabbing API (`-addTabbedWindow:ordered:`,
+`tabbingIdentifier`, `tabGroup`, `-newWindowForTab:`, `-selectNextTab:` and
+the rest) from the shared code in `ThirdParty/gnustep-window-tabbing`. The
+theme installs it from `-activate` when `NSWindow` lacks it; GSTheme
+activates the user's theme as `NSApplication` is made, so the API is there
+before an app sets up its first window. Apps that check
+`[NSWindow instancesRespondToSelector: @selector(addTabbedWindow:ordered:)]`
+(ObjcMarkdown) find it.
+
+The theme draws the bar as WinUI's TabView (Notepad, Terminal), from its
+`generic.xaml` resources: a 40px strip (8px above 32px tabs) on a step
+darker than the window, tabs 100 to 240px wide sharing it, titles at 12px
+ending in an ellipsis; the selected tab in the window's colour with 8px top
+corners and small flares into the strip's foot, semibold, with no line under
+it so it runs into the content; other tabs with a hover fill and a divider
+between them; a 32x24 close button on every tab (WinUI's default
+CloseButtonOverlayMode, Auto, means Always), shown as a dot while the tab's
+window has unsaved changes and the pointer isn't on the tab, as Notepad
+does; a "+" right after the last tab when something answers
+`-newWindowForTab:`. High contrast uses ButtonFace, Window, WindowText,
+Hilight and HilightText as WinUI's TabView does.
+
+Windows 11 apps put their tabs in the title bar. libs-back's Windows
+server leaves the title bar to Windows, so here the bar has its own row
+above the content, under the menu bar and the toolbar.
+
+An app that compiles the shared code in itself, as its `Examples/TabDemo`
+does, can't run under the theme: the process then has two copies of
+`NSWindowTabGroup` and the other classes, and crashes. Apps should rely on
+the theme (or libs-gui, later) for the API.
+
 ## Real-App Gate
 
 Before release, the theme must validate against `ObjcMarkdown` in the sibling

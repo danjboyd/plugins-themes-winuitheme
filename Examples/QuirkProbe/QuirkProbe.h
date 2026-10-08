@@ -36,5 +36,6 @@
   NSUInteger _known;
   NSUInteger _skipped;
   NSUInteger _datePickerActions;
+  BOOL _offersNewTab;
 }
 @end
