@@ -1,0 +1,26 @@
+# ThemeDemo command automation's acceptance run (#17): an open pop-up
+# menu, a focused text field, keyboard focus on a button and a stock
+# NSAlert. Run it with
+#   Tests/Scripts/Invoke-ThemeDemoScript.ps1 -Script Examples/ThemeDemo/Scripts/acceptance.txt -OutputDirectory <dir>
+
+page text-input
+wait 0.5
+capture-dropdown popup-button {out}\popup-open.png
+
+focus text-field
+wait 0.3
+report-focus
+screenshot {out}\text-field-focused.png
+
+page controls
+wait 0.5
+focus save
+# A key press shows keyboard focus; Tab moves it to Cancel.
+key tab
+wait 0.3
+report-focus
+screenshot-window {out}\button-keyboard-focus.png
+
+capture-alert {out}\alert.png
+wait 1.5
+quit

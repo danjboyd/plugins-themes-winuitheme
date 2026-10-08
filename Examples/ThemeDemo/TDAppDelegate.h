@@ -23,7 +23,10 @@
 
 #import <AppKit/AppKit.h>
 
-@interface TDAppDelegate : NSObject <NSApplicationDelegate, NSToolbarDelegate, NSBrowserDelegate>
+#import "TDCommandRunner.h"
+
+@interface TDAppDelegate : NSObject <NSApplicationDelegate, NSToolbarDelegate, NSBrowserDelegate,
+                                      TDCommandTarget>
 {
   NSDictionary *_contract;
   NSArray *_pages;
@@ -41,6 +44,7 @@
   NSString *_lastPrintPanelResult;
   NSString *_lastPageLayoutResult;
   NSString *_lastAlertResult;
+  TDCommandRunner *_commandRunner;
 }
 
 @end

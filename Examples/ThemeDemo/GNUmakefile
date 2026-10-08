@@ -9,7 +9,13 @@ ADDITIONAL_LDFLAGS += -L/clang64/lib
 ThemeDemo_OBJC_FILES = \
 	main.m \
 	TDAppDelegate.m \
+	TDCommandRunner.m \
 	TDContractLoader.m
+
+# Screen captures and window frames for scripted commands (#17).
+ifeq ($(findstring mingw, $(GNUSTEP_TARGET_OS)), mingw)
+ADDITIONAL_GUI_LIBS += -lgdi32 -ldwmapi
+endif
 
 ThemeDemo_RESOURCE_FILES = \
 	../Shared/PageContract/theme-demo-pages.json
