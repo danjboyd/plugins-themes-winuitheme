@@ -48,9 +48,8 @@ Source/                    Theme implementation
 Source/Settings/           Settings and metrics model
 Source/Rendering/          Palette and future rendering code
 Source/Native/             Reserved for later Windows adapters
+Source/WindowTabbing/      Shared window tabbing code (vendored)
 Resources/                 Theme bundle metadata and future assets
-ThirdParty/gnustep-window-tabbing/
-                           Shared window tabbing code (vendored)
 Examples/ThemeDemo/        GNUstep-side review harness
 Examples/Shared/PageContract/
 Reference/WinUI3ReferenceApp/
@@ -173,7 +172,7 @@ own theme files.
 
 Apps get Apple's `NSWindow` tabbing API (`-addTabbedWindow:ordered:`,
 `tabbingIdentifier`, `tabGroup`, `-newWindowForTab:`, `-selectNextTab:` and
-the rest) from the shared code in `ThirdParty/gnustep-window-tabbing`. The
+the rest) from the shared code in `Source/WindowTabbing`. The
 theme installs it from `-activate` when `NSWindow` lacks it; GSTheme
 activates the user's theme as `NSApplication` is made, so the API is there
 before an app sets up its first window. Apps that check
@@ -220,11 +219,13 @@ WinUITheme is licensed under the GNU Lesser General Public License, version
 the whole repository: the theme sources, the examples, the scripts, the WinUI 3
 reference app and the resources.
 
-`ThirdParty/gnustep-window-tabbing` is a copy of
+`Source/WindowTabbing` is a copy of
 [danjboyd/gnustep-window-tabbing](https://github.com/danjboyd/gnustep-window-tabbing)
-at `2fcb697` (its `Headers`, `Source`, `GSWindowTabbing.make` and
-`LICENSE`, unchanged), also LGPL-2.1-or-later. To update it, copy those
-from a checkout of that repository over the directory and record the new
-hash here.
+at `4cb1b63` (`4cb1b63798c5927ea39fa50f5dcf84fd5b167da1`: its `Headers`,
+`Source`, `GSWindowTabbing.make` and `LICENSE`, unchanged), also
+LGPL-2.1-or-later. Don't edit it here: change the shared repository, then
+replace the directory with those files from a checkout
+(`git archive <commit> Headers Source GSWindowTabbing.make LICENSE`) and
+record the new hash here.
 
 See [COPYING.LIB](./COPYING.LIB).
