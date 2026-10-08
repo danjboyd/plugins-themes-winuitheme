@@ -63,12 +63,13 @@ static const CGFloat WinUIThemeToolbarLabelGap = 4.0;
 static const CGFloat WinUIThemeToolbarIconSize = 20.0;
 static const CGFloat WinUIThemeToolbarSmallIconSize = 16.0;
 
-/* On an item's image: its own size, before libs-gui first resized it. */
-static char WinUIThemeToolbarImageSizeKey;
 /* On a toolbar button: its hover tracking-rect tag, and whether the
    pointer is over it. */
 static char WinUIThemeToolbarButtonTrackingKey;
 static char WinUIThemeToolbarButtonHoverKey;
+/* On a toolbar button: the theme's copy of its item's image at the
+   icon's size (#89). */
+static char WinUIThemeToolbarButtonImageKey;
 
 /* Owns toolbar buttons' tracking rects and records hover from their
    enter and exit events. (The window's -mouseLocationOutsideOfEventStream
@@ -173,11 +174,12 @@ WinUIThemeToolbarLabelSize(NSToolbarItem *item)
 }
 
 /* The size an item's image is drawn at: its own, scaled down to fit 20pt
-   (16pt in small mode). */
+   (16pt in small mode). The item's image keeps its own size (the button
+   layout puts back the size libs-gui gives it), so this is always the
+   app's. */
 static NSSize
 WinUIThemeToolbarImageSize(NSImage *image, NSToolbar *toolbar)
 {
-  NSValue *own = nil;
   NSSize size;
   CGFloat limit = ([toolbar sizeMode] == NSToolbarSizeModeSmall)
     ? WinUIThemeToolbarSmallIconSize : WinUIThemeToolbarIconSize;
@@ -186,14 +188,7 @@ WinUIThemeToolbarImageSize(NSImage *image, NSToolbar *toolbar)
     {
       return NSZeroSize;
     }
-  own = objc_getAssociatedObject(image, &WinUIThemeToolbarImageSizeKey);
-  if (own == nil)
-    {
-      own = [NSValue valueWithSize: [image size]];
-      objc_setAssociatedObject(image, &WinUIThemeToolbarImageSizeKey, own,
-                               OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    }
-  size = [own sizeValue];
+  size = [image size];
   if (size.width > limit || size.height > limit)
     {
       CGFloat scale = limit / MAX(size.width, size.height);
@@ -298,6 +293,38 @@ WinUIThemePlaceToolbarView(NSView *backView, NSToolbarItem *item)
   content = WinUIThemeToolbarContentRect(item, [backView bounds]);
   [view setFrameOrigin: NSMakePoint(floor(NSMidX(content) - NSWidth([view frame]) / 2.0),
                                     NSMaxY(content) - NSHeight([view frame]))];
+}
+
+/* Gives an image item's button the item's image at the icon's size: a
+   copy the theme owns, kept with the button, so the app's image (which
+   it may share with other controls) is never resized. The theme set the
+   app's image to 20pt, and ScreenshotTool's icons, redrawn from their
+   images, shrank at each relayout (#89). */
+static void
+WinUIThemeToolbarApplyImage(NSButton *button, NSToolbarItem *item)
+{
+  NSToolbar *toolbar = [item toolbar];
+  NSImage *image = [item image];
+  NSImage *sized = objc_getAssociatedObject(button, &WinUIThemeToolbarButtonImageKey);
+  NSSize size;
+
+  if (toolbar == nil || image == nil || [item view] != nil
+      || [toolbar displayMode] == NSToolbarDisplayModeLabelOnly)
+    {
+      return;
+    }
+  size = WinUIThemeToolbarImageSize(image, toolbar);
+  if (sized == nil || NSEqualSizes([sized size], size) == NO
+      || (sized != image && WinUIThemeSizedImageSource(sized) != image))
+    {
+      sized = WinUIThemeSizedImageCopy(image, size);
+      objc_setAssociatedObject(button, &WinUIThemeToolbarButtonImageKey, sized,
+                               OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+  if ([button image] != sized)
+    {
+      [button setImage: sized];
+    }
 }
 
 @implementation WinUITheme (Toolbar)
@@ -493,15 +520,18 @@ WinUIThemePlaceToolbarView(NSView *backView, NSToolbarItem *item)
   NSToolbarItem *toolbarItem = [button respondsToSelector: @selector(toolbarItem)]
     ? [(id<WinUIThemeToolbarButton>)button toolbarItem] : nil;
   NSToolbar *toolbar = [toolbarItem toolbar];
+  NSImage *itemImage = [toolbarItem image];
+  NSSize ownSize = [itemImage size];
 
-  /* Note the image's own size before libs-gui makes it 32x32. */
-  if (toolbar != nil)
-    {
-      WinUIThemeToolbarImageSize([toolbarItem image], toolbar);
-    }
   if (originalIMP != NULL)
     {
       originalIMP(self, _cmd);
+    }
+  /* libs-gui makes the item's own image 32x32 (24x24 small): give it
+     back its size; the button draws the theme's copy (#89). */
+  if (toolbar != nil && itemImage != nil && NSEqualSizes([itemImage size], ownSize) == NO)
+    {
+      [itemImage setSize: ownSize];
     }
   if (toolbar != nil)
     {
@@ -511,12 +541,7 @@ WinUIThemePlaceToolbarView(NSView *backView, NSToolbarItem *item)
         }
       else
         {
-          NSSize image = WinUIThemeToolbarImageSize([toolbarItem image], toolbar);
-
-          if (NSEqualSizes(image, NSZeroSize) == NO)
-            {
-              [[toolbarItem image] setSize: image];
-            }
+          WinUIThemeToolbarApplyImage(button, toolbarItem);
           [button setFont: WinUIThemeToolbarLabelFont(toolbar)];
           [button setFrameSize: NSMakeSize(WinUIThemeToolbarContentSize(toolbarItem).width
                                              + 2.0 * WinUIThemeToolbarSpacing,
@@ -565,6 +590,11 @@ WinUIThemePlaceToolbarView(NSView *backView, NSToolbarItem *item)
     {
       cellFrame = WinUIThemeToolbarContentRect(toolbarItem, cellFrame);
       buttonRect = cellFrame;
+      /* The app may have given the item a new image since the layout. */
+      if ([controlView isKindOfClass: [NSButton class]])
+        {
+          WinUIThemeToolbarApplyImage((NSButton *)controlView, toolbarItem);
+        }
     }
   if ([theme isKindOfClass: [WinUITheme class]] && [controlView window] != nil && [cell isEnabled])
     {

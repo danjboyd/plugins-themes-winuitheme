@@ -109,6 +109,12 @@ BOOL WinUIThemeButtonCellUsesCancelImage(NSButtonCell *cell);
 
 /* Template images (WinUIThemeTemplateImages.m). */
 BOOL WinUIThemeImageIsTemplate(NSImage *image);
+/* A theme-owned image that draws `image` at `size`, leaving `image` as
+   it is, and is a template when `image` is (#89); `image` itself when it
+   already has that size. */
+NSImage *WinUIThemeSizedImageCopy(NSImage *image, NSSize size);
+/* The image a sized image draws, or nil. */
+NSImage *WinUIThemeSizedImageSource(NSImage *image);
 NSImage *WinUIThemeTintedImage(NSImage *image, NSColor *color);
 NSColor *WinUIThemeTemplateImageColor(WinUITheme *theme, NSButtonCell *cell, NSView *controlView);
 

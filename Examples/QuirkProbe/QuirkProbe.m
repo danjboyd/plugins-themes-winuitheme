@@ -115,6 +115,52 @@ QuirkProbeRender(NSView *view)
   return rep;
 }
 
+/* A toolbar icon as ScreenshotTool's (#89): "-symbolic", 32x32pt from a
+   24px bitmap, a 20px square of ink in it. */
+static NSImage *
+QuirkProbeToolbarSymbolicImage(void)
+{
+  NSImage *image = [NSImage imageNamed: @"probe-toolbar-symbolic"];
+  NSBitmapImageRep *rep = nil;
+  unsigned char *data = NULL;
+  NSInteger x, y;
+
+  if (image != nil)
+    {
+      return image;
+    }
+  rep = AUTORELEASE([[NSBitmapImageRep alloc]
+                      initWithBitmapDataPlanes: NULL
+                                    pixelsWide: 24
+                                    pixelsHigh: 24
+                                 bitsPerSample: 8
+                               samplesPerPixel: 4
+                                      hasAlpha: YES
+                                      isPlanar: NO
+                                colorSpaceName: NSCalibratedRGBColorSpace
+                                   bytesPerRow: 0
+                                  bitsPerPixel: 0]);
+  data = [rep bitmapData];
+  for (y = 0; y < 24; y++)
+    {
+      for (x = 0; x < 24; x++)
+        {
+          unsigned char *pixel = data + y * [rep bytesPerRow] + x * 4;
+          BOOL ink = (x >= 2 && x < 22 && y >= 2 && y < 22);
+
+          pixel[0] = 0;
+          pixel[1] = 0;
+          pixel[2] = 0;
+          pixel[3] = ink ? 255 : 0;
+        }
+    }
+  [rep setSize: NSMakeSize(32, 32)];
+  image = AUTORELEASE([[NSImage alloc] initWithSize: NSMakeSize(32, 32)]);
+  [image addRepresentation: rep];
+  [image setName: @"probe-toolbar-symbolic"];
+  return image;
+}
+
 /* Device pixels per point in a render of `view`. */
 static CGFloat
 QuirkProbeScale(NSBitmapImageRep *rep, NSView *view)
@@ -430,6 +476,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkTheme;
 - (void) checkSubclassImageCell;
 - (void) checkToolbarImageItem;
+- (void) checkToolbarIconSize;
 - (void) checkScrollerEdge;
 - (void) checkTextAlignment;
 - (void) checkTableHeader;
@@ -797,7 +844,8 @@ QuirkProbeLoadAccent(void)
   NSToolbarItem *item = [[NSToolbarItem alloc] initWithItemIdentifier: identifier];
 
   [item setLabel: @"Image"];
-  [item setImage: [self magentaImage]];
+  [item setImage: [[toolbar identifier] isEqualToString: @"QuirkProbeIconSizeToolbar"]
+                   ? QuirkProbeToolbarSymbolicImage() : [self magentaImage]];
   /* The alignment check needs a view item (the theme draws its label)
      with a label much narrower than the view. */
   if ([[toolbar identifier] isEqualToString: @"QuirkProbeAlignmentToolbar"])
@@ -1049,6 +1097,98 @@ objectValueForTableColumn: (NSTableColumn *)column
                                       (long)contrast]];
       }
   }
+}
+
+/* The ink of the toolbar's icon, on the toolbar's background. */
+static QuirkProbeInk
+QuirkProbeToolbarIconInk(NSView *toolbarView)
+{
+  NSBitmapImageRep *rep = QuirkProbeRender(toolbarView);
+  NSUInteger red, green, blue;
+
+  QuirkProbePixel(rep, [rep pixelsWide] - 4, [rep pixelsHigh] / 2, &red, &green, &blue);
+  QuirkProbeInkBackground = red + green + blue;
+  return QuirkProbeMeasureIn(rep, QuirkProbeIsInk,
+                             NSMakeRect(0, 0, [rep pixelsWide], [rep pixelsHigh] - 2));
+}
+
+/* An image toolbar item keeps its size through a relayout (issue #89).
+   The theme set the item's own NSImage to the icon's 20pt, so the app's
+   image changed under it, and after a relayout ScreenshotTool's 32pt
+   icons drew at about 12px. WinUI's AppBarButton draws its icon at 20px
+   whatever the source's size. */
+- (void) checkToolbarIconSize
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(320, 440, 360, 140)
+                                     title: @"QuirkProbe Toolbar Icon"];
+  NSToolbar *toolbar = [[NSToolbar alloc] initWithIdentifier: @"QuirkProbeIconSizeToolbar"];
+  NSImage *image = QuirkProbeToolbarSymbolicImage();
+  NSView *toolbarView = nil;
+  CGFloat scale;
+  QuirkProbeInk before, after;
+  NSSize sizeBefore, sizeAfter;
+  NSString *detail = nil;
+
+  [toolbar setDelegate: self];
+  [toolbar setDisplayMode: NSToolbarDisplayModeIconOnly];
+  [window setToolbar: toolbar];
+  RELEASE(toolbar);
+  [window orderFront: nil];
+  [window display];
+  toolbarView = QuirkProbeFindViewOfClass([[window contentView] superview],
+                                          NSClassFromString(@"GSToolbarView"));
+  if (toolbarView == nil)
+    {
+      [self skip: @"toolbar-icon-size" detail: @"no GSToolbarView in the window"];
+      [self skip: @"toolbar-icon-image-kept" detail: @"no GSToolbarView in the window"];
+      return;
+    }
+  scale = QuirkProbeScale(QuirkProbeRender(toolbarView), toolbarView);
+  sizeBefore = [image size];
+  before = QuirkProbeToolbarIconInk(toolbarView);
+  [self saveView: toolbarView named: @"toolbar-icon-before"];
+
+  /* Relaid out twice: the window narrower, as ScreenshotTool's when it
+     opens a file, and the display mode switched and back. */
+  [window setFrame: NSMakeRect(320, 440, 300, 140) display: YES];
+  [toolbar setDisplayMode: NSToolbarDisplayModeIconAndLabel];
+  [window display];
+  [toolbar setDisplayMode: NSToolbarDisplayModeIconOnly];
+  [window setFrame: NSMakeRect(320, 440, 340, 140) display: YES];
+  /* And the app sets the item's image again, as validation may. */
+  [[[toolbar items] objectAtIndex: 0] setImage: image];
+  [window display];
+  sizeAfter = [image size];
+  after = QuirkProbeToolbarIconInk(toolbarView);
+  [self saveView: toolbarView named: @"toolbar-icon-after"];
+
+  /* The 20px square in a 24px bitmap, drawn at 20pt: about 17pt. */
+  detail = [NSString stringWithFormat: @"the icon's ink %.0fx%.0fpt, %.0fx%.0fpt after two relayouts",
+                                       before.width / scale, before.height / scale,
+                                       after.width / scale, after.height / scale];
+  if (before.count > 0 && llabs((long long)(before.width - after.width)) <= 1
+      && llabs((long long)(before.height - after.height)) <= 1
+      && fabs(after.height / scale - 20.0 * 20.0 / 24.0) <= 2.0)
+    {
+      [self pass: @"toolbar-icon-size" detail: detail];
+    }
+  else
+    {
+      [self fail: @"toolbar-icon-size" detail: [detail stringByAppendingString: @" (expected about 17)"]];
+    }
+
+  detail = [NSString stringWithFormat: @"the item's image %.0fx%.0fpt, %.0fx%.0fpt after layout (its own 32x32)",
+                                       sizeBefore.width, sizeBefore.height, sizeAfter.width, sizeAfter.height];
+  if (NSEqualSizes(sizeBefore, NSMakeSize(32, 32)) && NSEqualSizes(sizeAfter, NSMakeSize(32, 32)))
+    {
+      [self pass: @"toolbar-icon-image-kept" detail: detail];
+    }
+  else
+    {
+      [self fail: @"toolbar-icon-image-kept" detail: detail];
+    }
+  [window setToolbar: nil];
+  [window orderOut: nil];
 }
 
 /* Vertical scrollers sit on the trailing (right) edge (issue #4). */
@@ -6987,6 +7127,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkAccentColor];
   [self checkSubclassImageCell];
   [self checkToolbarImageItem];
+  [self checkToolbarIconSize];
   [self checkScrollerEdge];
   [self checkTableHeader];
   [self checkTextAlignment];
