@@ -498,6 +498,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkLevelIndicator;
 - (void) checkDatePicker;
 - (void) checkBrowser;
+- (void) checkBrowserTitles;
 - (void) checkColorWell;
 - (void) checkBoxes;
 - (void) checkContrastTheme;
@@ -543,6 +544,20 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 }
 
 - (BOOL) isOpaque
+{
+  return YES;
+}
+
+@end
+
+/* A flipped container, as a split view is: the font panel's browsers and
+   its "Size" label sit in a plain view inside one. */
+@interface QuirkProbeFlippedView : NSView
+@end
+
+@implementation QuirkProbeFlippedView
+
+- (BOOL) isFlipped
 {
   return YES;
 }
@@ -894,7 +909,10 @@ QuirkProbeLoadAccent(void)
            atRow: (NSInteger)row
           column: (NSInteger)column
 {
-  [cell setStringValue: [NSString stringWithFormat: @"Item %ld.%ld", (long)column, (long)row]];
+  /* checkBrowserTitles' browsers (tag 100) compare their titles' "TTTT"
+     with rows that start the same way. */
+  [cell setStringValue: ([browser tag] == 100) ? [NSString stringWithFormat: @"TTTT %ld", (long)row]
+                                               : [NSString stringWithFormat: @"Item %ld.%ld", (long)column, (long)row]];
   [cell setLeaf: column >= [browser tag]];
 }
 
@@ -3334,6 +3352,189 @@ QuirkProbeBrowser(QuirkProbe *probe, NSView *content, NSRect frame, NSInteger le
       {
         [self fail: @"browser-column-scroller" detail: [NSString stringWithFormat:
           @"%lu px of scroll bar beside rows that fit", (unsigned long)bar.count]];
+      }
+  }
+  [window orderOut: nil];
+}
+
+/* What's wrong with a "TTTT" title drawn in `pixels` (a render's pixel
+   rect, top-left origin) over the window colour `window` (red + green +
+   blue), or nil. It should sit on no bezel (the rect's trailing end is
+   the window's colour), be upright (the T's crossbars, its heaviest row,
+   in the top third of its ink), whole (clear of the rect's top and
+   bottom, at least 6pt tall), and start `textEdge` pixels in, give or
+   take 2pt. */
+static NSString *
+QuirkProbeColumnTitleProblem(NSBitmapImageRep *rep, NSRect pixels, CGFloat scale,
+                             NSUInteger window, CGFloat textEdge, NSString **measured)
+{
+  NSUInteger red = 0, green = 0, blue = 0, background, heaviest = 0;
+  NSInteger y, heaviestY = 0;
+  QuirkProbeInk ink;
+
+  QuirkProbePixel(rep, (NSInteger)(NSMaxX(pixels) - 6 * scale), (NSInteger)NSMidY(pixels), &red, &green, &blue);
+  background = red + green + blue;
+  QuirkProbeInkBackground = window;
+  ink = QuirkProbeMeasureIn(rep, QuirkProbeIsInk, pixels);
+  for (y = ink.minY; ink.count > 0 && y < ink.minY + ink.height; y++)
+    {
+      NSUInteger count = QuirkProbeRowCount(rep, QuirkProbeIsInk, y, (NSInteger)NSMinX(pixels), (NSInteger)NSMaxX(pixels));
+
+      if (count > heaviest)
+        {
+          heaviest = count;
+          heaviestY = y;
+        }
+    }
+  *measured = [NSString stringWithFormat:
+    @"ink %.0fx%.0fpt, %.0fpt in and %.0fpt down the %.0fpt rect, heaviest row %.0fpt down the ink; behind it %lu (window %lu)",
+    ink.width / scale, ink.height / scale, (ink.minX - NSMinX(pixels)) / scale,
+    (ink.minY - NSMinY(pixels)) / scale, NSHeight(pixels) / scale, (heaviestY - ink.minY) / scale,
+    (unsigned long)background, (unsigned long)window];
+  if (llabs((long long)background - (long long)window) > 9)
+    {
+      return @"a bezel behind the title";
+    }
+  if (ink.count == 0)
+    {
+      return @"no title";
+    }
+  if (ink.minY <= (NSInteger)NSMinY(pixels) || ink.minY + ink.height >= (NSInteger)NSMaxY(pixels)
+      || ink.height < 6.0 * scale)
+    {
+      return @"the title is cut off";
+    }
+  if ((heaviestY - ink.minY) * 3 > ink.height)
+    {
+      return @"the title is upside down";
+    }
+  if (fabs((ink.minX - NSMinX(pixels)) - textEdge) > 2.0 * scale)
+    {
+      return @"the title isn't at the rows' text edge";
+    }
+  return nil;
+}
+
+/* Column titles (#74): the font panel's "Family" and "Typeface" were drawn
+   upside down and cut in half, on libs-gui's grey bezel, and its "Size"
+   label (a text field with the browser's title cell) on the bezel too.
+   WinUI has no titled list column; the nearest, a section label, is
+   secondary text on the window, no bezel, at the rows' text edge. Two
+   titled browsers, one in the window and one as the font panel has them
+   (a plain view in a flipped split view), and that label. */
+- (void) checkBrowserTitles
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(180, 160, 560, 300)
+                                     title: @"QuirkProbe Browser Titles"];
+  NSView *content = [window contentView];
+  NSView *flipped = AUTORELEASE([[QuirkProbeFlippedView alloc] initWithFrame: NSMakeRect(330, 10, 220, 280)]);
+  NSView *pane = AUTORELEASE([[NSView alloc] initWithFrame: NSMakeRect(0, 0, 220, 280)]);
+  NSBrowser *plain = AUTORELEASE([[NSBrowser alloc] initWithFrame: NSMakeRect(20, 20, 290, 220)]);
+  NSBrowser *nested = AUTORELEASE([[NSBrowser alloc] initWithFrame: NSMakeRect(0, 0, 120, 220)]);
+  Class titleCellClass = NSClassFromString(@"GSBrowserTitleCell");
+  NSTextField *label = AUTORELEASE([[NSTextField alloc] initWithFrame: NSMakeRect(130, 199, 80, 21)]);
+  NSBitmapImageRep *rep = nil;
+  NSMatrix *matrix = nil;
+  NSUInteger red = 0, green = 0, blue = 0, windowSum, card;
+  CGFloat scale, textEdge;
+  NSArray *browsers = [NSArray arrayWithObjects: plain, nested, nil];
+  NSUInteger index;
+
+  [content addSubview: flipped];
+  [flipped addSubview: pane];
+  [content addSubview: plain];
+  [pane addSubview: nested];
+  for (index = 0; index < [browsers count]; index++)
+    {
+      NSBrowser *browser = [browsers objectAtIndex: index];
+
+      [browser setTag: 100];
+      [browser setDelegate: (id)self];
+      [browser setMaxVisibleColumns: 1];
+      [browser setHasHorizontalScroller: NO];
+      [browser setTitled: YES];
+      [browser loadColumnZero];
+      [browser setTitle: @"TTTT" ofColumn: 0];
+    }
+  if (titleCellClass != Nil)
+    {
+      [label setCell: AUTORELEASE([titleCellClass new])];
+    }
+  [label setFont: [NSFont boldSystemFontOfSize: 0]];
+  [label setAlignment: NSCenterTextAlignment];
+  [label setDrawsBackground: YES];
+  [label setEditable: NO];
+  [label setTextColor: [NSColor windowFrameTextColor]];
+  [label setBackgroundColor: [NSColor controlShadowColor]];
+  [label setStringValue: @"TTTT"];
+  [pane addSubview: label];
+
+  [window makeKeyAndOrderFront: nil];
+  [window display];
+  rep = QuirkProbeRender(content);
+  scale = QuirkProbeScale(rep, content);
+  [self saveView: content named: @"browser-titles"];
+  QuirkProbePixel(rep, 2, 2, &red, &green, &blue);
+  windowSum = red + green + blue;
+
+  /* The rows' text edge: where row 0's "TTTT 0" starts, from its
+     column's leading edge. */
+  matrix = [plain matrixInColumn: 0];
+  {
+    NSRect column = QuirkProbePixelRect(content, [content convertRect: [[matrix enclosingScrollView] bounds]
+                                                              fromView: [matrix enclosingScrollView]], scale);
+    NSRect row = QuirkProbePixelRect(content, [content convertRect: [matrix cellFrameAtRow: 0 column: 0]
+                                                           fromView: matrix], scale);
+    QuirkProbeInk rowInk;
+
+    QuirkProbePixel(rep, (NSInteger)NSMidX(row), (NSInteger)NSMinY(row) + 1, &red, &green, &blue);
+    card = red + green + blue;
+    QuirkProbeInkBackground = card;
+    rowInk = QuirkProbeMeasureIn(rep, QuirkProbeIsInk, NSInsetRect(row, 1.0, 1.0));
+    textEdge = rowInk.count > 0 ? rowInk.minX - NSMinX(column) : 16.0 * scale;
+  }
+
+  {
+    NSString *measured[3] = { nil, nil, nil };
+    NSString *problems[3] = { nil, nil, nil };
+    NSString *names[3] = { @"in the window", @"in a flipped split view", @"the Size label" };
+    NSRect rects[3];
+    NSUInteger failures = 0, i;
+
+    rects[0] = [content convertRect: [plain titleFrameOfColumn: 0] fromView: plain];
+    rects[1] = [content convertRect: [nested titleFrameOfColumn: 0] fromView: nested];
+    rects[2] = [content convertRect: [label bounds] fromView: label];
+    for (i = 0; i < 3; i++)
+      {
+        problems[i] = QuirkProbeColumnTitleProblem(rep, QuirkProbePixelRect(content, rects[i], scale), scale,
+                                                   windowSum, textEdge, &measured[i]);
+        if (problems[i] != nil)
+          {
+            failures++;
+          }
+      }
+    if (titleCellClass == Nil)
+      {
+        failures++;
+        problems[2] = @"libs-gui has no GSBrowserTitleCell";
+      }
+    if (failures == 0)
+      {
+        [self pass: @"browser-column-titles" detail: [NSString stringWithFormat:
+          @"upright on the window at the rows' %.0fpt edge, in the window, a flipped split view and the Size label (%@)",
+          textEdge / scale, measured[1]]];
+      }
+    else
+      {
+        NSMutableArray *details = [NSMutableArray array];
+
+        for (i = 0; i < 3; i++)
+          {
+            [details addObject: [NSString stringWithFormat: @"%@: %@ (%@)", names[i],
+              problems[i] ?: @"fine", measured[i]]];
+          }
+        [self fail: @"browser-column-titles" detail: [NSString stringWithFormat:
+          @"rows' text edge %.0fpt; %@", textEdge / scale, [details componentsJoinedByString: @"; "]]];
       }
   }
   [window orderOut: nil];
@@ -7146,6 +7347,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkLevelIndicator];
   [self checkDatePicker];
   [self checkBrowser];
+  [self checkBrowserTitles];
   [self checkColorWell];
   [self checkBoxes];
   [self checkContrastTheme];
