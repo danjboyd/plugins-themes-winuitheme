@@ -58,9 +58,6 @@ GSWINDOWTABBING_DIR = Source/WindowTabbing
 include $(GSWINDOWTABBING_DIR)/GSWindowTabbing.make
 WinUITheme_OBJC_FILES += $(GSWINDOWTABBING_OBJC_FILES)
 ADDITIONAL_INCLUDE_DIRS += $(GSWINDOWTABBING_INCLUDE_DIRS)
-# MinGW has no <dlfcn.h>; the shared code's check for a second copy of its
-# classes uses dladdr() (Source/Native/Compat/dlfcn.h).
-ADDITIONAL_INCLUDE_DIRS += -ISource/Native/Compat
 
 WinUITheme_BUNDLE_LIBS += -luuid -lgdi32
 
