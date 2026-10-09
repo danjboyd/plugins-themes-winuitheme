@@ -168,6 +168,19 @@ one: `--contrast-theme dusk` on the command line, or the
 `night-sky`, or a `.theme` file's path). The colours are read from Windows'
 own theme files.
 
+## Popover Panels
+
+GNUstep's `NSPopover` can't become key and draws a fixed panel
+(gnustep/libs-gui#988), so apps show popovers in a borderless panel of
+their own. A panel whose class adopts the empty protocol
+`GSThemePopoverPanel` is drawn as a WinUI flyout: the MenuFlyout's fill and
+1px stroke, with 8px corners and a shadow from DWM, and no arrow. It's
+owned by the app's main window and kept out of the taskbar and Alt+Tab, and
+it can still become key. The theme declares `GSThemeDrawsPopoverPanels =
+YES` in its `Info-gnustep.plist`; apps check it through `[[GSTheme theme]
+infoDictionary]` and leave the panel's background to the theme only then
+(ScreenshotTool does). Other borderless windows keep their own look.
+
 ## Window Tabs
 
 Apps get Apple's `NSWindow` tabbing API (`-addTabbedWindow:ordered:`,
