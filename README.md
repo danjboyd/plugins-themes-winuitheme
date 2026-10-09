@@ -242,14 +242,16 @@ reference app and the resources.
 
 `Source/WindowTabbing` is a copy of
 [danjboyd/gnustep-window-tabbing](https://github.com/danjboyd/gnustep-window-tabbing)
-at `fd064ee` (`fd064eea78200fe726a65567e6fceb6c5775b5e9`: its `Headers`,
+at `a052823` (`a0528230fa7fe160c204542c98abbc836c5eaf6b`: its `Headers`,
 `Source`, `GSWindowTabbing.make` and `LICENSE`, unchanged). That is the
 owner-reviewed `4cb1b63` plus phase 2: dragging and scrolling tabs, the
 Windows build fixes, the maximized state and frame kept across tabs, and
 the fixes for what this theme reported from Windows (the wheel's
 direction, close buttons under the fades, the drop target, a drag whose
 release never comes, the bar redrawn on key and main changes, the "+"
-target, and the size a maximized tab restores to).
+target, the size a maximized tab restores to, Windows' foreground kept
+by the key window when a tab is shown behind it, and a release libs-back
+makes up after lost capture cancelling the press).
 It is also LGPL-2.1-or-later. Don't edit it here: change the shared repository, then
 replace the directory with those files from a checkout
 (`git archive <commit> Headers Source GSWindowTabbing.make LICENSE`) and
