@@ -187,12 +187,21 @@ default, or `-WinUIThemeWindowTabs YES` on the command line) turns them on;
 QuirkProbe runs with it on.
 
 On Windows: the hidden tabs are ordered out, so the taskbar and Alt+Tab
-show one entry per group; selecting a tab gives it the group's frame and,
-from the theme, its Windows placement (maximized, and the size to restore
-to); closing the selected tab shows its neighbour first, so the app doesn't
-take it for its last window; Ctrl+Tab, Ctrl+Shift+Tab and Ctrl+Page
+show one entry per group; selecting a tab gives it the group's frame and
+its Windows placement (maximized, and the size to restore to); closing
+the selected tab shows its neighbour first, so the app doesn't take it
+for its last window; Ctrl+Tab, Ctrl+Shift+Tab and Ctrl+Page
 Up/Down switch tabs even from a text view. A tab keeps its group's frame
-when the theme gives it the menu bar.
+when the theme gives it the menu bar. Tabs are dragged along the bar to
+reorder them, or pulled 32pt above or below it into a window of their own
+or onto another window's bar; tabs that don't fit at their minimum width
+scroll with the wheel. A tab shown in a group that isn't key (selected,
+or shown because the selected tab closed) leaves Windows' foreground with
+the key window, maximized or not. A press on the bar whose release went
+elsewhere after the capture was lost (libs-back's Windows server makes a
+release up from the next move with no button down) is cancelled: a dragged
+tab goes back to its slot, and "+" and the close buttons don't act. Escape
+cancels a drag too.
 
 The theme draws the bar as WinUI's TabView (Notepad, Terminal), from its
 `generic.xaml` resources: a 40px strip (8px above 32px tabs) on a step
@@ -205,8 +214,13 @@ between them; a 32x24 close button on every tab (WinUI's default
 CloseButtonOverlayMode, Auto, means Always), shown as a dot while the tab's
 window has unsaved changes and the pointer isn't on the tab, as Notepad
 does; a "+" right after the last tab when something answers
-`-newWindowForTab:`. High contrast uses ButtonFace, Window, WindowText,
-Hilight and HilightText as WinUI's TabView does.
+`-newWindowForTab:`. A dragged tab is lifted off the strip over a soft
+shadow, as WinUI lifts a dragged TabViewItem. Where tabs are scrolled out
+of sight the strip fades in over 24px at that end; WinUI's TabView has
+chevron scroll buttons there instead, but the shared bar has no buttons
+to click at its ends. High contrast uses ButtonFace, Window, WindowText,
+Hilight and HilightText as WinUI's TabView does (no shadow, and an 8px
+ButtonFace band with a WindowText divider in place of the fade).
 
 Windows 11 apps put their tabs in the title bar. libs-back's Windows
 server leaves the title bar to Windows, so here the bar has its own row
@@ -234,13 +248,17 @@ reference app and the resources.
 
 `Source/WindowTabbing` is a copy of
 [danjboyd/gnustep-window-tabbing](https://github.com/danjboyd/gnustep-window-tabbing)
-at `4cb1b63` (`4cb1b63798c5927ea39fa50f5dcf84fd5b167da1`: its `Headers`,
-`Source`, `GSWindowTabbing.make` and `LICENSE`), plus three of its later
-fixes for Windows, applied unchanged: `e49226b` (exports through
-`GSWT_EXPORT`), `a5cb18a` (the two-copies check without `<dlfcn.h>`) and
-`adfa7b4` (`<windows.h>` after GNUstep's headers). The commits between
-`4cb1b63` and them (dragging and scrolling tabs) aren't included. It is
-also LGPL-2.1-or-later. Don't edit it here: change the shared repository, then
+at `a052823` (`a0528230fa7fe160c204542c98abbc836c5eaf6b`: its `Headers`,
+`Source`, `GSWindowTabbing.make` and `LICENSE`, unchanged). That is the
+owner-reviewed `4cb1b63` plus phase 2: dragging and scrolling tabs, the
+Windows build fixes, the maximized state and frame kept across tabs, and
+the fixes for what this theme reported from Windows (the wheel's
+direction, close buttons under the fades, the drop target, a drag whose
+release never comes, the bar redrawn on key and main changes, the "+"
+target, the size a maximized tab restores to, Windows' foreground kept
+by the key window when a tab is shown behind it, and a release libs-back
+makes up after lost capture cancelling the press).
+It is also LGPL-2.1-or-later. Don't edit it here: change the shared repository, then
 replace the directory with those files from a checkout
 (`git archive <commit> Headers Source GSWindowTabbing.make LICENSE`) and
 record the new hash here.
