@@ -5,6 +5,18 @@ Releases of the WinUI theme for GNUstep. Versions are semver pre-releases
 `GSThemeVersion` in `WinUIThemeInfo.plist`, and an annotated tag on `main`.
 Apps that bundle the theme should pin a tag, not `main`.
 
+## Unreleased
+
+**Windows**
+- **Title bar:** with a libs-back that leaves the caption to the gui
+  (`GSBackClientDrawsCaptions`, in `danjboyd/libs-back`'s `carry` branch,
+  `carry-0.32.0.1`), the theme draws WinUI's title bar: the app's icon,
+  the title and the 46x32 caption buttons, in light, dark and the contrast
+  themes. Windows keeps the frame, Snap, Snap Layouts and the system menu.
+  A stock libs-back keeps Windows' caption (#83). QuirkProbe
+  `client-caption-row`, `client-caption-hit-test`,
+  `client-caption-no-system-menu`.
+
 ## 0.1.0-alpha1 (2026-10-08)
 
 The first tagged release, covering the Adwaita parity work (#50, phases A

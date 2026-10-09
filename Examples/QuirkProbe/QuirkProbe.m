@@ -523,6 +523,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkSearchField;
 - (void) checkHorizontalOnlyScroller;
 - (void) checkWindowTabs;
+- (void) checkClientCaption;
 - (void) checkFileDialogFilters;
 - (void) createLateWindow: (NSTimer *)timer;
 - (void) checkLateWindow: (NSTimer *)timer;
@@ -5371,6 +5372,138 @@ QuirkProbeTabKey(NSWindow *window, NSString *characters, NSUInteger modifiers)
                            keyCode: 0];
 }
 
+/* The title bar the theme draws (#83) when danjboyd/libs-back's carried
+   backend leaves the caption to it (GSBackClientDrawsCaptions): a 32pt row
+   at the top of the client area, which Windows hit-tests from the regions
+   the theme declares (dragging, Snap Layouts on the zoom button). A stock
+   backend keeps Windows' caption, and the checks skip. */
+@interface GSDisplayServer (QuirkProbeClientCaption)
+- (BOOL) clientDrawsCaptions;
+@end
+
+static LRESULT
+QuirkProbeHitTest(HWND hwnd, int x, int y)
+{
+  return SendMessageW(hwnd, WM_NCHITTEST, 0, MAKELPARAM(x, y));
+}
+
+- (void) checkClientCaption
+{
+  GSDisplayServer *server = GSCurrentServer();
+  NSWindow *window;
+  NSWindow *plain;
+  HWND hwnd;
+  RECT windowRect;
+  POINT origin = {0, 0};
+  RECT client;
+  int right, mid;
+  CGFloat scale;
+  LRESULT caption, close, zoom, minimize, top, content, plainClose;
+  NSView *row;
+  NSString *detail;
+
+  if ([server respondsToSelector: @selector(clientDrawsCaptions)] == NO
+      || [server clientDrawsCaptions] == NO)
+    {
+      [self skip: @"client-caption-row" detail: @"the backend draws the caption (stock libs-back)"];
+      [self skip: @"client-caption-hit-test" detail: @"the backend draws the caption (stock libs-back)"];
+      [self skip: @"client-caption-no-system-menu" detail: @"the backend draws the caption (stock libs-back)"];
+      return;
+    }
+
+  window = [[NSWindow alloc] initWithContentRect: NSMakeRect(300, 300, 480, 200)
+                                       styleMask: (NSTitledWindowMask | NSClosableWindowMask
+                                                   | NSMiniaturizableWindowMask
+                                                   | NSResizableWindowMask)
+                                         backing: NSBackingStoreBuffered
+                                           defer: NO];
+  [window setTitle: @"QuirkProbe Caption"];
+  [window setReleasedWhenClosed: NO];
+  [_windows addObject: window];
+  RELEASE(window);
+  [window orderFront: nil];
+  [window display];
+
+  /* The row: the theme's caption view at the top, the content below it. */
+  row = QuirkProbeFindViewOfClass([[window contentView] superview],
+                                  NSClassFromString(@"WinUIThemeCaptionView"));
+  detail = [NSString stringWithFormat: @"caption row %@, content top %.0f of frame %.0f",
+                                       row ? NSStringFromRect([row frame]) : @"missing",
+                                       NSMaxY([[window contentView] frame]),
+                                       NSHeight([window frame])];
+  /* 32pt at 100%, more at a larger desktop scale */
+  scale = (row != nil) ? NSHeight([row frame]) / 32.0 : 1.0;
+  if (row != nil && scale >= 0.99 && scale <= 2.6
+      && fabs(NSMaxY([row frame]) - NSHeight([[row superview] bounds])) <= 1.0
+      && NSMaxY([[window contentView] frame]) <= NSMinY([row frame]) + 0.5)
+    {
+      [self pass: @"client-caption-row" detail: detail];
+    }
+  else
+    {
+      [self fail: @"client-caption-row" detail: detail];
+    }
+
+  hwnd = (HWND)[window windowHandle];
+  GetWindowRect(hwnd, &windowRect);
+  GetClientRect(hwnd, &client);
+  ClientToScreen(hwnd, &origin);
+  right = origin.x + client.right;
+  mid = (windowRect.left + windowRect.right) / 2;
+  /* The middles of the 46x32 buttons, from the right */
+  caption = QuirkProbeHitTest(hwnd, origin.x + 100, origin.y + 16 * scale);
+  close = QuirkProbeHitTest(hwnd, right - 23 * scale, origin.y + 16 * scale);
+  zoom = QuirkProbeHitTest(hwnd, right - 69 * scale, origin.y + 16 * scale);
+  minimize = QuirkProbeHitTest(hwnd, right - 115 * scale, origin.y + 16 * scale);
+  top = QuirkProbeHitTest(hwnd, mid, origin.y + 1);
+  content = QuirkProbeHitTest(hwnd, mid, origin.y + client.bottom - 20);
+  detail = [NSString stringWithFormat:
+    @"drag %ld, close %ld, zoom %ld, minimize %ld, top edge %ld, content %ld "
+    @"(expected %d %d %d %d %d %d)",
+    (long)caption, (long)close, (long)zoom, (long)minimize, (long)top, (long)content,
+    HTCAPTION, HTCLOSE, HTMAXBUTTON, HTMINBUTTON, HTTOP, HTCLIENT];
+  if (caption == HTCAPTION && close == HTCLOSE && zoom == HTMAXBUTTON
+      && minimize == HTMINBUTTON && top == HTTOP && content == HTCLIENT)
+    {
+      [self pass: @"client-caption-hit-test" detail: detail];
+    }
+  else
+    {
+      [self fail: @"client-caption-hit-test" detail: detail];
+    }
+
+  /* A titled window that can't be closed has no system menu, so Windows
+     would give it no buttons: neither does the theme. */
+  plain = [[NSWindow alloc] initWithContentRect: NSMakeRect(320, 320, 360, 120)
+                                      styleMask: NSTitledWindowMask
+                                        backing: NSBackingStoreBuffered
+                                          defer: NO];
+  [plain setTitle: @"QuirkProbe Caption Without Buttons"];
+  [plain setReleasedWhenClosed: NO];
+  [_windows addObject: plain];
+  RELEASE(plain);
+  [plain orderFront: nil];
+  [plain display];
+  hwnd = (HWND)[plain windowHandle];
+  origin.x = origin.y = 0;
+  GetClientRect(hwnd, &client);
+  ClientToScreen(hwnd, &origin);
+  plainClose = QuirkProbeHitTest(hwnd, origin.x + client.right - 23 * scale,
+                                 origin.y + 16 * scale);
+  detail = [NSString stringWithFormat: @"where a close button would be: %ld (expected %d)",
+                                       (long)plainClose, HTCAPTION];
+  if (plainClose == HTCAPTION)
+    {
+      [self pass: @"client-caption-no-system-menu" detail: detail];
+    }
+  else
+    {
+      [self fail: @"client-caption-no-system-menu" detail: detail];
+    }
+  [plain orderOut: nil];
+  [window orderOut: nil];
+}
+
 - (void) checkWindowTabs
 {
   BOOL highContrast = QuirkProbeHasArgument(@"--high-contrast", @"yes");
@@ -7558,6 +7691,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkSearchField];
   [self checkHorizontalOnlyScroller];
   [self checkWindowTabs];
+  [self checkClientCaption];
   [self checkPopUpClick];
   [self checkFileDialogFilters];
   [self after: QuirkProbeSettleDelay perform: @selector(createLateWindow:)];

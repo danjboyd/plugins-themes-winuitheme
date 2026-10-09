@@ -19,6 +19,7 @@
 */
 
 #import "WinUIThemeWindowIntegration.h"
+#import "WinUIThemeCaption.h"
 
 #import "../WinUITheme.h"
 #import "../Settings/WinUIThemeSettings.h"
@@ -986,6 +987,31 @@ WinUIThemeKeepTabFrame(NSWindow *window, NSRect frame)
 
 @implementation WinUIThemeBackendWindowDecorationView
 
+/* With a backend that leaves the caption to the theme (#83), the caption
+   row is the top of the client area: content, menu bar and toolbar go
+   below it. */
++ (void) offsets: (float *)l : (float *)r : (float *)t : (float *)b
+    forStyleMask: (NSUInteger)style
+{
+  [super offsets: l : r : t : b forStyleMask: style];
+  if (WinUIThemeDrawsCaptionForStyle(style))
+    {
+      *t += WinUIThemeCaptionHeight();
+    }
+}
+
+- (void) layout
+{
+  [super layout];
+  WinUIThemeCaptionLayout(self, window, windowNumber);
+}
+
+- (void) setTitle: (NSString *)title
+{
+  [super setTitle: title];
+  WinUIThemeCaptionSetNeedsDisplay(self);
+}
+
 - (void) setWindowNumber: (int)theWindowNumber
 {
   [super setWindowNumber: theWindowNumber];
@@ -997,6 +1023,7 @@ WinUIThemeKeepTabFrame(NSWindow *window, NSRect frame)
   else
     {
       WinUIThemeWindowIntegrationSynchronizeWindow(window);
+      WinUIThemeCaptionLayout(self, window, theWindowNumber);
     }
 }
 
@@ -1004,6 +1031,7 @@ WinUIThemeKeepTabFrame(NSWindow *window, NSRect frame)
 {
   [super setInputState: state];
   WinUIThemeWindowIntegrationSynchronizeWindow(window);
+  WinUIThemeCaptionSetNeedsDisplay(self);
 }
 
 - (void) addMenuView: (NSMenuView *)menuView

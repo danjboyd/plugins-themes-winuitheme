@@ -12,6 +12,7 @@
   GSThemeVersion = "0.1.0-alpha1";
   GSThemeDomain = {
     GSBackHandlesWindowDecorations = YES;
+    GSBackClientDrawsCaptions = YES;
     NSInterfaceStyleDefault = NSWindows95InterfaceStyle;
     NSMenuInterfaceStyle = NSWindows95InterfaceStyle;
     NSScrollViewInterfaceStyle = NSWindows95InterfaceStyle;
