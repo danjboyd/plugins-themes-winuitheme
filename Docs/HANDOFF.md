@@ -293,8 +293,15 @@ app closes.
   scale), large-text (150% Windows text size), compact (compact metrics,
   #31), and dusk and desert (two of Windows' contrast themes, #45). The
   exit code is the number of failures.
+- **Isolation:** each run gets a scratch home (`GNUstepTestHome.ps1`:
+  HOMEDRIVE, HOMEPATH and USERPROFILE point under `%TEMP%`, with a fixed
+  `NSGlobalDomain`), so the probe and ThemeDemo scripts don't touch the
+  owner's `C:\Users\Support\GNUstep\Defaults`. MSYS2's gnustep-base ignores
+  `GNUSTEP_CONFIG_FILE`, so Adwaita's private `GNUstep.conf` doesn't work
+  here.
 - **Options:**
-  - `-NoPointer` skips checks that move the real pointer;
+  - `-Pointer` runs the four checks that move the real pointer, which
+    skip by default (`-NoPointer` is still accepted);
   - `-Configuration light,dark` picks configurations;
   - `-Theme <path>` checks another build;
   - `-OutputDirectory <dir>` saves renders.
