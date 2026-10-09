@@ -513,7 +513,9 @@ static BOOL WinUIThemeTabsLastTitleShowsEdited = NO;
 }
 
 /* 24px; 8px in high contrast, whose band is solid and would otherwise
-   hide the close button of a tab at the end. */
+   hide the close button of a tab at the end. A close button under the
+   fade or band can't be clicked: the shared bar (since d85847f) selects
+   the tab instead. */
 - (CGFloat) windowTabBarScrollFadeWidthForWindow: (NSWindow *)window
 {
   CGFloat width = WinUIThemeTabsHighContrast(self) ? 8.0 : 24.0;

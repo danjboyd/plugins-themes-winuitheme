@@ -187,10 +187,10 @@ default, or `-WinUIThemeWindowTabs YES` on the command line) turns them on;
 QuirkProbe runs with it on.
 
 On Windows: the hidden tabs are ordered out, so the taskbar and Alt+Tab
-show one entry per group; selecting a tab gives it the group's frame and,
-from the theme, its Windows placement (maximized, and the size to restore
-to); closing the selected tab shows its neighbour first, so the app doesn't
-take it for its last window; Ctrl+Tab, Ctrl+Shift+Tab and Ctrl+Page
+show one entry per group; selecting a tab gives it the group's frame and
+its Windows placement (maximized, and the size to restore to); closing
+the selected tab shows its neighbour first, so the app doesn't take it
+for its last window; Ctrl+Tab, Ctrl+Shift+Tab and Ctrl+Page
 Up/Down switch tabs even from a text view. A tab keeps its group's frame
 when the theme gives it the menu bar. Tabs are dragged along the bar to
 reorder them, or pulled 32pt above or below it into a window of their own

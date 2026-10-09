@@ -580,6 +580,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkWindowTabDragging;
 - (void) checkWindowTabDropGap;
 - (void) checkWindowTabKeyRedraw;
+- (void) checkWindowTabMaximizedInBackground;
 - (void) checkFileDialogFilters;
 - (void) createLateWindow: (NSTimer *)timer;
 - (void) checkLateWindow: (NSTimer *)timer;
@@ -6299,7 +6300,8 @@ QuirkProbeTabBrightness(NSUInteger rgb[3])
    tab drew its bar before it became key and kept that drawing, without
    the "+" and with the tabs wider than the bar hit-tests them
    (MarkdownViewer; likely why a posted click on a new tab's close button
-   was sometimes ignored). */
+   was sometimes ignored). The theme redrew it; the shared code does
+   since 120c501. */
 - (void) checkWindowTabKeyRedraw
 {
   NSArray *windows = [self makeTabbedWindows: 2 frame: NSMakeRect(120, 220, 480, 160)
@@ -6340,6 +6342,90 @@ QuirkProbeTabBrightness(NSUInteger rgb[3])
     }
   [other close];
   [self closeTabbedWindows: windows];
+}
+
+/* A tab selected in a group that isn't key, while the group is
+   maximized, is shown maximized without taking key status from the key
+   window. Windows' foreground is reported as KNOWN when the tab takes it:
+   libs-back's -orderwindow::: calls SetForegroundWindow() for a window
+   ordered to the top (the tab's -orderFront:, maximized or not), and the
+   shared code (fd064ee) reads the foreground to hand back only after
+   that, in GSWindowTabbingDidShowMaximized(), when it is already the tab.
+   GNUstep's key window doesn't follow (libs-back turns its callbacks off
+   around that call), so the key window is left behind the tab, without
+   the foreground. Same with the shared code at ed47a49 and the theme's
+   placement fix. */
+- (void) checkWindowTabMaximizedInBackground
+{
+#ifdef _WIN32
+  NSArray *windows = [self makeTabbedWindows: 2 frame: NSMakeRect(120, 220, 480, 160)
+                                  identifier: @"QuirkProbe Background"];
+  NSWindow *other = [self windowWithFrame: NSMakeRect(640, 220, 200, 100)
+                                    title: @"QuirkProbe Background Other"];
+  NSWindow *shown;
+  NSWindow *next;
+  HWND shownHandle;
+  HWND nextHandle;
+  HWND otherHandle;
+  HWND frontBefore;
+  HWND frontAfter;
+  BOOL zoomed;
+
+  if (windows == nil)
+    {
+      [self skip: @"window-tab-maximized-in-background" detail: @"no tabbing API"];
+      [other close];
+      return;
+    }
+  shown = [[windows objectAtIndex: 0] isVisible] ? [windows objectAtIndex: 0] : [windows objectAtIndex: 1];
+  next = (shown == [windows objectAtIndex: 0]) ? [windows objectAtIndex: 1] : [windows objectAtIndex: 0];
+  shownHandle = (HWND)(intptr_t)[shown windowNumber];
+  nextHandle = (HWND)(intptr_t)[next windowNumber];
+  otherHandle = (HWND)(intptr_t)[other windowNumber];
+  ShowWindow(shownHandle, SW_MAXIMIZE);
+  QuirkProbeDispatchEvents(0.4);
+  [other makeKeyAndOrderFront: nil];
+  QuirkProbeDispatchEvents(0.4);
+  if ([other isKeyWindow] == NO || IsZoomed(shownHandle) == 0)
+    {
+      [self skip: @"window-tab-maximized-in-background" detail:
+        [NSString stringWithFormat: @"set-up: the other window key %d, the group maximized %d",
+                  (int)[other isKeyWindow], (int)(IsZoomed(shownHandle) != 0)]];
+    }
+  else
+    {
+      frontBefore = GetForegroundWindow();
+      [shown selectNextTab: nil];
+      QuirkProbeDispatchEvents(0.6);
+      frontAfter = GetForegroundWindow();
+      zoomed = [next isVisible] && IsZoomed(nextHandle);
+      if (zoomed && [other isKeyWindow] && [next isKeyWindow] == NO
+          && frontAfter != nextHandle)
+        {
+          [self pass: @"window-tab-maximized-in-background" detail:
+            [NSString stringWithFormat: @"the new tab is maximized; the other window stays key, the foreground %@",
+                      frontBefore == otherHandle
+                        ? (frontAfter == otherHandle ? @"stays with it" : @"moved elsewhere, not to the tab")
+                        : @"wasn't the probe's (not taken by the tab)"]];
+        }
+      else if (zoomed && [other isKeyWindow] && [next isKeyWindow] == NO)
+        {
+          [self known: @"window-tab-maximized-in-background" detail:
+            [NSString stringWithFormat: @"the new tab is maximized and the other window stays key, but Windows' foreground went to the tab (before %p, the other window's %p; after %p): libs-back's -orderwindow::: brings a window ordered to the top to the foreground",
+                      (void *)frontBefore, (void *)otherHandle, (void *)frontAfter]];
+        }
+      else
+        {
+          [self fail: @"window-tab-maximized-in-background" detail:
+            [NSString stringWithFormat: @"the new tab maximized %d, key %d; the other window key %d; foreground before %p (other %p), after %p (the tab %p)",
+                      (int)zoomed, (int)[next isKeyWindow], (int)[other isKeyWindow],
+                      (void *)frontBefore, (void *)otherHandle, (void *)frontAfter, (void *)nextHandle]];
+        }
+    }
+  [other close];
+  [self closeTabbedWindows: windows];
+  QuirkProbeDispatchEvents(0.2);
+#endif
 }
 
 - (void) checkHorizontalOnlyScroller
@@ -8155,6 +8241,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkWindowTabDragging];
   [self checkWindowTabDropGap];
   [self checkWindowTabKeyRedraw];
+  [self checkWindowTabMaximizedInBackground];
   [self checkPopUpClick];
   [self checkFileDialogFilters];
   [self after: QuirkProbeSettleDelay perform: @selector(createLateWindow:)];

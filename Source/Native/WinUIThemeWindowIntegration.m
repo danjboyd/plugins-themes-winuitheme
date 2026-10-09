@@ -321,97 +321,6 @@ WinUIThemeWindowHandle(NSWindow *window)
   return (HWND)[window windowHandle];
 }
 
-/* Window tabs (#72): the tab that last gave up key status, not retained
-   (cleared when it closes or another tab of its group takes over). */
-static NSWindow *WinUIThemeLastResignedKeyWindow = nil;
-
-static BOOL
-WinUIThemeWindowIsTabbed(NSWindow *window)
-{
-  return [window respondsToSelector: @selector(tabbedWindows)]
-    && [[window tabbedWindows] count] > 1;
-}
-
-/* Only tabs are noted: selecting a tab hides the old one first, and key
-   may pass through another window before the new tab takes it. */
-static void
-WinUIThemeTabResignedKey(NSWindow *window)
-{
-  if (WinUIThemeWindowIsTabbed(window))
-    {
-      WinUIThemeLastResignedKeyWindow = window;
-    }
-}
-
-/* A selected tab takes its group's place on screen. The shared tabbing
-   code gives it the previous tab's frame, but Windows keeps maximized
-   (and the size to restore to) per window: a tab selected while the group
-   was maximized filled the screen without being maximized, so the caption
-   button and double-click didn't restore it, and a tab maximized before
-   came back maximized in a restored group. When key moves from one tab
-   of a group to another, the new tab takes the old one's placement.
-
-   The shared code (since eefb03e) carries the maximized state itself:
-   it sets the new tab's frame to the old one's and then calls
-   ShowWindow(SW_MAXIMIZE). That maximizes it, but its size to restore to
-   is then the maximized frame, so restoring it left it filling the screen
-   (QuirkProbe window-tab-takes-placement: 2384x1302 for a 496x259
-   group). SetWindowPlacement here gives it the old tab's restore rect as
-   well. It runs when the new tab becomes key; the shared code's
-   ShowWindow only acts when IsZoomed differs, so in either order the tab
-   ends up maximized with the old tab's restore rect. A tab shown without
-   becoming key (its group not key) gets only the shared code's step. */
-static void
-WinUIThemeTabTakeOverPlacement(NSWindow *window)
-{
-  NSWindow *previous = WinUIThemeLastResignedKeyWindow;
-  HWND handle;
-  HWND previousHandle;
-  WINDOWPLACEMENT placement;
-  WINDOWPLACEMENT previousPlacement;
-  BOOL zoomed;
-  BOOL previousZoomed;
-
-  if (previous == nil || WinUIThemeWindowIsTabbed(window) == NO)
-    {
-      return;
-    }
-  if (previous == window)
-    {
-      /* Key came back to the same tab. */
-      WinUIThemeLastResignedKeyWindow = nil;
-      return;
-    }
-  if ([[window tabbedWindows] indexOfObjectIdenticalTo: previous] == NSNotFound)
-    {
-      return;
-    }
-  WinUIThemeLastResignedKeyWindow = nil;
-  handle = WinUIThemeWindowHandle(window);
-  previousHandle = WinUIThemeWindowHandle(previous);
-  if (handle == NULL || previousHandle == NULL)
-    {
-      return;
-    }
-  placement.length = sizeof(placement);
-  previousPlacement.length = sizeof(previousPlacement);
-  if (GetWindowPlacement(handle, &placement) == 0
-      || GetWindowPlacement(previousHandle, &previousPlacement) == 0)
-    {
-      return;
-    }
-  zoomed = IsZoomed(handle) ? YES : NO;
-  previousZoomed = IsZoomed(previousHandle) ? YES : NO;
-  if (zoomed == NO && previousZoomed == NO)
-    {
-      return;
-    }
-  placement.flags = 0;
-  placement.showCmd = previousZoomed ? SW_SHOWMAXIMIZED : SW_SHOWNORMAL;
-  placement.rcNormalPosition = previousPlacement.rcNormalPosition;
-  SetWindowPlacement(handle, &placement);
-}
-
 static NSString *
 WinUIThemeWindowCacheKey(NSWindow *window)
 {
@@ -917,36 +826,14 @@ WinUIThemeApplyWindowIdentity(NSWindow *window,
 #endif
 }
 
-/* Window tabs (#72): the shared tab bar shows its "+" only while
-   something answers -newWindowForTab: from the key window's responder
-   chain, and passes the key state to the theme (GSWindowTabWindowKey),
-   but doesn't redraw when its window becomes or stops being key. A newly
-   selected tab draws its bar before it becomes key, so it stayed drawn
-   without the "+" and with the tabs laid out wider than the bar
-   hit-tests them once the window is key: a click on a close button could
-   miss (MarkdownViewer). QuirkProbe window-tab-bar-redraws-on-key. */
-static void
-WinUIThemeRedrawTabBar(NSWindow *window)
-{
-  [GSWindowTabBarViewForWindow(window) setNeedsDisplay: YES];
-}
-
 - (void) windowBecameKey: (NSNotification *)notification
 {
-#ifdef _WIN32
-  WinUIThemeTabTakeOverPlacement([notification object]);
-#endif
-  WinUIThemeRedrawTabBar([notification object]);
   [self _refreshThemeIfSystemStateChanged];
   [self synchronizeWindow: [notification object] forceRedraw: NO];
 }
 
 - (void) windowResignedKey: (NSNotification *)notification
 {
-#ifdef _WIN32
-  WinUIThemeTabResignedKey([notification object]);
-#endif
-  WinUIThemeRedrawTabBar([notification object]);
   [self _refreshThemeIfSystemStateChanged];
   [self synchronizeWindow: [notification object] forceRedraw: NO];
 }
@@ -969,12 +856,6 @@ WinUIThemeRedrawTabBar(NSWindow *window)
 
 - (void) windowWillClose: (NSNotification *)notification
 {
-#ifdef _WIN32
-  if (WinUIThemeLastResignedKeyWindow == [notification object])
-    {
-      WinUIThemeLastResignedKeyWindow = nil;
-    }
-#endif
   [self forgetWindow: [notification object]];
 }
 
