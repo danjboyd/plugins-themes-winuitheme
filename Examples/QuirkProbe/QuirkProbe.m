@@ -527,6 +527,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) createLateWindow: (NSTimer *)timer;
 - (void) checkLateWindow: (NSTimer *)timer;
 - (void) checkMenuBarTitles: (NSWindow *)window;
+- (void) checkScrollerStripNarrowsContent;
 - (void) checkThemeSwitchRestoresMethods;
 - (void) finish;
 @end
@@ -7105,6 +7106,65 @@ QuirkProbeInkIn(NSBitmapImageRep *rep, NSRect area, NSInteger fill, NSInteger th
     }
 }
 
+/* A table built as wide as its scroll view, with its column autoresizing
+   (ScreenshotTool's font picker): where the vertical scroller keeps its
+   strip (high contrast, scroll bars always shown) the row content must end
+   at the strip, not run under it, as WinUI's ScrollViewer keeps its bar
+   off interactive content. */
+- (void) checkScrollerStripNarrowsContent
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(640, 260, 240, 200)
+                                     title: @"QuirkProbe Scroller Strip"];
+  NSRect listFrame = NSMakeRect(8, 8, 224, 184);
+  NSScrollView *scrollView = AUTORELEASE([[NSScrollView alloc] initWithFrame: listFrame]);
+  NSTableView *table = AUTORELEASE([[NSTableView alloc] initWithFrame: NSMakeRect(0, 0, NSWidth(listFrame), NSHeight(listFrame))]);
+  NSTableColumn *column = AUTORELEASE([[NSTableColumn alloc] initWithIdentifier: @"name"]);
+  NSScroller *scroller = nil;
+  NSRect strip;
+  CGFloat columnEnd;
+  NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+
+  /* Strips kept, as in high contrast, whatever this configuration has. */
+  [defaults setBool: NO forKey: @"WinUIThemeOverlayScrollbars"];
+  [scrollView setHasVerticalScroller: YES];
+  [scrollView setHasHorizontalScroller: NO];
+  [scrollView setBorderType: NSNoBorder];
+  [scrollView setAutoresizingMask: NSViewWidthSizable | NSViewHeightSizable];
+  [column setWidth: NSWidth(listFrame)];
+  [column setResizingMask: NSTableColumnAutoresizingMask];
+  [table addTableColumn: column];
+  [table setHeaderView: nil];
+  [table setIntercellSpacing: NSMakeSize(0, 0)];
+  [table setColumnAutoresizingStyle: NSTableViewUniformColumnAutoresizingStyle];
+  [table setDataSource: self];
+  [scrollView setDocumentView: table];
+  [[window contentView] addSubview: scrollView];
+  [window orderFront: nil];
+  [window display];
+  QuirkProbeDispatchEvents(0.2);
+
+  scroller = [scrollView verticalScroller];
+  strip = [scrollView convertRect: [scroller frame] toView: table];
+  columnEnd = NSMaxX([table rectOfColumn: 0]);
+  if ([scroller isHidden] || [scroller superview] == nil)
+    {
+      [self skip: @"scroller-strip-narrows-content" detail: @"no vertical scroller shown"];
+    }
+  else if (columnEnd <= NSMinX(strip) + 0.5)
+    {
+      [self pass: @"scroller-strip-narrows-content" detail: [NSString stringWithFormat:
+        @"the column ends at %.0f, the scroller's strip starts at %.0f", columnEnd, NSMinX(strip)]];
+    }
+  else
+    {
+      [self fail: @"scroller-strip-narrows-content" detail: [NSString stringWithFormat:
+        @"the column runs to %.0f, under the scroller's strip from %.0f", columnEnd, NSMinX(strip)]];
+    }
+  [table setDataSource: nil];
+  [window orderOut: nil];
+  [defaults removeObjectForKey: @"WinUIThemeOverlayScrollbars"];
+}
+
 /* Whether any item in `menu` or its submenus has `action`, or a submenu
    titled `title`. */
 static BOOL
@@ -7560,6 +7620,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkWindowTabs];
   [self checkPopUpClick];
   [self checkFileDialogFilters];
+  [self checkScrollerStripNarrowsContent];
   [self after: QuirkProbeSettleDelay perform: @selector(createLateWindow:)];
 }
 
