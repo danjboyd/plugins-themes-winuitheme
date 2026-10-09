@@ -8,8 +8,10 @@
 # gnustep-base on Windows takes the home directory from HOMEDRIVE and
 # HOMEPATH (USERPROFILE when HOMEPATH is "\"), and the user defaults from
 # GNUstep\Defaults under it. GNUSTEP_CONFIG_FILE is ignored by MSYS2's
-# build, so a private GNUstep.conf can't be used as on Linux. Processes
-# started while the test home is entered inherit it.
+# build, so a private GNUstep.conf can't be used as on Linux. USERPROFILE
+# is left alone: Windows' shell folders come from it, and with it moved
+# Fontconfig's SHGetFolderPathA calls fail. Processes started while the
+# test home is entered inherit it.
 
 # What the owner's NSGlobalDomain held when the checks were written, and
 # what they assume: no app icon window, Windows-style menus and the
@@ -42,7 +44,6 @@ function Enter-GNUstepTestHome {
   $saved = @{ Path = $path; HOMEDRIVE = $env:HOMEDRIVE; HOMEPATH = $env:HOMEPATH; USERPROFILE = $env:USERPROFILE }
   $env:HOMEDRIVE = $path.Substring(0, 2)
   $env:HOMEPATH = $path.Substring(2)
-  $env:USERPROFILE = $path
   return $saved
 }
 

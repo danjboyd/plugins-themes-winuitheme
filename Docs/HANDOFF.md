@@ -294,7 +294,7 @@ app closes.
   #31), and dusk and desert (two of Windows' contrast themes, #45). The
   exit code is the number of failures.
 - **Isolation:** each run gets a scratch home (`GNUstepTestHome.ps1`:
-  HOMEDRIVE, HOMEPATH and USERPROFILE point under `%TEMP%`, with a fixed
+  HOMEDRIVE and HOMEPATH point under `%TEMP%`, with a fixed
   `NSGlobalDomain`), so the probe and ThemeDemo scripts don't touch the
   owner's `C:\Users\Support\GNUstep\Defaults`. MSYS2's gnustep-base ignores
   `GNUSTEP_CONFIG_FILE`, so Adwaita's private `GNUstep.conf` doesn't work
