@@ -7510,6 +7510,24 @@ QuirkProbeFilterPatterns(NSArray *filters)
   printf("THEME %s\n", [[[[GSTheme theme] bundle] bundlePath] UTF8String] ?: "(default)");
   fflush(stdout);
 
+  /* The native dialogs at run time, alone: Tests/Scripts/Invoke-DialogCheck.ps1
+     runs them, with a driver for Windows 11's print dialog. They show real
+     dialogs and don't depend on the palette, so the other runs leave them. */
+  if ([[[NSUserDefaults standardUserDefaults] stringForKey: @"ProbeOnly"] isEqualToString: @"dialogs"])
+    {
+      /* A document window for the dialogs to belong to, as an app has. */
+      NSWindow *window = [self windowWithFrame: NSMakeRect(200, 300, 420, 240)
+                                         title: @"QuirkProbe Dialogs"];
+
+      [window makeKeyAndOrderFront: nil];
+      [window makeMainWindow];
+      QuirkProbeDispatchEvents(0.5);
+      [self checkPrintDialog];
+      [self checkFileDialogsAtRunTime];
+      [self finish];
+      return;
+    }
+
   [self checkTheme];
   [self checkAccentColor];
   [self checkSubclassImageCell];

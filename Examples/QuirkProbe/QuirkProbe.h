@@ -39,3 +39,9 @@
   BOOL _offersNewTab;
 }
 @end
+
+/* The native dialogs at run time (#20, #69), QuirkProbeDialogs.m. */
+@interface QuirkProbe (Dialogs)
+- (void) checkPrintDialog;
+- (void) checkFileDialogsAtRunTime;
+@end
