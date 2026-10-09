@@ -416,6 +416,66 @@ QuirkProbeModuleOfAddress(void *address)
 }
 @end
 
+#ifdef _WIN32
+/* A point in `window`'s base coordinates as a client-area lParam, the
+   inverse of libs-back's MSWindowPointToGS(). */
+static LPARAM
+QuirkProbeClientLParam(NSWindow *window, NSPoint base)
+{
+  HWND hwnd = (HWND)(intptr_t)[window windowNumber];
+  RECT rect;
+  float l = 0.0, r = 0.0, t = 0.0, b = 0.0;
+  int x;
+  int y;
+
+  GetClientRect(hwnd, &rect);
+  [GSCurrentServer() styleoffsets: &l : &r : &t : &b : [window styleMask]];
+  x = (int)floor(base.x - l + 0.5);
+  y = (int)floor((rect.bottom - rect.top) - (base.y - b) + 0.5);
+  return MAKELPARAM(x, y);
+}
+
+/* Posts a mouse message to `window` as the mouse would send it; the real
+   pointer stays where it is. */
+static void
+QuirkProbePostMouse(NSWindow *window, UINT message, WPARAM buttons, NSPoint base)
+{
+  PostMessageW((HWND)(intptr_t)[window windowNumber], message, buttons,
+               QuirkProbeClientLParam(window, base));
+}
+
+/* Ends a press made with posted messages once the bar tracks it (the
+   timer fires in the tracking run loop mode): notes whether a tab is
+   being dragged, then posts `_message` at `_point`, WM_LBUTTONUP for a
+   release or WM_MOUSEMOVE with no button for one lost with the capture
+   (libs-back makes up a left mouse-up from it). */
+@interface QuirkProbePostedPress : NSObject
+{
+@public
+  NSView *_bar;
+  UINT _message;
+  NSPoint _point;
+  BOOL _fired;
+  BOOL _dragging;
+  NSUInteger _draggedIndex;
+}
+- (void) finish: (NSTimer *)timer;
+@end
+
+@implementation QuirkProbePostedPress
+- (void) finish: (NSTimer *)timer
+{
+  _fired = YES;
+  _dragging = [_bar respondsToSelector: @selector(isDraggingTab)] && [_bar isDraggingTab];
+  if (_dragging)
+    {
+      _draggedIndex = [_bar draggedTabIndex];
+    }
+  QuirkProbePostMouse([_bar window], _message, 0, _point);
+}
+@end
+#endif
+
 /* Notes whether a window was on screen when another one began to close. */
 @interface QuirkProbeCloseWatcher : NSObject
 {
@@ -581,6 +641,8 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkWindowTabDropGap;
 - (void) checkWindowTabKeyRedraw;
 - (void) checkWindowTabMaximizedInBackground;
+- (void) checkWindowTabInBackground: (BOOL)maximized ident: (NSString *)ident;
+- (void) checkWindowTabPostedPresses;
 - (void) checkFileDialogFilters;
 - (void) createLateWindow: (NSTimer *)timer;
 - (void) checkLateWindow: (NSTimer *)timer;
@@ -814,6 +876,7 @@ QuirkProbeLoadAccent(void)
 
 - (void) newWindowForTab: (id)sender
 {
+  _newTabRequests++;
 }
 
 #pragma mark Results
@@ -5888,6 +5951,115 @@ QuirkProbeDragTab(NSView *bar, NSView *view, NSPoint start, const NSPoint *offse
   return capture;
 }
 
+#ifdef _WIN32
+/* Presses `bar` at `start` (its coordinates) with posted messages and
+   moves through `count` offsets from there with the button down; once
+   the bar tracks the press, `message` comes at the last point plus
+   `end` (see QuirkProbePostedPress). Unlike QuirkProbeDragTab's events,
+   these go through libs-back's message handling and the shared code's
+   message hook, as the mouse's do. */
+static QuirkProbePostedPress *
+QuirkProbePostPress(NSView *bar, NSPoint start, const NSPoint *offsets, NSUInteger count,
+                    UINT message, NSPoint end)
+{
+  NSWindow *window = [bar window];
+  QuirkProbePostedPress *press = AUTORELEASE([QuirkProbePostedPress new]);
+  NSPoint origin = [bar convertPoint: start toView: nil];
+  NSPoint last = origin;
+  NSTimer *timer;
+  NSUInteger i;
+
+  QuirkProbeDrainTabEvents();
+  QuirkProbePostMouse(window, WM_LBUTTONDOWN, MK_LBUTTON, origin);
+  for (i = 0; i < count; i++)
+    {
+      last = NSMakePoint(origin.x + offsets[i].x, origin.y + offsets[i].y);
+      QuirkProbePostMouse(window, WM_MOUSEMOVE, MK_LBUTTON, last);
+    }
+  press->_bar = bar;
+  press->_message = message;
+  press->_point = NSMakePoint(last.x + end.x, last.y + end.y);
+  timer = [NSTimer timerWithTimeInterval: 0.3 target: press selector: @selector(finish:)
+                                userInfo: nil repeats: NO];
+  [[NSRunLoop currentRunLoop] addTimer: timer forMode: NSEventTrackingRunLoopMode];
+  QuirkProbeDispatchEvents(0.8);
+  [timer invalidate];
+  if (press->_fired == NO)
+    {
+      /* The bar never tracked it: let the button go, so libs-back
+         releases the capture. */
+      QuirkProbePostMouse(window, WM_LBUTTONUP, 0, last);
+      QuirkProbeDispatchEvents(0.3);
+    }
+  QuirkProbeDrainTabEvents();
+  return press;
+}
+
+/* A quick click at `point` in `bar`: the press and the release posted
+   together, so libs-back has both before the bar tracks the press. */
+static void
+QuirkProbePostClick(NSView *bar, NSPoint point)
+{
+  NSWindow *window = [bar window];
+  NSPoint base = [bar convertPoint: point toView: nil];
+
+  QuirkProbeDrainTabEvents();
+  QuirkProbePostMouse(window, WM_LBUTTONDOWN, MK_LBUTTON, base);
+  QuirkProbePostMouse(window, WM_LBUTTONUP, 0, base);
+  QuirkProbeDispatchEvents(0.5);
+  QuirkProbeDrainTabEvents();
+}
+
+/* The first window of `windows` on screen. */
+static NSWindow *
+QuirkProbeVisibleTab(NSArray *windows)
+{
+  NSEnumerator *enumerator = [windows objectEnumerator];
+  NSWindow *window = nil;
+
+  while ((window = [enumerator nextObject]) != nil)
+    {
+      if ([window isVisible])
+        {
+          return window;
+        }
+    }
+  return nil;
+}
+
+/* What's wrong with `tab`, shown in a group that isn't key after `step`,
+   or nil: it should be maximized as the group was, not key, and the
+   other window should stay key with Windows' foreground (`front`). */
+static NSString *
+QuirkProbeBackgroundTabProblem(NSWindow *tab, BOOL maximized, NSWindow *other, HWND front, NSString *step)
+{
+  HWND handle;
+  HWND otherHandle = (HWND)(intptr_t)[other windowNumber];
+
+  if (tab == nil)
+    {
+      return [NSString stringWithFormat: @"after %@ no tab is on screen", step];
+    }
+  handle = (HWND)(intptr_t)[tab windowNumber];
+  if ((IsZoomed(handle) != 0) != maximized)
+    {
+      return [NSString stringWithFormat: @"after %@ the tab shown is %@maximized", step,
+                       maximized ? @"not " : @""];
+    }
+  if ([tab isKeyWindow] || [other isKeyWindow] == NO)
+    {
+      return [NSString stringWithFormat: @"after %@ the tab is key %d, the other window key %d", step,
+                       (int)[tab isKeyWindow], (int)[other isKeyWindow]];
+    }
+  if (front != otherHandle)
+    {
+      return [NSString stringWithFormat: @"after %@ Windows' foreground is %p (the tab %p, the other window %p)",
+                       step, (void *)front, (void *)handle, (void *)otherHandle];
+    }
+  return nil;
+}
+#endif
+
 static NSArray *
 QuirkProbeTabTitles(NSWindow *window)
 {
@@ -6344,85 +6516,284 @@ QuirkProbeTabBrightness(NSUInteger rgb[3])
   [self closeTabbedWindows: windows];
 }
 
-/* A tab selected in a group that isn't key, while the group is
-   maximized, is shown maximized without taking key status from the key
-   window. Windows' foreground is reported as KNOWN when the tab takes it:
+/* A tab selected, or shown when the selected tab closes, in a group
+   that isn't key is shown as the group is (maximized or not) without
+   taking key status or Windows' foreground from the key window.
    libs-back's -orderwindow::: calls SetForegroundWindow() for a window
-   ordered to the top (the tab's -orderFront:, maximized or not), and the
-   shared code (fd064ee) reads the foreground to hand back only after
-   that, in GSWindowTabbingDidShowMaximized(), when it is already the tab.
-   GNUstep's key window doesn't follow (libs-back turns its callbacks off
-   around that call), so the key window is left behind the tab, without
-   the foreground. Same with the shared code at ed47a49 and the theme's
-   placement fix. */
+   ordered to the top (the tab's -orderFront:); the shared code reads the
+   foreground before it orders the tab in and gives it back when the tab
+   isn't to be key, maximized or not (92aaf00). Up to fd064ee it read it
+   only afterwards, from the tab, and only when maximized, so the tab
+   kept the foreground (this check was KNOWN). */
 - (void) checkWindowTabMaximizedInBackground
 {
+  [self checkWindowTabInBackground: YES ident: @"window-tab-maximized-in-background"];
+  [self checkWindowTabInBackground: NO ident: @"window-tab-restored-in-background"];
+}
+
+- (void) checkWindowTabInBackground: (BOOL)maximized ident: (NSString *)ident
+{
 #ifdef _WIN32
-  NSArray *windows = [self makeTabbedWindows: 2 frame: NSMakeRect(120, 220, 480, 160)
-                                  identifier: @"QuirkProbe Background"];
+  NSArray *windows = [self makeTabbedWindows: 3 frame: NSMakeRect(120, 220, 480, 160)
+                                  identifier: maximized ? @"QuirkProbe Background" : @"QuirkProbe Restored"];
   NSWindow *other = [self windowWithFrame: NSMakeRect(640, 220, 200, 100)
                                     title: @"QuirkProbe Background Other"];
   NSWindow *shown;
   NSWindow *next;
-  HWND shownHandle;
-  HWND nextHandle;
+  NSWindow *neighbour;
   HWND otherHandle;
-  HWND frontBefore;
-  HWND frontAfter;
-  BOOL zoomed;
+  HWND front;
+  NSString *problem;
 
   if (windows == nil)
     {
-      [self skip: @"window-tab-maximized-in-background" detail: @"no tabbing API"];
+      [self skip: ident detail: @"no tabbing API"];
       [other close];
       return;
     }
-  shown = [[windows objectAtIndex: 0] isVisible] ? [windows objectAtIndex: 0] : [windows objectAtIndex: 1];
-  next = (shown == [windows objectAtIndex: 0]) ? [windows objectAtIndex: 1] : [windows objectAtIndex: 0];
-  shownHandle = (HWND)(intptr_t)[shown windowNumber];
-  nextHandle = (HWND)(intptr_t)[next windowNumber];
+  shown = QuirkProbeVisibleTab(windows);
   otherHandle = (HWND)(intptr_t)[other windowNumber];
-  ShowWindow(shownHandle, SW_MAXIMIZE);
-  QuirkProbeDispatchEvents(0.4);
+  if (maximized && shown != nil)
+    {
+      ShowWindow((HWND)(intptr_t)[shown windowNumber], SW_MAXIMIZE);
+      QuirkProbeDispatchEvents(0.4);
+    }
   [other makeKeyAndOrderFront: nil];
   QuirkProbeDispatchEvents(0.4);
-  if ([other isKeyWindow] == NO || IsZoomed(shownHandle) == 0)
+  if (GetForegroundWindow() != otherHandle)
     {
-      [self skip: @"window-tab-maximized-in-background" detail:
-        [NSString stringWithFormat: @"set-up: the other window key %d, the group maximized %d",
-                  (int)[other isKeyWindow], (int)(IsZoomed(shownHandle) != 0)]];
+      SetForegroundWindow(otherHandle);
+      QuirkProbeDispatchEvents(0.2);
+    }
+  front = GetForegroundWindow();
+  if (shown == nil || [other isKeyWindow] == NO || front != otherHandle
+      || (IsZoomed((HWND)(intptr_t)[shown windowNumber]) != 0) != maximized)
+    {
+      [self skip: ident detail:
+        [NSString stringWithFormat: @"set-up: the other window key %d, the foreground %p (the other window %p), the group maximized %d",
+                  (int)[other isKeyWindow], (void *)front, (void *)otherHandle,
+                  (int)(shown != nil && IsZoomed((HWND)(intptr_t)[shown windowNumber]) != 0)]];
     }
   else
     {
-      frontBefore = GetForegroundWindow();
       [shown selectNextTab: nil];
       QuirkProbeDispatchEvents(0.6);
-      frontAfter = GetForegroundWindow();
-      zoomed = [next isVisible] && IsZoomed(nextHandle);
-      if (zoomed && [other isKeyWindow] && [next isKeyWindow] == NO
-          && frontAfter != nextHandle)
+      next = QuirkProbeVisibleTab(windows);
+      problem = QuirkProbeBackgroundTabProblem(next, maximized, other, GetForegroundWindow(),
+                                               @"selecting the next tab");
+      if (problem == nil && next == shown)
         {
-          [self pass: @"window-tab-maximized-in-background" detail:
-            [NSString stringWithFormat: @"the new tab is maximized; the other window stays key, the foreground %@",
-                      frontBefore == otherHandle
-                        ? (frontAfter == otherHandle ? @"stays with it" : @"moved elsewhere, not to the tab")
-                        : @"wasn't the probe's (not taken by the tab)"]];
+          problem = @"selecting the next tab left the same tab on screen";
         }
-      else if (zoomed && [other isKeyWindow] && [next isKeyWindow] == NO)
+      if (problem == nil)
         {
-          [self known: @"window-tab-maximized-in-background" detail:
-            [NSString stringWithFormat: @"the new tab is maximized and the other window stays key, but Windows' foreground went to the tab (before %p, the other window's %p; after %p): libs-back's -orderwindow::: brings a window ordered to the top to the foreground",
-                      (void *)frontBefore, (void *)otherHandle, (void *)frontAfter]];
+          [next close];
+          QuirkProbeDispatchEvents(0.6);
+          neighbour = QuirkProbeVisibleTab(windows);
+          problem = QuirkProbeBackgroundTabProblem(neighbour, maximized, other, GetForegroundWindow(),
+                                                   @"closing the selected tab");
+        }
+      if (problem == nil)
+        {
+          [self pass: ident detail:
+            [NSString stringWithFormat: @"the next tab, then its neighbour once it closed, shown %@; the other window stays key and keeps the foreground",
+                      maximized ? @"maximized" : @"restored"]];
         }
       else
         {
-          [self fail: @"window-tab-maximized-in-background" detail:
-            [NSString stringWithFormat: @"the new tab maximized %d, key %d; the other window key %d; foreground before %p (other %p), after %p (the tab %p)",
-                      (int)zoomed, (int)[next isKeyWindow], (int)[other isKeyWindow],
-                      (void *)frontBefore, (void *)otherHandle, (void *)frontAfter, (void *)nextHandle]];
+          [self fail: ident detail: problem];
         }
     }
   [other close];
+  [self closeTabbedWindows: windows];
+  QuirkProbeDispatchEvents(0.2);
+#endif
+}
+
+/* Presses made with posted messages, which go through libs-back's
+   message handling as the mouse's do. libs-back's Windows server makes
+   up a left mouse-up when the pointer moves with the button no longer
+   down (the capture was lost and the release went elsewhere); since
+   a052823 the bar tells it from a real release with a message hook and
+   cancels the press: a dragged tab goes back to its slot, and "+" and
+   close don't act. Before, it was a release: the tab dropped where the
+   pointer was, and the buttons clicked. A real release still drops a
+   tab and clicks, slow or quick. */
+- (void) checkWindowTabPostedPresses
+{
+#ifdef _WIN32
+  NSArray *windows = [self makeTabbedWindows: 5 frame: NSMakeRect(120, 220, 1000, 160)
+                                  identifier: @"QuirkProbe Posted"];
+  NSWindow *first = [windows objectAtIndex: 0];
+  NSView *bar = QuirkProbeFindTabBar([[first contentView] superview]);
+  NSString *missing = nil;
+  NSArray *before;
+  NSArray *after;
+  CGFloat width;
+  NSPoint path[3];
+
+  if (windows == nil)
+    {
+      missing = @"NSWindow lacks Apple's tabbing API";
+    }
+  else if (bar == nil || [bar window] != first || [bar numberOfTabs] != 5)
+    {
+      missing = [NSString stringWithFormat: @"five tabbed windows show no bar with five tabs (bar %@)", bar];
+    }
+  else if ([bar respondsToSelector: @selector(isDraggingTab)] == NO)
+    {
+      missing = @"tabs can't be dragged (no -isDraggingTab: the shared code before phase 2)";
+    }
+  else if ([bar maximumScrollOffset] > 0.0)
+    {
+      /* The last tab's close button must be in sight. */
+      missing = [NSString stringWithFormat: @"five tabs don't fit in %@", NSStringFromRect([bar tabsRect])];
+    }
+  if (missing != nil)
+    {
+      [self fail: @"window-tab-lost-capture-cancels" detail: missing];
+      [self fail: @"window-tab-posted-release-drops" detail: missing];
+      [self fail: @"window-tab-posted-clicks" detail: missing];
+      [self fail: @"window-tab-lost-capture-no-click" detail: missing];
+      [self closeTabbedWindows: windows];
+      return;
+    }
+  width = [bar tabWidth];
+  path[0] = NSMakePoint(12.0, 0.0);
+  path[1] = NSMakePoint(0.3 * width, 0.0);
+  path[2] = NSMakePoint(0.6 * width, 0.0);
+
+  /* The first tab dragged 0.6 of a tab along, then a move with no button
+     a further 0.6 along: cancelled, the tabs as they were and the tab
+     back in its slot. Before a052823 it dropped a slot or two along. */
+  {
+    NSRect tab = [bar rectForTabAtIndex: 0];
+    QuirkProbePostedPress *press;
+    NSRect back;
+
+    before = QuirkProbeTabTitles(first);
+    press = QuirkProbePostPress(bar, NSMakePoint(NSMidX(tab) - 20.0, NSMidY([bar bounds])), path, 3,
+                                WM_MOUSEMOVE, NSMakePoint(0.6 * width, 0.0));
+    after = QuirkProbeTabTitles(first);
+    back = [bar rectForTabAtIndex: 0];
+    if (press->_fired == NO || press->_dragging == NO || press->_draggedIndex != 0)
+      {
+        [self fail: @"window-tab-lost-capture-cancels" detail:
+          [NSString stringWithFormat: @"no drag tracked from posted messages (tracked %d, dragging %d, tab %lu)",
+                    (int)press->_fired, (int)press->_dragging, (unsigned long)press->_draggedIndex]];
+      }
+    else if ([after isEqual: before] && [bar isDraggingTab] == NO && [first isVisible]
+             && fabs(NSMinX(back) - NSMinX(tab)) < 0.5 && fabs(NSWidth(back) - NSWidth(tab)) < 0.5)
+      {
+        [self pass: @"window-tab-lost-capture-cancels" detail:
+          [NSString stringWithFormat: @"dragged, then a move with no button: cancelled, the tab back at %@",
+                    NSStringFromRect(back)]];
+      }
+    else
+      {
+        [self fail: @"window-tab-lost-capture-cancels" detail:
+          [NSString stringWithFormat: @"tabs %@ (before %@), still dragging %d, the tab at %@ (was %@)",
+                    [after componentsJoinedByString: @", "], [before componentsJoinedByString: @", "],
+                    (int)[bar isDraggingTab], NSStringFromRect(back), NSStringFromRect(tab)]];
+      }
+  }
+
+  /* The selected tab dragged the same way and let go with WM_LBUTTONUP:
+     dropped in the next slot. (Each part works on the tab on screen, in
+     case the one before left another.) */
+  first = QuirkProbeVisibleTab(windows);
+  bar = QuirkProbeFindTabBar([[first contentView] superview]);
+  {
+    NSUInteger index = [[first tabbedWindows] indexOfObjectIdenticalTo: first];
+    NSRect tab = [bar rectForTabAtIndex: index];
+    QuirkProbePostedPress *press;
+    NSMutableArray *want = [NSMutableArray arrayWithArray: QuirkProbeTabTitles(first)];
+
+    [want exchangeObjectAtIndex: index withObjectAtIndex: index + 1];
+    press = QuirkProbePostPress(bar, NSMakePoint(NSMidX(tab) - 20.0, NSMidY([bar bounds])), path, 3,
+                                WM_LBUTTONUP, NSZeroPoint);
+    after = QuirkProbeTabTitles(first);
+    if (press->_dragging && [after isEqual: want] && [first isVisible] && [bar isDraggingTab] == NO)
+      {
+        [self pass: @"window-tab-posted-release-drops" detail: @"dropped in the next slot, and still the selected tab"];
+      }
+    else
+      {
+        [self fail: @"window-tab-posted-release-drops" detail:
+          [NSString stringWithFormat: @"dragging %d; tabs %@ (want %@)", (int)press->_dragging,
+                    [after componentsJoinedByString: @", "], [want componentsJoinedByString: @", "]]];
+      }
+  }
+
+  /* "+" and the last tab's close button (the selected tab is one of the
+     first three): a move with no button while pressed doesn't act;
+     WM_LBUTTONUP while the bar tracks the press, and a quick click (both
+     posted at once), do. */
+  {
+    NSRect plus;
+    NSPoint plusPoint;
+    NSUInteger requests[3];
+    NSUInteger tabs[4];
+    NSUInteger last;
+    NSRect close;
+
+    first = QuirkProbeVisibleTab(windows);
+    bar = QuirkProbeFindTabBar([[first contentView] superview]);
+    _offersNewTab = YES;
+    [bar setNeedsDisplay: YES];
+    [first display];
+    plus = [bar newTabButtonRect];
+    plusPoint = NSMakePoint(NSMidX(plus), NSMidY(plus));
+    _newTabRequests = 0;
+    (void)QuirkProbePostPress(bar, plusPoint, NULL, 0, WM_MOUSEMOVE, NSMakePoint(2.0, 0.0));
+    requests[0] = _newTabRequests;
+    (void)QuirkProbePostPress(bar, plusPoint, NULL, 0, WM_LBUTTONUP, NSZeroPoint);
+    requests[1] = _newTabRequests;
+    QuirkProbePostClick(bar, plusPoint);
+    requests[2] = _newTabRequests;
+    _offersNewTab = NO;
+
+    tabs[0] = [[first tabbedWindows] count];
+    last = [bar numberOfTabs] - 1;
+    close = [bar closeButtonRectForTabAtIndex: last];
+    (void)QuirkProbePostPress(bar, NSMakePoint(NSMidX(close), NSMidY(close)), NULL, 0,
+                              WM_MOUSEMOVE, NSMakePoint(2.0, 0.0));
+    tabs[1] = [[first tabbedWindows] count];
+    last = [bar numberOfTabs] - 1;
+    close = [bar closeButtonRectForTabAtIndex: last];
+    (void)QuirkProbePostPress(bar, NSMakePoint(NSMidX(close), NSMidY(close)), NULL, 0,
+                              WM_LBUTTONUP, NSZeroPoint);
+    tabs[2] = [[first tabbedWindows] count];
+    last = [bar numberOfTabs] - 1;
+    close = [bar closeButtonRectForTabAtIndex: last];
+    QuirkProbePostClick(bar, NSMakePoint(NSMidX(close), NSMidY(close)));
+    tabs[3] = [[first tabbedWindows] count];
+
+    if (requests[0] == 0 && tabs[1] == tabs[0])
+      {
+        [self pass: @"window-tab-lost-capture-no-click" detail:
+          @"a move with no button while \"+\" or a close button was pressed: no new tab, no tab closed"];
+      }
+    else
+      {
+        [self fail: @"window-tab-lost-capture-no-click" detail:
+          [NSString stringWithFormat: @"after a move with no button: %lu new-tab requests from \"+\"; %lu tabs from %lu at the close button",
+                    (unsigned long)requests[0], (unsigned long)tabs[1], (unsigned long)tabs[0]]];
+      }
+    if (requests[1] == requests[0] + 1 && requests[2] == requests[1] + 1
+        && tabs[2] + 1 == tabs[1] && tabs[3] + 1 == tabs[2])
+      {
+        [self pass: @"window-tab-posted-clicks" detail:
+          @"\"+\" and a close button each acted once on a release while pressed and once on a quick click"];
+      }
+    else
+      {
+        [self fail: @"window-tab-posted-clicks" detail:
+          [NSString stringWithFormat: @"new-tab requests %lu, %lu, %lu; tabs %lu, %lu, %lu, %lu (want one more request, then one fewer tab, at each)",
+                    (unsigned long)requests[0], (unsigned long)requests[1], (unsigned long)requests[2],
+                    (unsigned long)tabs[0], (unsigned long)tabs[1], (unsigned long)tabs[2], (unsigned long)tabs[3]]];
+      }
+  }
   [self closeTabbedWindows: windows];
   QuirkProbeDispatchEvents(0.2);
 #endif
@@ -8242,6 +8613,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkWindowTabDropGap];
   [self checkWindowTabKeyRedraw];
   [self checkWindowTabMaximizedInBackground];
+  [self checkWindowTabPostedPresses];
   [self checkPopUpClick];
   [self checkFileDialogFilters];
   [self after: QuirkProbeSettleDelay perform: @selector(createLateWindow:)];

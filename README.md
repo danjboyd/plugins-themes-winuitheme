@@ -195,7 +195,13 @@ Up/Down switch tabs even from a text view. A tab keeps its group's frame
 when the theme gives it the menu bar. Tabs are dragged along the bar to
 reorder them, or pulled 32pt above or below it into a window of their own
 or onto another window's bar; tabs that don't fit at their minimum width
-scroll with the wheel.
+scroll with the wheel. A tab shown in a group that isn't key (selected,
+or shown because the selected tab closed) leaves Windows' foreground with
+the key window, maximized or not. A press on the bar whose release went
+elsewhere after the capture was lost (libs-back's Windows server makes a
+release up from the next move with no button down) is cancelled: a dragged
+tab goes back to its slot, and "+" and the close buttons don't act. Escape
+cancels a drag too.
 
 The theme draws the bar as WinUI's TabView (Notepad, Terminal), from its
 `generic.xaml` resources: a 40px strip (8px above 32px tabs) on a step
