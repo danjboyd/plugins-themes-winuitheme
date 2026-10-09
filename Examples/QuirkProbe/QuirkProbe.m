@@ -527,8 +527,34 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) createLateWindow: (NSTimer *)timer;
 - (void) checkLateWindow: (NSTimer *)timer;
 - (void) checkMenuBarTitles: (NSWindow *)window;
+- (void) checkPopoverFlyout;
 - (void) checkThemeSwitchRestoresMethods;
 - (void) finish;
+@end
+
+/* Popover panels for checkPopoverFlyout: one marked for the theme, as
+   ScreenshotTool's STFloatingPopoverWindow is, and one not. */
+@protocol GSThemePopoverPanel
+@end
+
+@interface QuirkProbeFlyoutPanel : NSPanel <GSThemePopoverPanel>
+@end
+
+@implementation QuirkProbeFlyoutPanel
+- (BOOL) canBecomeKeyWindow
+{
+  return YES;
+}
+@end
+
+@interface QuirkProbePlainPanel : NSPanel
+@end
+
+@implementation QuirkProbePlainPanel
+- (BOOL) canBecomeKeyWindow
+{
+  return YES;
+}
 @end
 
 /* A document view in mid grey, 128 in each channel, for telling a scroll
@@ -7105,6 +7131,114 @@ QuirkProbeInkIn(NSBitmapImageRep *rep, NSRect area, NSInteger fill, NSInteger th
     }
 }
 
+/* Popover panels as WinUI flyouts (ScreenshotTool #67): a panel whose
+   class adopts GSThemePopoverPanel gets the flyout fill (an app's
+   STFloatingPopoverWindow leaves its background clear for the theme), is a
+   tool window owned by the main window (#30), and can still become key; an
+   unmarked borderless panel is left as it is. */
+- (void) checkPopoverFlyout
+{
+  NSRect frame = NSMakeRect(620, 420, 160, 120);
+  NSPanel *marked = AUTORELEASE([[QuirkProbeFlyoutPanel alloc] initWithContentRect: frame
+                                                                         styleMask: NSBorderlessWindowMask
+                                                                           backing: NSBackingStoreBuffered
+                                                                             defer: NO]);
+  NSPanel *plain = AUTORELEASE([[QuirkProbePlainPanel alloc] initWithContentRect: NSOffsetRect(frame, 180, 0)
+                                                                        styleMask: NSBorderlessWindowMask
+                                                                          backing: NSBackingStoreBuffered
+                                                                            defer: NO]);
+  NSWindow *mainWindow = [NSApp mainWindow];
+  NSColor *expected = [[[GSTheme theme] colorNamed: @"menuBackgroundColor" state: GSThemeNormalState]
+                        colorUsingColorSpaceName: NSCalibratedRGBColorSpace];
+  NSBitmapImageRep *rep = nil;
+  NSColor *seen = nil;
+  NSColor *plainSeen = nil;
+  BOOL drawsKey = [[[[GSTheme theme] infoDictionary] objectForKey: @"GSThemeDrawsPopoverPanels"] boolValue];
+  NSMutableArray *problems = [NSMutableArray array];
+  NSPanel *panels[2];
+  NSUInteger index;
+
+  panels[0] = marked;
+  panels[1] = plain;
+  for (index = 0; index < 2; index++)
+    {
+      [panels[index] setLevel: NSPopUpMenuWindowLevel];
+      [panels[index] setOpaque: NO];
+      [panels[index] setBackgroundColor: [NSColor clearColor]];
+      [panels[index] setHasShadow: YES];
+      [panels[index] orderFront: nil];
+      [panels[index] display];
+    }
+  QuirkProbeDispatchEvents(0.3);
+
+  rep = QuirkProbeRender([[marked contentView] superview]);
+  seen = [[rep colorAtX: [rep pixelsWide] / 2 y: [rep pixelsHigh] / 2]
+           colorUsingColorSpaceName: NSCalibratedRGBColorSpace];
+  rep = QuirkProbeRender([[plain contentView] superview]);
+  plainSeen = [[rep colorAtX: [rep pixelsWide] / 2 y: [rep pixelsHigh] / 2]
+                colorUsingColorSpaceName: NSCalibratedRGBColorSpace];
+  [self saveView: [[marked contentView] superview] named: @"popover-flyout"];
+
+  if (drawsKey == NO)
+    {
+      [problems addObject: @"the theme doesn't declare GSThemeDrawsPopoverPanels"];
+    }
+  if (expected == nil || seen == nil || [seen alphaComponent] < 0.99
+      || fabs([seen redComponent] - [expected redComponent]) > 0.03
+      || fabs([seen greenComponent] - [expected greenComponent]) > 0.03
+      || fabs([seen blueComponent] - [expected blueComponent]) > 0.03)
+    {
+      [problems addObject: [NSString stringWithFormat: @"the marked panel is %@, not the flyout fill %@",
+                                                       seen, expected]];
+    }
+  if (plainSeen != nil && [plainSeen alphaComponent] > 0.01)
+    {
+      [problems addObject: [NSString stringWithFormat: @"the unmarked panel was filled (%@)", plainSeen]];
+    }
+#ifdef _WIN32
+  {
+    HWND hwnd = (HWND)[marked windowHandle];
+    HWND plainHwnd = (HWND)[plain windowHandle];
+    HWND mainHwnd = (mainWindow != nil) ? (HWND)[mainWindow windowHandle] : NULL;
+
+    if ((GetWindowLongPtrW(hwnd, GWL_EXSTYLE) & WS_EX_TOOLWINDOW) == 0)
+      {
+        [problems addObject: @"the marked panel isn't a tool window"];
+      }
+    if (mainHwnd != NULL && GetWindow(hwnd, GW_OWNER) != mainHwnd)
+      {
+        [problems addObject: @"the marked panel isn't owned by the main window"];
+      }
+    if (mainHwnd != NULL && GetWindow(plainHwnd, GW_OWNER) == mainHwnd)
+      {
+        [problems addObject: @"the unmarked panel was given an owner"];
+      }
+  }
+#endif
+  [marked makeKeyWindow];
+  QuirkProbeDispatchEvents(0.2);
+  if ([marked isKeyWindow] == NO && [marked canBecomeKeyWindow] == NO)
+    {
+      [problems addObject: @"the marked panel can't become key"];
+    }
+
+  if ([problems count] == 0)
+    {
+      [self pass: @"popover-flyout" detail:
+        @"a GSThemePopoverPanel panel gets the flyout fill, is an owned tool window and can become key; an unmarked one is left alone"];
+    }
+  else
+    {
+      [self fail: @"popover-flyout" detail: [problems componentsJoinedByString: @"; "]];
+    }
+  [marked orderOut: nil];
+  [plain orderOut: nil];
+  if (mainWindow != nil)
+    {
+      [mainWindow makeKeyAndOrderFront: nil];
+    }
+}
+
 /* Whether any item in `menu` or its submenus has `action`, or a submenu
    titled `title`. */
 static BOOL
@@ -7560,6 +7694,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkWindowTabs];
   [self checkPopUpClick];
   [self checkFileDialogFilters];
+  [self checkPopoverFlyout];
   [self after: QuirkProbeSettleDelay perform: @selector(createLateWindow:)];
 }
 
