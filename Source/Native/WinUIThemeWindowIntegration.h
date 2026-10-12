@@ -38,6 +38,12 @@ void WinUIThemeWindowIntegrationReloadTheme(WinUITheme *theme);
 void WinUIThemeWindowIntegrationSynchronizeWindow(NSWindow *window);
 void WinUIThemeWindowIntegrationForgetWindow(NSWindow *window);
 void WinUIThemeWindowIntegrationRoundPopupWindow(NSWindow *window, BOOL small, NSColor *borderColor);
+
+/* The app's name as Windows shows it (CFBundleDisplayName, CFBundleName,
+   ApplicationName, then the process name), and a window's title as its
+   caption shows it: "name - App" for a document, "*" while edited (#33). */
+NSString *WinUIThemeApplicationDisplayName(void);
+NSString *WinUIThemeDisplayTitle(NSWindow *window);
 /* A popover panel as a WinUI flyout: rounded as a menu, owned by the main
    window and kept out of the taskbar and Alt+Tab (#30). */
 void WinUIThemeWindowIntegrationMakeFlyout(NSWindow *window, NSColor *borderColor);
