@@ -119,6 +119,7 @@ public sealed partial class MainWindow : Window
         _pages.Add(new ReferencePage("dialogs", "Dialogs", "Feedback, confirmation, and file-panel previews for shell-value surfaces.", BuildDialogsPage));
         _pages.Add(new ReferencePage("real-app", "Real App", "A document-oriented shell and editor preview for ObjcMarkdown-style review.", BuildRealAppPage));
         _pages.Add(new ReferencePage("surfaces", "More Surfaces", "Colour, date and level controls, groups, forms, column browsing, tool tips and icons.", BuildSurfacesPage));
+        _pages.Add(new ReferencePage("specimens", "Specimens", "One of each control at fixed positions, measured against ThemeDemo's.", BuildSpecimensPage));
     }
 
     private void PageSelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -491,6 +492,46 @@ public sealed partial class MainWindow : Window
             };
         };
         return Row(show, result);
+    }
+
+    /* One of each control at a fixed place on a canvas, the same places as
+       ThemeDemo's specimens page, for Tests/Scripts/Compare-Reference.ps1 to
+       measure. The magenta square marks the canvas's top left; the canvas
+       has no fill of its own, so the controls sit on the page background, as
+       ThemeDemo's do on the window background. Keep the two in step with
+       Tests/Scripts/measure_specimens.py. */
+    private void BuildSpecimensPage(StackPanel host)
+    {
+        var canvas = new Canvas { Width = 720, Height = 200, HorizontalAlignment = HorizontalAlignment.Left };
+        var combo = new ComboBox { Width = 160 };
+
+        combo.Items.Add("Item");
+        combo.SelectedIndex = 0;
+        Place(canvas, new Microsoft.UI.Xaml.Shapes.Rectangle
+        {
+            Width = 8,
+            Height = 8,
+            Fill = new SolidColorBrush(Color.FromArgb(255, 255, 0, 255))
+        }, 0, 0);
+        Place(canvas, new Button { Content = "Button", Width = 120 }, 16, 24);
+        var accent = AccentButton("Accent");
+        accent.Width = 120;
+        Place(canvas, accent, 152, 24);
+        Place(canvas, new TextBox { Text = "Text", Width = 200 }, 288, 24);
+        Place(canvas, combo, 504, 24);
+        Place(canvas, new CheckBox { Content = "Check", IsChecked = true }, 16, 88);
+        Place(canvas, new ToggleSwitch { IsOn = true, OnContent = "", OffContent = "" }, 152, 88);
+        Place(canvas, new Slider { Minimum = 0, Maximum = 100, Value = 50, Width = 200 }, 288, 88);
+        Place(canvas, new ProgressBar { Minimum = 0, Maximum = 100, Value = 50, Width = 160 }, 504, 100);
+        Place(canvas, new TextBlock { Text = "The quick brown fox jumps over the lazy dog", FontSize = 14 }, 16, 152);
+        host.Children.Add(canvas);
+    }
+
+    private static void Place(Canvas canvas, UIElement element, double left, double top)
+    {
+        Canvas.SetLeft(element, left);
+        Canvas.SetTop(element, top);
+        canvas.Children.Add(element);
     }
 
     private void BuildSurfacesPage(StackPanel host)

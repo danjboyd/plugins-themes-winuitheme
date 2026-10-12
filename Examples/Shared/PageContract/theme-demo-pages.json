@@ -216,6 +216,28 @@
           ]
         }
       ]
+    },
+    {
+      "id": "specimens",
+      "title": "Specimens",
+      "description": "One of each control at fixed positions, measured against the WinUI 3 reference app's.",
+      "sections": [
+        {
+          "id": "specimens",
+          "title": "Specimens",
+          "fixtures": [
+            { "id": "button", "kind": "button", "title": "Button" },
+            { "id": "accent-button", "kind": "button", "title": "Accent button" },
+            { "id": "text-box", "kind": "text", "title": "Text box" },
+            { "id": "combo-box", "kind": "choice", "title": "Combo box" },
+            { "id": "check-box", "kind": "toggle", "title": "Check box" },
+            { "id": "toggle-switch", "kind": "toggle", "title": "Toggle switch" },
+            { "id": "slider", "kind": "range", "title": "Slider" },
+            { "id": "progress-bar", "kind": "range", "title": "Progress bar" },
+            { "id": "body-text", "kind": "text", "title": "Body text" }
+          ]
+        }
+      ]
     }
   ]
 }
