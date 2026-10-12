@@ -1180,6 +1180,28 @@ QuirkProbeToolbarIconInk(NSView *toolbarView)
    image changed under it, and after a relayout ScreenshotTool's 32pt
    icons drew at about 12px. WinUI's AppBarButton draws its icon at 20px
    whatever the source's size. */
+/* The darkest pixel's red, green and blue summed, over the whole render. */
+static NSInteger
+QuirkProbeDarkest(NSBitmapImageRep *rep)
+{
+  NSInteger darkest = 3 * 255;
+  NSInteger x, y;
+
+  for (y = 0; y < [rep pixelsHigh]; y++)
+    {
+      for (x = 0; x < [rep pixelsWide]; x++)
+        {
+          NSUInteger red, green, blue;
+
+          if (QuirkProbePixel(rep, x, y, &red, &green, &blue))
+            {
+              darkest = MIN(darkest, (NSInteger)(red + green + blue));
+            }
+        }
+    }
+  return darkest;
+}
+
 - (void) checkToolbarIconSize
 {
   NSWindow *window = [self windowWithFrame: NSMakeRect(320, 440, 360, 140)
@@ -1250,6 +1272,42 @@ QuirkProbeToolbarIconInk(NSView *toolbarView)
     {
       [self fail: @"toolbar-icon-image-kept" detail: detail];
     }
+
+  /* A disabled item's icon, drawn at half opacity, drawn again by its
+     button alone: it must not darken towards looking enabled
+     (ScreenshotTool's Redo at a 1.5 UI scale). */
+  {
+    NSToolbarItem *item = [[toolbar items] objectAtIndex: 0];
+    NSView *button = QuirkProbeFindViewOfClass(toolbarView, NSClassFromString(@"GSToolbarButton"));
+    NSInteger once, again;
+
+    [item setAction: NULL];
+    [item setEnabled: NO];
+    [window display];
+    if (button == nil || [(NSControl *)button isEnabled])
+      {
+        [self skip: @"toolbar-disabled-icon-redraw" detail: @"no disabled toolbar button"];
+      }
+    else
+      {
+        once = QuirkProbeDarkest(QuirkProbeRender(button));
+        [button displayRectIgnoringOpacity: [button bounds]];
+        [button displayRectIgnoringOpacity: [button bounds]];
+        again = QuirkProbeDarkest(QuirkProbeRender(button));
+        detail = [NSString stringWithFormat: @"darkest pixel %ld drawn once, %ld drawn twice more by the button alone",
+                                             (long)once, (long)again];
+        if (llabs((long long)(once - again)) <= 6)
+          {
+            [self pass: @"toolbar-disabled-icon-redraw" detail: detail];
+          }
+        else
+          {
+            [self fail: @"toolbar-disabled-icon-redraw" detail: detail];
+          }
+      }
+    [item setTarget: self];
+    [item setAction: @selector(toolbarItemClicked:)];
+  }
   [window setToolbar: nil];
   [window orderOut: nil];
 }
