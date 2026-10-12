@@ -225,6 +225,10 @@ NSColor *WinUIThemeCardStrokeColor(WinUITheme *theme);
 NSColor *WinUIThemeDividerColor(WinUITheme *theme);
 void WinUIThemeSyncBrowserColumn(NSScrollView *scrollView);
 
+/* A popover panel the app marked for the theme (its class adopts
+   GSThemePopoverPanel), drawn as a WinUI flyout (WinUIThemeFlyouts.m). */
+BOOL WinUIThemeWindowIsFlyout(NSWindow *window);
+
 /* The menu bar from the keyboard (#78) and its overflow (#77),
    WinUIThemeMenuBarKeyboard.m. -[NSApplication sendEvent:] offers it each
    event first; YES when it took the event. */

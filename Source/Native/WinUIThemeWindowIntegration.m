@@ -1150,3 +1150,52 @@ WinUIThemeWindowIntegrationRoundPopupWindow(NSWindow *window,
   (void)borderColor;
 #endif
 }
+
+static char WinUIThemeFlyoutOwnerKey;
+
+void
+WinUIThemeWindowIntegrationMakeFlyout(NSWindow *window, NSColor *borderColor)
+{
+#ifdef _WIN32
+  HWND hwnd = WinUIThemeWindowHandle(window);
+  NSWindow *ownerWindow = [NSApp mainWindow];
+  HWND owner = NULL;
+  NSString *request = nil;
+  LONG_PTR exStyle = 0;
+
+  if (hwnd == NULL)
+    {
+      return;
+    }
+  WinUIThemeWindowIntegrationRoundPopupWindow(window, NO, borderColor);
+
+  /* Owned by the app's main window (#30), so it stays above it and goes
+     with it, and a tool window, out of the taskbar and Alt+Tab. It can
+     still be activated: its sliders and fields take the keyboard. */
+  if (ownerWindow == nil || ownerWindow == window)
+    {
+      ownerWindow = [NSApp keyWindow];
+    }
+  if (ownerWindow != window)
+    {
+      owner = WinUIThemeWindowHandle(ownerWindow);
+    }
+  request = [NSString stringWithFormat: @"%p-%p", hwnd, owner];
+  if ([request isEqualToString: objc_getAssociatedObject(window, &WinUIThemeFlyoutOwnerKey)])
+    {
+      return;
+    }
+  exStyle = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+  SetWindowLongPtrW(hwnd, GWL_EXSTYLE, (exStyle | WS_EX_TOOLWINDOW) & ~WS_EX_APPWINDOW);
+  if (owner != NULL)
+    {
+      SetWindowLongPtrW(hwnd, GWLP_HWNDPARENT, (LONG_PTR)owner);
+    }
+  SetWindowPos(hwnd, NULL, 0, 0, 0, 0,
+               SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+  objc_setAssociatedObject(window, &WinUIThemeFlyoutOwnerKey, request, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+#else
+  (void)window;
+  (void)borderColor;
+#endif
+}
