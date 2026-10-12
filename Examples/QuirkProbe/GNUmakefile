@@ -15,7 +15,8 @@ QuirkProbe_PRINCIPAL_CLASS = NSApplication
 
 QuirkProbe_OBJC_FILES = \
 	main.m \
-	QuirkProbe.m
+	QuirkProbe.m \
+	QuirkProbeDialogs.m
 
 QuirkProbe_HEADER_FILES = \
 	QuirkProbe.h

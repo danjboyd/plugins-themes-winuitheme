@@ -197,6 +197,11 @@ WinUIThemeDrawFocusRing(NSView *view)
   BOOL visible = WinUIThemeFocusVisible;
   BOOL watch = NO;
 
+  /* Alt, F10 and the menus they open (#78). */
+  if (WinUIThemeMenuBarHandleEvent(event))
+    {
+      return;
+    }
   switch (type)
     {
       case NSKeyDown:

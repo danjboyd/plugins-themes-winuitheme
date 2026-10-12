@@ -38,5 +38,8 @@ void WinUIThemeWindowIntegrationReloadTheme(WinUITheme *theme);
 void WinUIThemeWindowIntegrationSynchronizeWindow(NSWindow *window);
 void WinUIThemeWindowIntegrationForgetWindow(NSWindow *window);
 void WinUIThemeWindowIntegrationRoundPopupWindow(NSWindow *window, BOOL small, NSColor *borderColor);
+/* A popover panel as a WinUI flyout: rounded as a menu, owned by the main
+   window and kept out of the taskbar and Alt+Tab (#30). */
+void WinUIThemeWindowIntegrationMakeFlyout(NSWindow *window, NSColor *borderColor);
 
 #endif
