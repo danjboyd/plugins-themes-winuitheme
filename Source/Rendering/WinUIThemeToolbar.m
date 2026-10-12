@@ -584,6 +584,17 @@ WinUIThemeToolbarApplyImage(NSButton *button, NSToolbarItem *item)
     ? [(id<WinUIThemeToolbarButton>)controlView toolbarItem] : nil;
   NSRect buttonRect = NSInsetRect(cellFrame, 1.0, 1.0);
 
+  /* The button paints the toolbar's background first. A disabled item's
+     icon is drawn at half opacity; drawn again over itself, with nothing
+     under it redrawn, it darkened until it looked enabled (ScreenshotTool's
+     Redo at a 1.5 UI scale, after the button was redisplayed alone). */
+  if ([theme isKindOfClass: [WinUITheme class]] && [toolbarItem toolbar] != nil
+      && WinUIThemeToolbarItemIsSpace(toolbarItem) == NO)
+    {
+      [[theme toolbarBackgroundColor] set];
+      NSRectFill(cellFrame);
+    }
+
   /* The button is the item's content, centred in its slot, and its image
      and label are drawn there. */
   if ([toolbarItem toolbar] != nil && WinUIThemeToolbarItemIsSpace(toolbarItem) == NO)
