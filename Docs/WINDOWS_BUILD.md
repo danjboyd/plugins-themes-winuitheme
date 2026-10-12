@@ -151,6 +151,20 @@ PASS/FAIL/KNOWN/SKIP line per check, and exits with the number of failures.
 `-Theme PATH` checks another build, and `-OutputDirectory DIR` saves a PNG of
 each rendered check. Add a check with each fix.
 
-Some checks click with the real pointer (`popup-click-stays-open`), so the
-probe moves it while it runs; pass `-NoPointer` to skip those while you use
-the desktop.
+Four checks move the real pointer (`button-hover`, `table-row-hover`,
+`scroller-hover-expands`, `popup-click-stays-open`). They skip unless you
+pass `-Pointer`; run them with the desktop clear, since other windows over
+the probe's make them fail.
+
+Each run gets a home directory of its own under `%TEMP%`
+(`Tests/Scripts/GNUstepTestHome.ps1`), with fixed `NSGlobalDomain` defaults,
+so the probe neither reads nor writes yours. `Invoke-ThemeDemoScript.ps1`
+does the same for ThemeDemo.
+
+`Tests/Scripts/Invoke-DialogCheck.ps1` runs the native dialogs for real
+(#20, #69): QuirkProbe `-ProbeOnly dialogs` opens Windows' print, page
+setup, open and save dialogs, a thread of its own fills in the classic
+ones, and the script drives Windows 11's print dialog, which runs in a
+process of its own, by UI Automation. It needs the "Microsoft Print to
+PDF" printer, takes the keyboard focus for about a minute and doesn't move
+the pointer.

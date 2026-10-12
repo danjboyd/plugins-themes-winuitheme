@@ -528,6 +528,10 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) createLateWindow: (NSTimer *)timer;
 - (void) checkLateWindow: (NSTimer *)timer;
 - (void) checkMenuBarTitles: (NSWindow *)window;
+- (void) checkScrollerStripNarrowsContent;
+- (void) checkPopoverFlyout;
+- (void) checkMenuBarKeyboard: (NSWindow *)window;
+- (void) checkMenuBarOverflow: (NSWindow *)window;
 - (void) checkThemeSwitchRestoresMethods;
 - (void) finish;
 @end
@@ -536,6 +540,37 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
    (checkClientCaption). */
 @interface GSDisplayServer (QuirkProbeClientCaption)
 - (BOOL) clientDrawsCaptions;
+@end
+
+/* Popover panels for checkPopoverFlyout: one marked for the theme, as
+   ScreenshotTool's STFloatingPopoverWindow is, and one not. */
+@protocol GSThemePopoverPanel
+@end
+
+@interface QuirkProbeFlyoutPanel : NSPanel <GSThemePopoverPanel>
+@end
+
+@implementation QuirkProbeFlyoutPanel
+- (BOOL) canBecomeKeyWindow
+{
+  return YES;
+}
+@end
+
+@interface QuirkProbePlainPanel : NSPanel
+@end
+
+@implementation QuirkProbePlainPanel
+- (BOOL) canBecomeKeyWindow
+{
+  return YES;
+}
+@end
+
+/* The theme's menu bar overflow button and keyboard session (#77, #78). */
+@interface NSMenuView (WinUIThemeMenuBarProbe)
+- (NSRect) winUIThemeOverflowRect;
+- (NSArray *) winUIThemeSessionMenus;
 @end
 
 /* A document view in mid grey, 128 in each channel, for telling a scroll
@@ -7162,6 +7197,8 @@ QuirkProbeInkIn(NSBitmapImageRep *rep, NSRect area, NSInteger fill, NSInteger th
     }
   [self saveView: [[_lateWindow contentView] superview] named: @"late-window"];
   [self checkMenuBarTitles: _lateWindow];
+  [self checkMenuBarKeyboard: _lateWindow];
+  [self checkMenuBarOverflow: _lateWindow];
   [self checkWindowsMenuConventions];
   [self checkThemeSwitchRestoresMethods];
   [self finish];
@@ -7237,6 +7274,626 @@ QuirkProbeInkIn(NSBitmapImageRep *rep, NSRect area, NSInteger fill, NSInteger th
     {
       [self fail: @"menu-bar-titles-fit" detail:
         [@"clipped: " stringByAppendingString: [clipped componentsJoinedByString: @", "]]];
+    }
+}
+
+/* A table built as wide as its scroll view, with its column autoresizing
+   (ScreenshotTool's font picker): where the vertical scroller keeps its
+   strip (high contrast, scroll bars always shown) the row content must end
+   at the strip, not run under it, as WinUI's ScrollViewer keeps its bar
+   off interactive content. */
+- (void) checkScrollerStripNarrowsContent
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(640, 260, 240, 200)
+                                     title: @"QuirkProbe Scroller Strip"];
+  NSRect listFrame = NSMakeRect(8, 8, 224, 184);
+  NSScrollView *scrollView = AUTORELEASE([[NSScrollView alloc] initWithFrame: listFrame]);
+  NSTableView *table = AUTORELEASE([[NSTableView alloc] initWithFrame: NSMakeRect(0, 0, NSWidth(listFrame), NSHeight(listFrame))]);
+  NSTableColumn *column = AUTORELEASE([[NSTableColumn alloc] initWithIdentifier: @"name"]);
+  NSScroller *scroller = nil;
+  NSRect strip;
+  CGFloat columnEnd;
+  NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+
+  /* Strips kept, as in high contrast, whatever this configuration has. */
+  [defaults setBool: NO forKey: @"WinUIThemeOverlayScrollbars"];
+  [scrollView setHasVerticalScroller: YES];
+  [scrollView setHasHorizontalScroller: NO];
+  [scrollView setBorderType: NSNoBorder];
+  [scrollView setAutoresizingMask: NSViewWidthSizable | NSViewHeightSizable];
+  [column setWidth: NSWidth(listFrame)];
+  [column setResizingMask: NSTableColumnAutoresizingMask];
+  [table addTableColumn: column];
+  [table setHeaderView: nil];
+  [table setIntercellSpacing: NSMakeSize(0, 0)];
+  [table setColumnAutoresizingStyle: NSTableViewUniformColumnAutoresizingStyle];
+  [table setDataSource: self];
+  [scrollView setDocumentView: table];
+  [[window contentView] addSubview: scrollView];
+  [window orderFront: nil];
+  [window display];
+  QuirkProbeDispatchEvents(0.2);
+
+  scroller = [scrollView verticalScroller];
+  strip = [scrollView convertRect: [scroller frame] toView: table];
+  columnEnd = NSMaxX([table rectOfColumn: 0]);
+  if ([scroller isHidden] || [scroller superview] == nil)
+    {
+      [self skip: @"scroller-strip-narrows-content" detail: @"no vertical scroller shown"];
+    }
+  else if (columnEnd <= NSMinX(strip) + 0.5)
+    {
+      [self pass: @"scroller-strip-narrows-content" detail: [NSString stringWithFormat:
+        @"the column ends at %.0f, the scroller's strip starts at %.0f", columnEnd, NSMinX(strip)]];
+    }
+  else
+    {
+      [self fail: @"scroller-strip-narrows-content" detail: [NSString stringWithFormat:
+        @"the column runs to %.0f, under the scroller's strip from %.0f", columnEnd, NSMinX(strip)]];
+    }
+  [table setDataSource: nil];
+  [window orderOut: nil];
+  [defaults removeObjectForKey: @"WinUIThemeOverlayScrollbars"];
+}
+
+/* Popover panels as WinUI flyouts (ScreenshotTool #67): a panel whose
+   class adopts GSThemePopoverPanel gets the flyout fill (an app's
+   STFloatingPopoverWindow leaves its background clear for the theme), is a
+   tool window owned by the main window (#30), and can still become key; an
+   unmarked borderless panel is left as it is. */
+- (void) checkPopoverFlyout
+{
+  NSRect frame = NSMakeRect(620, 420, 160, 120);
+  NSPanel *marked = AUTORELEASE([[QuirkProbeFlyoutPanel alloc] initWithContentRect: frame
+                                                                         styleMask: NSBorderlessWindowMask
+                                                                           backing: NSBackingStoreBuffered
+                                                                             defer: NO]);
+  NSPanel *plain = AUTORELEASE([[QuirkProbePlainPanel alloc] initWithContentRect: NSOffsetRect(frame, 180, 0)
+                                                                        styleMask: NSBorderlessWindowMask
+                                                                          backing: NSBackingStoreBuffered
+                                                                            defer: NO]);
+  NSWindow *mainWindow = [NSApp mainWindow];
+  NSColor *expected = [[[GSTheme theme] colorNamed: @"menuBackgroundColor" state: GSThemeNormalState]
+                        colorUsingColorSpaceName: NSCalibratedRGBColorSpace];
+  NSBitmapImageRep *rep = nil;
+  NSColor *seen = nil;
+  NSColor *plainSeen = nil;
+  BOOL drawsKey = [[[[GSTheme theme] infoDictionary] objectForKey: @"GSThemeDrawsPopoverPanels"] boolValue];
+  NSMutableArray *problems = [NSMutableArray array];
+  NSPanel *panels[2];
+  NSUInteger index;
+
+  panels[0] = marked;
+  panels[1] = plain;
+  for (index = 0; index < 2; index++)
+    {
+      [panels[index] setLevel: NSPopUpMenuWindowLevel];
+      [panels[index] setOpaque: NO];
+      [panels[index] setBackgroundColor: [NSColor clearColor]];
+      [panels[index] setHasShadow: YES];
+      [panels[index] orderFront: nil];
+      [panels[index] display];
+    }
+  QuirkProbeDispatchEvents(0.3);
+
+  rep = QuirkProbeRender([[marked contentView] superview]);
+  seen = [[rep colorAtX: [rep pixelsWide] / 2 y: [rep pixelsHigh] / 2]
+           colorUsingColorSpaceName: NSCalibratedRGBColorSpace];
+  rep = QuirkProbeRender([[plain contentView] superview]);
+  plainSeen = [[rep colorAtX: [rep pixelsWide] / 2 y: [rep pixelsHigh] / 2]
+                colorUsingColorSpaceName: NSCalibratedRGBColorSpace];
+  [self saveView: [[marked contentView] superview] named: @"popover-flyout"];
+
+  if (drawsKey == NO)
+    {
+      [problems addObject: @"the theme doesn't declare GSThemeDrawsPopoverPanels"];
+    }
+  if (expected == nil || seen == nil || [seen alphaComponent] < 0.99
+      || fabs([seen redComponent] - [expected redComponent]) > 0.03
+      || fabs([seen greenComponent] - [expected greenComponent]) > 0.03
+      || fabs([seen blueComponent] - [expected blueComponent]) > 0.03)
+    {
+      [problems addObject: [NSString stringWithFormat: @"the marked panel is %@, not the flyout fill %@",
+                                                       seen, expected]];
+    }
+  if (plainSeen != nil && [plainSeen alphaComponent] > 0.01)
+    {
+      [problems addObject: [NSString stringWithFormat: @"the unmarked panel was filled (%@)", plainSeen]];
+    }
+#ifdef _WIN32
+  {
+    HWND hwnd = (HWND)[marked windowHandle];
+    HWND plainHwnd = (HWND)[plain windowHandle];
+    HWND mainHwnd = (mainWindow != nil) ? (HWND)[mainWindow windowHandle] : NULL;
+
+    if ((GetWindowLongPtrW(hwnd, GWL_EXSTYLE) & WS_EX_TOOLWINDOW) == 0)
+      {
+        [problems addObject: @"the marked panel isn't a tool window"];
+      }
+    if (mainHwnd != NULL && GetWindow(hwnd, GW_OWNER) != mainHwnd)
+      {
+        [problems addObject: @"the marked panel isn't owned by the main window"];
+      }
+    if (mainHwnd != NULL && GetWindow(plainHwnd, GW_OWNER) == mainHwnd)
+      {
+        [problems addObject: @"the unmarked panel was given an owner"];
+      }
+  }
+#endif
+  [marked makeKeyWindow];
+  QuirkProbeDispatchEvents(0.2);
+  if ([marked isKeyWindow] == NO && [marked canBecomeKeyWindow] == NO)
+    {
+      [problems addObject: @"the marked panel can't become key"];
+    }
+
+  if ([problems count] == 0)
+    {
+      [self pass: @"popover-flyout" detail:
+        @"a GSThemePopoverPanel panel gets the flyout fill, is an owned tool window and can become key; an unmarked one is left alone"];
+    }
+  else
+    {
+      [self fail: @"popover-flyout" detail: [problems componentsJoinedByString: @"; "]];
+    }
+  [marked orderOut: nil];
+  [plain orderOut: nil];
+  if (mainWindow != nil)
+    {
+      [mainWindow makeKeyAndOrderFront: nil];
+    }
+}
+
+/* Keys for the menu bar checks, sent as libs-back delivers them: a key
+   down and up, or a change of modifiers. */
+static void
+QuirkProbeSendKey(NSWindow *window, NSString *characters, NSUInteger flags)
+{
+  NSEventType types[2] = { NSKeyDown, NSKeyUp };
+  NSUInteger index;
+
+  for (index = 0; index < 2; index++)
+    {
+      [NSApp sendEvent: [NSEvent keyEventWithType: types[index]
+                                         location: NSZeroPoint
+                                    modifierFlags: flags
+                                        timestamp: 0
+                                     windowNumber: [window windowNumber]
+                                          context: nil
+                                       characters: characters
+                      charactersIgnoringModifiers: characters
+                                        isARepeat: NO
+                                          keyCode: 0]];
+    }
+}
+
+static void
+QuirkProbeSendFlags(NSWindow *window, NSUInteger flags)
+{
+  [NSApp sendEvent: [NSEvent keyEventWithType: NSFlagsChanged
+                                     location: NSZeroPoint
+                                modifierFlags: flags
+                                    timestamp: 0
+                                 windowNumber: [window windowNumber]
+                                      context: nil
+                                   characters: @""
+                  charactersIgnoringModifiers: @""
+                                    isARepeat: NO
+                                      keyCode: 0]];
+}
+
+static NSString *
+QuirkProbeKeyString(unichar key)
+{
+  return [NSString stringWithCharacters: &key length: 1];
+}
+
+/* The bar's menus open in the theme's session (nil when none). */
+static NSArray *
+QuirkProbeSessionMenus(NSMenuView *bar)
+{
+  return [bar performSelector: @selector(winUIThemeSessionMenus)];
+}
+
+static NSMenu *
+QuirkProbeTopMenu(NSString *title)
+{
+  return [(NSMenuItem *)[[NSApp mainMenu] itemWithTitle: title] submenu];
+}
+
+static BOOL QuirkProbeMenuItemPicked = NO;
+
+- (void) probeMenuItemPicked: (id)sender
+{
+  QuirkProbeMenuItemPicked = YES;
+}
+
+/* The menu bar from the keyboard (issue #78): F10 and Alt alone select
+   the bar's first title, arrows move and open, Esc closes and leaves,
+   Alt+letter opens a menu unless an item has it as its key equivalent, a
+   letter picks an item, and the access keys are underlined. */
+- (void) checkMenuBarKeyboard: (NSWindow *)window
+{
+  NSMenuView *bar = (NSMenuView *)QuirkProbeFindViewOfClass([[window contentView] superview],
+                                                            [NSMenuView class]);
+  NSMenu *mainMenu = [NSApp mainMenu];
+  NSMenu *fileMenu = QuirkProbeTopMenu(@"File");
+  NSMenu *editMenu = QuirkProbeTopMenu(@"Edit");
+  NSMenu *helpMenu = QuirkProbeTopMenu(@"Help");
+  NSInteger editIndex = [mainMenu indexOfItemWithSubmenu: editMenu];
+  NSMutableArray *problems = [NSMutableArray array];
+  NSArray *menus = nil;
+  NSMenuItem *zap = nil;
+  NSMenuItem *altItem = nil;
+  NSBitmapImageRep *before = nil;
+  NSBitmapImageRep *held = nil;
+  NSString *f10 = QuirkProbeKeyString(NSF10FunctionKey);
+  NSString *escape = QuirkProbeKeyString(0x1b);
+  NSArray *ids = [NSArray arrayWithObjects: @"menu-bar-f10", @"menu-bar-alt-alone",
+                          @"menu-bar-alt-letter", @"menu-bar-access-key-picks",
+                          @"menu-bar-alt-equivalent-wins", @"menu-bar-access-keys-underlined", nil];
+  NSEnumerator *enumerator = nil;
+  NSString *check = nil;
+
+  if (bar == nil || [bar isHorizontal] == NO || fileMenu == nil || editMenu == nil)
+    {
+      enumerator = [ids objectEnumerator];
+      while ((check = [enumerator nextObject]) != nil)
+        {
+          [self skip: check detail: @"the window has no menu bar with File and Edit"];
+        }
+      return;
+    }
+  if ([bar respondsToSelector: @selector(winUIThemeSessionMenus)] == NO)
+    {
+      enumerator = [ids objectEnumerator];
+      while ((check = [enumerator nextObject]) != nil)
+        {
+          [self fail: check detail: @"the theme has no menu bar keyboard session"];
+        }
+      return;
+    }
+  [window makeKeyWindow];
+  if ([window isKeyWindow] == NO)
+    {
+      enumerator = [ids objectEnumerator];
+      while ((check = [enumerator nextObject]) != nil)
+        {
+          [self skip: check detail: @"the window isn't key"];
+        }
+      return;
+    }
+
+  /* F10, Down, Right, Esc, Esc. */
+  QuirkProbeSendKey(window, f10, NSFunctionKeyMask);
+  menus = QuirkProbeSessionMenus(bar);
+  if (menus == nil || [menus count] != 0 || [bar highlightedItemIndex] != 0)
+    {
+      [problems addObject: [NSString stringWithFormat: @"F10: session %@, title %ld selected",
+                                                       menus ? @"on" : @"off", (long)[bar highlightedItemIndex]]];
+    }
+  QuirkProbeSendKey(window, QuirkProbeKeyString(NSDownArrowFunctionKey), NSFunctionKeyMask);
+  menus = QuirkProbeSessionMenus(bar);
+  if ([menus count] != 1 || [menus objectAtIndex: 0] != fileMenu
+      || [[[fileMenu menuRepresentation] window] isVisible] == NO
+      || [[fileMenu menuRepresentation] highlightedItemIndex] < 0)
+    {
+      [problems addObject: @"Down didn't open File with an item highlighted"];
+    }
+  QuirkProbeSendKey(window, QuirkProbeKeyString(NSRightArrowFunctionKey), NSFunctionKeyMask);
+  menus = QuirkProbeSessionMenus(bar);
+  if ([menus count] != 1 || [menus objectAtIndex: 0] != editMenu
+      || [[[fileMenu menuRepresentation] window] isVisible])
+    {
+      [problems addObject: @"Right didn't move to Edit"];
+    }
+  QuirkProbeSendKey(window, escape, 0);
+  menus = QuirkProbeSessionMenus(bar);
+  if (menus == nil || [menus count] != 0 || [bar highlightedItemIndex] != editIndex
+      || [[[editMenu menuRepresentation] window] isVisible])
+    {
+      [problems addObject: @"Esc didn't close Edit and keep its title selected"];
+    }
+  QuirkProbeSendKey(window, escape, 0);
+  if (QuirkProbeSessionMenus(bar) != nil || [bar highlightedItemIndex] != -1)
+    {
+      [problems addObject: @"a second Esc didn't leave the bar"];
+    }
+  if ([problems count] == 0)
+    {
+      [self pass: @"menu-bar-f10" detail: @"F10 selects File; Down opens it, Right moves to Edit, Esc closes it and Esc leaves"];
+    }
+  else
+    {
+      [self fail: @"menu-bar-f10" detail: [problems componentsJoinedByString: @"; "]];
+    }
+
+  /* Alt pressed and released alone; the titles' access keys underlined
+     while it's held. */
+  [window display];
+  before = RETAIN(QuirkProbeRender(bar));
+  QuirkProbeSendFlags(window, NSAlternateKeyMask);
+  [window display];
+  held = RETAIN(QuirkProbeRender(bar));
+  QuirkProbeSendFlags(window, 0);
+  menus = QuirkProbeSessionMenus(bar);
+  if (menus != nil && [menus count] == 0 && [bar highlightedItemIndex] == 0)
+    {
+      [self pass: @"menu-bar-alt-alone" detail: @"Alt pressed and released selects the first title"];
+    }
+  else
+    {
+      [self fail: @"menu-bar-alt-alone" detail: [NSString stringWithFormat:
+        @"session %@, title %ld selected", menus ? @"on" : @"off", (long)[bar highlightedItemIndex]]];
+    }
+  QuirkProbeSendKey(window, escape, 0);
+  {
+    NSUInteger differing = QuirkProbeDifferingPixels(before, held);
+    NSRect first = [bar rectOfItemAtIndex: 0];
+
+    if (differing > 0 && differing < (NSUInteger)(NSWidth(first) * NSHeight(first)))
+      {
+        [self pass: @"menu-bar-access-keys-underlined" detail: [NSString stringWithFormat:
+          @"%lu px change while Alt is held", (unsigned long)differing]];
+      }
+    else
+      {
+        [self fail: @"menu-bar-access-keys-underlined" detail: [NSString stringWithFormat:
+          @"%lu px change while Alt is held (expected the underlines only)", (unsigned long)differing]];
+      }
+  }
+  RELEASE(before);
+  RELEASE(held);
+
+  /* Alt+E. */
+  QuirkProbeSendFlags(window, NSAlternateKeyMask);
+  QuirkProbeSendKey(window, @"e", NSAlternateKeyMask);
+  QuirkProbeSendFlags(window, 0);
+  menus = QuirkProbeSessionMenus(bar);
+  if ([menus count] == 1 && [menus objectAtIndex: 0] == editMenu
+      && [[[editMenu menuRepresentation] window] isVisible])
+    {
+      [self pass: @"menu-bar-alt-letter" detail: @"Alt+E opens Edit"];
+    }
+  else
+    {
+      [self fail: @"menu-bar-alt-letter" detail: [NSString stringWithFormat:
+        @"Alt+E: %lu menus open, Edit %@", (unsigned long)[menus count],
+        [[[editMenu menuRepresentation] window] isVisible] ? @"shown" : @"not shown"]];
+    }
+  QuirkProbeSendKey(window, escape, 0);
+  QuirkProbeSendKey(window, escape, 0);
+
+  /* A letter picks the item with that access key. */
+  zap = AUTORELEASE([[NSMenuItem alloc] initWithTitle: @"Zap Probe Item"
+                                               action: @selector(probeMenuItemPicked:)
+                                        keyEquivalent: @""]);
+  [zap setTarget: self];
+  [editMenu addItem: zap];
+  QuirkProbeMenuItemPicked = NO;
+  QuirkProbeSendKey(window, @"e", NSAlternateKeyMask);
+  QuirkProbeSendKey(window, @"z", 0);
+  if (QuirkProbeMenuItemPicked && QuirkProbeSessionMenus(bar) == nil
+      && [[[editMenu menuRepresentation] window] isVisible] == NO)
+    {
+      [self pass: @"menu-bar-access-key-picks" detail: @"Alt+E, Z runs Edit's Zap item and closes the menus"];
+    }
+  else
+    {
+      [self fail: @"menu-bar-access-key-picks" detail: [NSString stringWithFormat:
+        @"Alt+E, Z: item %@, session %@", QuirkProbeMenuItemPicked ? @"run" : @"not run",
+        QuirkProbeSessionMenus(bar) ? @"still on" : @"off"]];
+      QuirkProbeSendKey(window, escape, 0);
+      QuirkProbeSendKey(window, escape, 0);
+    }
+  [editMenu removeItem: zap];
+
+  /* An app's Alt+letter shortcut wins over the access key. */
+  altItem = AUTORELEASE([[NSMenuItem alloc] initWithTitle: @"Probe Alt Shortcut"
+                                                   action: @selector(probeMenuItemPicked:)
+                                            keyEquivalent: @"e"]);
+  [altItem setKeyEquivalentModifierMask: NSAlternateKeyMask];
+  [altItem setTarget: self];
+  [(helpMenu != nil ? helpMenu : fileMenu) addItem: altItem];
+  QuirkProbeSendKey(window, @"e", NSAlternateKeyMask);
+  if (QuirkProbeSessionMenus(bar) == nil && [[[editMenu menuRepresentation] window] isVisible] == NO)
+    {
+      [self pass: @"menu-bar-alt-equivalent-wins" detail: @"Alt+E is left to the item that has it as its shortcut"];
+    }
+  else
+    {
+      [self fail: @"menu-bar-alt-equivalent-wins" detail: @"Alt+E opened Edit over an item's Alt+E shortcut"];
+      QuirkProbeSendKey(window, escape, 0);
+      QuirkProbeSendKey(window, escape, 0);
+    }
+  [(helpMenu != nil ? helpMenu : fileMenu) removeItem: altItem];
+}
+
+/* A menu bar too narrow for its titles (issue #77): the titles that don't
+   fit fold into a "..." button at its end, whose menu holds them; a click
+   and the keyboard open it; widened, the bar is as before. */
+- (void) checkMenuBarOverflow: (NSWindow *)window
+{
+  NSMenuView *bar = (NSMenuView *)QuirkProbeFindViewOfClass([[window contentView] superview],
+                                                            [NSMenuView class]);
+  NSMenu *mainMenu = [NSApp mainMenu];
+  NSInteger count = [mainMenu numberOfItems];
+  NSRect saved = [window frame];
+  NSRect overflow;
+  NSRect narrow = saved;
+  NSInteger folded = -1;
+  NSInteger index;
+  NSArray *menus = nil;
+  NSMutableArray *problems = [NSMutableArray array];
+  NSString *escape = QuirkProbeKeyString(0x1b);
+
+  if (bar == nil || [bar isHorizontal] == NO || count < 2)
+    {
+      [self skip: @"menu-bar-overflow" detail: @"the window has no menu bar"];
+      [self skip: @"menu-bar-overflow-keyboard" detail: @"the window has no menu bar"];
+      return;
+    }
+  if ([bar respondsToSelector: @selector(winUIThemeOverflowRect)] == NO)
+    {
+      [self fail: @"menu-bar-overflow" detail: @"the theme has no menu bar overflow"];
+      [self fail: @"menu-bar-overflow-keyboard" detail: @"the theme has no menu bar overflow"];
+      return;
+    }
+  /* Room for the first title and the button (40pt), not the second title. */
+  {
+    NSRect first = [bar rectOfItemAtIndex: 0];
+
+    narrow.size.width = NSMaxX(first) + 2.0 * NSMinX(first) + 40.0
+      + (NSWidth(saved) - NSWidth([bar frame])) + 4.0;
+  }
+  [window setFrame: narrow display: YES];
+  QuirkProbeDispatchEvents(0.2);
+  [window display];
+
+  overflow = [(id)bar winUIThemeOverflowRect];
+  for (index = 0; index < count; index++)
+    {
+      NSRect rect = [bar rectOfItemAtIndex: index];
+
+      if (NSWidth(rect) == 0.0)
+        {
+          if (folded < 0)
+            {
+              folded = index;
+            }
+        }
+      else if (folded >= 0 || NSMaxX(rect) > NSMinX(overflow))
+        {
+          [problems addObject: [NSString stringWithFormat: @"title %ld is shown past the button", (long)index]];
+        }
+    }
+  if (folded == 0)
+    {
+      [problems addObject: [NSString stringWithFormat: @"in a %.0fpt window even the first title folds",
+                                                       NSWidth(narrow)]];
+    }
+  if (NSIsEmptyRect(overflow) || folded < 0)
+    {
+      [problems addObject: [NSString stringWithFormat: @"in a %.0fpt window nothing folds (button %@)",
+                                                       NSWidth(narrow), NSStringFromRect(overflow)]];
+    }
+  else if (NSMaxX(overflow) > NSMaxX([bar visibleRect]) + 0.5)
+    {
+      [problems addObject: @"the button is past the window's edge"];
+    }
+  else
+    {
+      NSBitmapImageRep *rep = QuirkProbeRender(bar);
+      CGFloat scale = QuirkProbeScale(rep, bar);
+      NSRect pixels = NSMakeRect(NSMinX(overflow) * scale, 0, NSWidth(overflow) * scale, [rep pixelsHigh]);
+      NSUInteger red, green, blue;
+      NSInteger strongest = 0;
+
+      QuirkProbePixel(rep, (NSInteger)(NSMinX(overflow) * scale) + 2, [rep pixelsHigh] / 2, &red, &green, &blue);
+      if (QuirkProbeInkIn(rep, pixels, (NSInteger)(red + green + blue), 150, &strongest) < 3)
+        {
+          [problems addObject: @"the button draws no glyph"];
+        }
+
+      /* A click on the button. */
+      {
+        NSPoint point = [bar convertPoint: NSMakePoint(NSMidX(overflow), NSMidY(overflow)) toView: nil];
+        NSEventType types[2] = { NSLeftMouseDown, NSLeftMouseUp };
+        NSUInteger step;
+
+        for (step = 0; step < 2; step++)
+          {
+            [NSApp sendEvent: [NSEvent mouseEventWithType: types[step]
+                                                 location: point
+                                            modifierFlags: 0
+                                                timestamp: 0
+                                             windowNumber: [window windowNumber]
+                                                  context: nil
+                                              eventNumber: 0
+                                               clickCount: 1
+                                                 pressure: 1.0]];
+          }
+      }
+      menus = [bar respondsToSelector: @selector(winUIThemeSessionMenus)] ? QuirkProbeSessionMenus(bar) : nil;
+      if ([menus count] != 1)
+        {
+          [problems addObject: @"a click on the button opened no menu"];
+        }
+      else
+        {
+          NSMenu *menu = [menus objectAtIndex: 0];
+          BOOL same = ([menu numberOfItems] == count - folded);
+
+          for (index = 0; same && index < [menu numberOfItems]; index++)
+            {
+              same = [[(NSMenuItem *)[menu itemAtIndex: index] title]
+                       isEqualToString: [(NSMenuItem *)[mainMenu itemAtIndex: folded + index] title]];
+            }
+          if (same == NO)
+            {
+              [problems addObject: @"the button's menu doesn't hold the folded titles"];
+            }
+          if ([[[menu menuRepresentation] window] isVisible] == NO)
+            {
+              [problems addObject: [NSString stringWithFormat: @"the button's menu isn't shown (window %@, frame %@)",
+                [[menu menuRepresentation] window],
+                NSStringFromRect([[[menu menuRepresentation] window] frame])]];
+            }
+          else if (NSMaxX([[[menu menuRepresentation] window] frame])
+                   > [window convertBaseToScreen:
+                        NSMakePoint(NSMaxX([bar convertRect: overflow toView: nil]), 0)].x + 1.0)
+            {
+              [problems addObject: @"the button's menu isn't right-aligned under it"];
+            }
+          [self saveView: [menu menuRepresentation] named: @"menu-bar-overflow-menu"];
+        }
+      [self saveView: bar named: @"menu-bar-overflow"];
+      QuirkProbeSendKey(window, escape, 0);
+      QuirkProbeSendKey(window, escape, 0);
+    }
+  if ([problems count] == 0)
+    {
+      [self pass: @"menu-bar-overflow" detail: [NSString stringWithFormat:
+        @"at %.0fpt titles %ld on fold into the button, whose menu a click opens", NSWidth(narrow), (long)folded]];
+    }
+  else
+    {
+      [self fail: @"menu-bar-overflow" detail: [problems componentsJoinedByString: @"; "]];
+    }
+
+  /* F10, then Left from the first title reaches the button; Down opens it. */
+  if (folded >= 0 && [window isKeyWindow])
+    {
+      QuirkProbeSendKey(window, QuirkProbeKeyString(NSF10FunctionKey), NSFunctionKeyMask);
+      QuirkProbeSendKey(window, QuirkProbeKeyString(NSLeftArrowFunctionKey), NSFunctionKeyMask);
+      QuirkProbeSendKey(window, QuirkProbeKeyString(NSDownArrowFunctionKey), NSFunctionKeyMask);
+      menus = QuirkProbeSessionMenus(bar);
+      if ([menus count] == 1 && [[menus objectAtIndex: 0] numberOfItems] == count - folded
+          && [[[[menus objectAtIndex: 0] menuRepresentation] window] isVisible]
+          && [bar highlightedItemIndex] == -1)
+        {
+          [self pass: @"menu-bar-overflow-keyboard" detail: @"F10, Left, Down opens the overflow menu"];
+        }
+      else
+        {
+          [self fail: @"menu-bar-overflow-keyboard" detail: [NSString stringWithFormat:
+            @"F10, Left, Down: %lu menus open, title %ld selected",
+            (unsigned long)[menus count], (long)[bar highlightedItemIndex]]];
+        }
+      QuirkProbeSendKey(window, escape, 0);
+      QuirkProbeSendKey(window, escape, 0);
+    }
+  else
+    {
+      [self skip: @"menu-bar-overflow-keyboard" detail: folded < 0 ? @"nothing folds" : @"the window isn't key"];
+    }
+
+  [window setFrame: saved display: YES];
+  QuirkProbeDispatchEvents(0.2);
+  if (NSIsEmptyRect([(id)bar winUIThemeOverflowRect]) == NO
+      || NSWidth([bar rectOfItemAtIndex: count - 1]) == 0.0)
+    {
+      [self fail: @"menu-bar-overflow" detail: @"widened again, the bar still folds"];
     }
 }
 
@@ -7645,6 +8302,24 @@ QuirkProbeFilterPatterns(NSArray *filters)
   printf("THEME %s\n", [[[[GSTheme theme] bundle] bundlePath] UTF8String] ?: "(default)");
   fflush(stdout);
 
+  /* The native dialogs at run time, alone: Tests/Scripts/Invoke-DialogCheck.ps1
+     runs them, with a driver for Windows 11's print dialog. They show real
+     dialogs and don't depend on the palette, so the other runs leave them. */
+  if ([[[NSUserDefaults standardUserDefaults] stringForKey: @"ProbeOnly"] isEqualToString: @"dialogs"])
+    {
+      /* A document window for the dialogs to belong to, as an app has. */
+      NSWindow *window = [self windowWithFrame: NSMakeRect(200, 300, 420, 240)
+                                         title: @"QuirkProbe Dialogs"];
+
+      [window makeKeyAndOrderFront: nil];
+      [window makeMainWindow];
+      QuirkProbeDispatchEvents(0.5);
+      [self checkPrintDialog];
+      [self checkFileDialogsAtRunTime];
+      [self finish];
+      return;
+    }
+
   [self checkTheme];
   [self checkAccentColor];
   [self checkSubclassImageCell];
@@ -7696,6 +8371,8 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkClientCaption];
   [self checkPopUpClick];
   [self checkFileDialogFilters];
+  [self checkScrollerStripNarrowsContent];
+  [self checkPopoverFlyout];
   [self after: QuirkProbeSettleDelay perform: @selector(createLateWindow:)];
 }
 
