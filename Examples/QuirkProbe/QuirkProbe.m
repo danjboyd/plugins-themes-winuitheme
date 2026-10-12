@@ -532,6 +532,12 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) finish;
 @end
 
+/* The carried backend's answer to whether the theme draws the caption
+   (checkClientCaption). */
+@interface GSDisplayServer (QuirkProbeClientCaption)
+- (BOOL) clientDrawsCaptions;
+@end
+
 /* A document view in mid grey, 128 in each channel, for telling a scroll
    bar from what's under it. */
 @interface QuirkProbeFillView : NSView
@@ -5377,10 +5383,6 @@ QuirkProbeTabKey(NSWindow *window, NSString *characters, NSUInteger modifiers)
    at the top of the client area, which Windows hit-tests from the regions
    the theme declares (dragging, Snap Layouts on the zoom button). A stock
    backend keeps Windows' caption, and the checks skip. */
-@interface GSDisplayServer (QuirkProbeClientCaption)
-- (BOOL) clientDrawsCaptions;
-@end
-
 static LRESULT
 QuirkProbeHitTest(HWND hwnd, int x, int y)
 {

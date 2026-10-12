@@ -972,6 +972,8 @@ WinUIThemeApplyWindowIdentity(NSWindow *window,
    (QuirkProbe window-tab-keeps-group-frame fails without it). */
 @interface GSWindowDecorationView (WinUIThemeMenuView)
 - (void) addMenuView: (NSMenuView *)menuView;
++ (void) offsets: (float *)l : (float *)r : (float *)t : (float *)b
+    forStyleMask: (NSUInteger)style;
 @end
 
 static void
