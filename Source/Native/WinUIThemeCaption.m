@@ -381,37 +381,39 @@ WinUIThemeCaptionHasSystemMenu(NSWindow *window)
   NSWindow *window = [self window];
   BOOL active = WinUIThemeCaptionWindowIsActive(window);
   BOOL enabled = [self isEnabled];
-  BOOL hovered;
+  CGFloat hovered;
   NSColor *fill = nil;
   NSColor *glyph = WinUIThemeCaptionTextColor(active);
 
+  /* The pointer-over fill fades in and out (#105). */
   WinUIThemeTrackHover(self);
-  hovered = enabled && WinUIThemeViewIsHovered(self);
+  hovered = WinUIThemeHoverAmount(self, enabled && WinUIThemeViewIsHovered(self));
   if (WinUIThemeCaptionHighContrast())
     {
-      if (_pressed || hovered)
+      if (_pressed || hovered >= 0.5)
         {
           fill = WinUIThemeCaptionContrast(@"Hilight", glyph);
           glyph = WinUIThemeCaptionContrast(@"HilightText", WinUIThemeCaptionBackground());
         }
     }
-  else if (_kind == WinUIThemeCaptionClose && (_pressed || hovered))
+  else if (_kind == WinUIThemeCaptionClose && (_pressed || hovered > 0.0))
     {
       /* CloseButtonBackgroundPointerOver (#C42B1C), at 90% pressed */
       NSColor *red = [NSColor colorWithCalibratedRed: 196.0 / 255.0 green: 43.0 / 255.0
                                                 blue: 28.0 / 255.0 alpha: 1.0];
 
-      fill = _pressed ? WinUIThemeBlendColor(WinUIThemeCaptionBackground(), red, 0.9) : red;
-      glyph = _pressed ? [NSColor colorWithCalibratedWhite: 1.0 alpha: 0.7] : [NSColor whiteColor];
+      fill = WinUIThemeBlendColor(WinUIThemeCaptionBackground(), red, _pressed ? 0.9 : hovered);
+      glyph = _pressed ? [NSColor colorWithCalibratedWhite: 1.0 alpha: 0.7]
+                       : WinUIThemeBlendColor(glyph, [NSColor whiteColor], hovered);
     }
-  else if (_pressed || hovered)
+  else if (_pressed || hovered > 0.0)
     {
       /* SubtleFillColorSecondary under the pointer, Tertiary pressed */
       BOOL dark = WinUIThemeCaptionDark();
       NSColor *ink = dark ? [NSColor whiteColor] : [NSColor blackColor];
 
       fill = WinUIThemeBlendColor(WinUIThemeCaptionBackground(), ink,
-                                  _pressed ? (dark ? 0.042 : 0.024) : (dark ? 0.061 : 0.037));
+                                  _pressed ? (dark ? 0.042 : 0.024) : (dark ? 0.061 : 0.037) * hovered);
       if (_pressed)
         {
           glyph = WinUIThemeBlendColor(WinUIThemeCaptionBackground(), glyph, 0.62);

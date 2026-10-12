@@ -1223,9 +1223,11 @@ WinUIThemeDrawInputChrome(WinUITheme *theme,
    ControlFillColorDefault at rest, Secondary under the pointer,
    InputActive focused, Disabled. */
 NSColor *
-WinUIThemeTextBoxFillColor(WinUITheme *theme, BOOL enabled, BOOL hovered, BOOL focused)
+WinUIThemeTextBoxFillColor(WinUITheme *theme, BOOL enabled, CGFloat hovered, BOOL focused)
 {
   BOOL dark = [[theme settings] prefersDarkAppearance];
+  CGFloat rest = dark ? 0.06 : 0.70;
+  CGFloat over = dark ? 0.084 : 0.50;
   NSColor *window = WinUIThemeColorFromTheme(theme, @"windowBackgroundColor",
                                              [NSColor windowBackgroundColor]);
 
@@ -1243,8 +1245,7 @@ WinUIThemeTextBoxFillColor(WinUITheme *theme, BOOL enabled, BOOL hovered, BOOL f
         ? WinUIThemeBlendColor(window, [NSColor colorWithCalibratedWhite: 30.0 / 255.0 alpha: 1.0], 0.70)
         : WinUIThemeBlendColor(window, [NSColor whiteColor], 1.0);
     }
-  return WinUIThemeBlendColor(window, [NSColor whiteColor],
-                              hovered ? (dark ? 0.084 : 0.50) : (dark ? 0.06 : 0.70));
+  return WinUIThemeBlendColor(window, [NSColor whiteColor], rest + (over - rest) * hovered);
 }
 
 /* A text input has focus: its field editor, or a scroll view's text view. */
@@ -1267,12 +1268,12 @@ void
 WinUIThemeDrawTextBoxChrome(WinUITheme *theme, NSRect frame, NSView *view, BOOL enabled)
 {
   BOOL focused = enabled && WinUIThemeTextInputHasFocus(view);
-  BOOL hovered = NO;
+  CGFloat hovered = 0.0;
 
   if (enabled && view != nil)
     {
       WinUIThemeTrackHover(view);
-      hovered = WinUIThemeViewIsHovered(view);
+      hovered = WinUIThemeHoverAmount(view, WinUIThemeViewIsHovered(view));
     }
   WinUIThemeDrawTextBoxChromeInState(theme, frame, (view != nil && [view isFlipped]),
                                      enabled, hovered, focused);
@@ -1281,7 +1282,7 @@ WinUIThemeDrawTextBoxChrome(WinUITheme *theme, NSRect frame, NSView *view, BOOL 
 /* The TextBox in a given state, for views holding several (form cells). */
 void
 WinUIThemeDrawTextBoxChromeInState(WinUITheme *theme, NSRect frame, BOOL flipped,
-                                   BOOL enabled, BOOL hovered, BOOL focused)
+                                   BOOL enabled, CGFloat hovered, BOOL focused)
 {
   NSGraphicsContext *context = [NSGraphicsContext currentContext];
   BOOL dark = [[theme settings] prefersDarkAppearance];
