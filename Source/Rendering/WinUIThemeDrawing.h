@@ -72,6 +72,20 @@ void WinUIThemeTrackHover(NSView *view);
 BOOL WinUIThemeViewIsHovered(NSView *view);
 void WinUIThemeSetViewHovered(NSView *view, BOOL hovered);
 
+/* Motion (#105, WinUIThemeMotion.m): whether the theme animates (Windows'
+   "Animation effects", or the WinUIThemeAnimations default); a value easing
+   towards `target` for the view, which redraws until it arrives (a view's
+   first value is `target` at once); a control's pointer-over and pressed
+   states as 0 to 1, fading over WinUI's 83ms; and a window fading in as it
+   opens. */
+BOOL WinUIThemeAnimationsEnabled(void);
+CGFloat WinUIThemeAnimatedValue(NSView *view, const void *key, CGFloat target,
+                                NSTimeInterval duration);
+CGFloat WinUIThemeHoverAmount(NSView *view, BOOL hovered);
+CGFloat WinUIThemePressAmount(NSView *view, BOOL pressed);
+void WinUIThemeFadeInWindow(NSWindow *window, NSTimeInterval duration);
+BOOL WinUIThemeWindowIsFadingIn(NSWindow *window);
+
 CGFloat WinUIThemeClamp(CGFloat value, CGFloat minimum, CGFloat maximum);
 NSColor *WinUIThemeColorFromTheme(WinUITheme *theme, NSString *key, NSColor *fallback);
 NSColor *WinUIThemeColorWithAlpha(NSColor *color, CGFloat alpha);
@@ -167,10 +181,11 @@ void WinUIThemeDrawInputChrome(WinUITheme *theme,
                                BOOL focused,
                                BOOL roundedLeft,
                                BOOL roundedRight);
-NSColor *WinUIThemeTextBoxFillColor(WinUITheme *theme, BOOL enabled, BOOL hovered, BOOL focused);
+/* `hovered` and `hover` run from 0 to 1 (WinUIThemeHoverAmount). */
+NSColor *WinUIThemeTextBoxFillColor(WinUITheme *theme, BOOL enabled, CGFloat hovered, BOOL focused);
 void WinUIThemeDrawTextBoxChrome(WinUITheme *theme, NSRect frame, NSView *view, BOOL enabled);
 void WinUIThemeDrawTextBoxChromeInState(WinUITheme *theme, NSRect frame, BOOL flipped,
-                                        BOOL enabled, BOOL hovered, BOOL focused);
+                                        BOOL enabled, CGFloat hovered, BOOL focused);
 void WinUIThemeDrawSegmentChrome(WinUITheme *theme,
                                  NSRect frame,
                                  BOOL enabled,
@@ -191,7 +206,7 @@ void WinUIThemeResolveEntryColors(WinUITheme *theme,
 #define WinUIThemeComboBoxGlyphInset 20.0
 void WinUIThemeDrawComboBoxGlyph(WinUITheme *theme, NSRect frame, BOOL enabled);
 NSColor *WinUIThemeDrawButtonChrome(WinUITheme *theme, NSRect frame, NSView *view, BOOL enabled,
-                                    BOOL defaultButton, BOOL pressed, BOOL hover);
+                                    BOOL defaultButton, BOOL pressed, CGFloat hover);
 CGFloat WinUIThemeComboBoxButtonWidth(NSRect cellFrame);
 NSRect WinUIThemeComboBoxButtonRect(NSRect cellFrame);
 NSRect WinUIThemeComboBoxTextRect(NSComboBoxCell *cell, NSRect cellFrame);

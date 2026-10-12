@@ -79,10 +79,11 @@ WinUIThemeTextFieldUsesChromeFill(NSTextFieldCell *cell)
    with the accent, at 90% under the pointer and 80% pressed. Fluent's
    colours are white or black at an opacity over the layer; these blend
    them over the window background. Pop-ups and combo boxes (#40) use it
-   too. Returns the title colour. */
+   too. `hover` runs from 0 to 1 as the pointer-over state fades in
+   (WinUIThemeHoverAmount, #105). Returns the title colour. */
 NSColor *
 WinUIThemeDrawButtonChrome(WinUITheme *theme, NSRect frame, NSView *view, BOOL enabled,
-                           BOOL defaultButton, BOOL pressed, BOOL hover)
+                           BOOL defaultButton, BOOL pressed, CGFloat hover)
 {
   BOOL dark = [[theme settings] prefersDarkAppearance];
   BOOL highContrast = [[theme settings] highContrastEnabled];
@@ -101,7 +102,7 @@ WinUIThemeDrawButtonChrome(WinUITheme *theme, NSRect frame, NSView *view, BOOL e
      highlight when default, hovered or pressed, GrayText disabled. */
   if (highContrast)
     {
-      BOOL highlighted = enabled && (defaultButton || pressed || hover);
+      BOOL highlighted = enabled && (defaultButton || pressed || hover >= 0.5);
 
       fillColor = highlighted ? accent
         : WinUIThemeColorFromTheme(theme, @"controlColor", window);
@@ -117,8 +118,7 @@ WinUIThemeDrawButtonChrome(WinUITheme *theme, NSRect frame, NSView *view, BOOL e
       NSColor *onAccent = WinUIThemeColorFromTheme(theme, @"accentTextColor",
                                                    [NSColor selectedControlTextColor]);
 
-      fillColor = pressed ? WinUIThemeBlendColor(window, accent, 0.80)
-        : (hover ? WinUIThemeBlendColor(window, accent, 0.90) : accent);
+      fillColor = WinUIThemeBlendColor(window, accent, pressed ? 0.80 : 1.0 - 0.10 * hover);
       /* ControlStrokeColorOnAccentDefault and ...Secondary. */
       strokeColor = WinUIThemeBlendColor(fillColor, [NSColor whiteColor], 0.08);
       bottomStrokeColor = pressed ? strokeColor
@@ -138,8 +138,9 @@ WinUIThemeDrawButtonChrome(WinUITheme *theme, NSRect frame, NSView *view, BOOL e
     }
   else
     {
-      CGFloat fill = pressed ? (dark ? 0.03 : 0.30)
-        : (hover ? (dark ? 0.08 : 0.50) : (dark ? 0.06 : 0.70));
+      CGFloat rest = dark ? 0.06 : 0.70;
+      CGFloat over = dark ? 0.08 : 0.50;
+      CGFloat fill = pressed ? (dark ? 0.03 : 0.30) : rest + (over - rest) * hover;
 
       fillColor = WinUIThemeBlendColor(window, [NSColor whiteColor], fill);
       strokeColor = WinUIThemeBlendColor(fillColor, dark ? [NSColor whiteColor] : [NSColor blackColor],
@@ -251,7 +252,7 @@ WinUIThemeDrawCheckboxOrRadioIndicator(WinUITheme *theme,
 {
   BOOL enabled = [cell isEnabled];
   BOOL pressed = enabled && [cell isHighlighted];
-  BOOL hover = NO;
+  CGFloat hover = 0.0;
   BOOL dark = [[theme settings] prefersDarkAppearance];
   BOOL highContrast = [[theme settings] highContrastEnabled];
   NSInteger state = [cell state];
@@ -277,7 +278,7 @@ WinUIThemeDrawCheckboxOrRadioIndicator(WinUITheme *theme,
   if ([controlView isKindOfClass: [NSButton class]])
     {
       WinUIThemeTrackHover(controlView);
-      hover = enabled && WinUIThemeViewIsHovered(controlView);
+      hover = WinUIThemeHoverAmount(controlView, enabled && WinUIThemeViewIsHovered(controlView));
     }
 
   if (highContrast)
@@ -293,8 +294,7 @@ WinUIThemeDrawCheckboxOrRadioIndicator(WinUITheme *theme,
   else if (on)
     {
       fillColor = enabled
-        ? (pressed ? WinUIThemeBlendColor(window, accent, 0.80)
-                   : (hover ? WinUIThemeBlendColor(window, accent, 0.90) : accent))
+        ? WinUIThemeBlendColor(window, accent, pressed ? 0.80 : 1.0 - 0.10 * hover)
         : WinUIThemeBlendColor(window, ink, dark ? 0.16 : 0.22);
       borderColor = fillColor;
       markColor = enabled ? onAccent
@@ -302,12 +302,13 @@ WinUIThemeDrawCheckboxOrRadioIndicator(WinUITheme *theme,
     }
   else
     {
-      CGFloat fill = pressed ? (dark ? 0.07 : 0.09) : (hover ? (dark ? 0.04 : 0.06) : (dark ? 0.0 : 0.024));
-
       /* Dark's ControlAltFillColorSecondary is black at 10%. */
-      fillColor = (dark && pressed == NO && hover == NO)
-        ? WinUIThemeBlendColor(window, [NSColor blackColor], 0.10)
-        : WinUIThemeBlendColor(window, ink, fill);
+      NSColor *rest = dark ? WinUIThemeBlendColor(window, [NSColor blackColor], 0.10)
+                           : WinUIThemeBlendColor(window, ink, 0.024);
+      NSColor *over = WinUIThemeBlendColor(window, ink, dark ? 0.04 : 0.06);
+
+      fillColor = pressed ? WinUIThemeBlendColor(window, ink, dark ? 0.07 : 0.09)
+                          : WinUIThemeBlendColor(rest, over, hover);
       borderColor = enabled
         ? WinUIThemeBlendColor(window, ink, dark ? 0.54 : 0.45)
         : WinUIThemeBlendColor(window, ink, dark ? 0.16 : 0.22);
@@ -333,7 +334,7 @@ WinUIThemeDrawCheckboxOrRadioIndicator(WinUITheme *theme,
          in the border's colour. WinUI's is 12 of its 20px (14 under the
          pointer, 10 pressed): a share of the indicator, so the accent ring
          stays at compact metrics' smaller size (#81). */
-      CGFloat dot = round(indicatorSize * (pressed ? 0.5 : (hover ? 0.7 : 0.6)));
+      CGFloat dot = round(indicatorSize * (pressed ? 0.5 : 0.6 + 0.1 * hover));
 
       WinUIThemeDrawRadioDot(WinUIThemeCenteredRect(indicatorRect, dot, dot),
                              state == NSOnState ? markColor : borderColor);
@@ -807,7 +808,7 @@ WinUIThemeDrawProgressRing(WinUITheme *theme, NSRect bounds, NSColor *color,
   BOOL enabled = (state != GSThemeDisabledState);
   BOOL defaultButton = enabled && popupButton == NO && WinUIThemeButtonIsDefault(cell);
   BOOL pressed = WinUIThemeStateIsHighlighted(state) || popupOpen;
-  BOOL hover = NO;
+  CGFloat hover = 0.0;
   NSColor *titleColor = nil;
 
   /* A pop-up button is WinUI's ComboBox: a button with a chevron (#40). */
@@ -824,7 +825,7 @@ WinUIThemeDrawProgressRing(WinUITheme *theme, NSRect bounds, NSColor *color,
   if ([view isKindOfClass: [NSButton class]])
     {
       WinUIThemeTrackHover(view);
-      hover = enabled && WinUIThemeViewIsHovered(view);
+      hover = WinUIThemeHoverAmount(view, enabled && WinUIThemeViewIsHovered(view));
     }
 
   titleColor = WinUIThemeDrawButtonChrome(self, frame, view, enabled, defaultButton, pressed, hover);
@@ -898,7 +899,7 @@ WinUIThemeDrawProgressRing(WinUITheme *theme, NSRect bounds, NSColor *color,
       WinUIThemeTrackHover(view);
       WinUIThemeDrawButtonChrome(self, frame, view, enabled, NO,
                                  [cell isHighlighted],
-                                 enabled && WinUIThemeViewIsHovered(view));
+                                 WinUIThemeHoverAmount(view, enabled && WinUIThemeViewIsHovered(view)));
       return;
     }
   if (WinUIThemeUsesInputBorder(aType, view))

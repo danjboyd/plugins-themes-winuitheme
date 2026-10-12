@@ -25,6 +25,16 @@ Apps that bundle the theme should pin a tag, not `main`.
   "Information" or blank is captioned with the app's name (#79). QuirkProbe
   `alert-caption-app-name`.
 
+**Motion**
+- **Hover fades:** buttons, pop-ups, combo boxes, checkboxes, radios, text
+  boxes and the caption buttons fade their pointer-over fills over WinUI's
+  83ms instead of switching (#105).
+- **Opening fades:** menus, tool tips and popover flyouts fade in over
+  about 167ms.
+- Both follow Windows' "Animation effects" setting; the
+  `WinUIThemeAnimations` default overrides it. QuirkProbe
+  `motion-hover-fades`, `motion-opens-fade-in`.
+
 ## 0.1.0-alpha1 (2026-10-08)
 
 The first tagged release, covering the Adwaita parity work (#50, phases A

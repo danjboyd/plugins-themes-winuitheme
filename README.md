@@ -229,6 +229,18 @@ Windows draws it. With a stock libs-back, or with
 `defaults write NSGlobalDomain GSBackClientDrawsCaptions NO`, Windows
 keeps its own caption, coloured to match (#83).
 
+## Motion
+
+WinUI eases between states, and so does the theme: the pointer-over fills
+of buttons, pop-ups, combo boxes, checkboxes, radios, text boxes and the
+caption buttons fade in and out over WinUI's 83ms, and menus, tool tips
+and popover flyouts fade in over about 167ms as they open. Windows'
+"Animation effects" setting (Settings, Accessibility, Visual effects)
+turns it off, as it does in WinUI apps; `defaults write NSGlobalDomain
+WinUIThemeAnimations NO` (or `YES`) overrides it for GNUstep apps. Still
+to come: pressed states, the toggle switch, checkbox ticks, flyouts'
+slide and dialogs' entrance (#105).
+
 ## Window Tabs
 
 Apps get Apple's `NSWindow` tabbing API (`-addTabbedWindow:ordered:`,

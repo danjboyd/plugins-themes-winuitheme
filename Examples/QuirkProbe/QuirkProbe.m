@@ -530,6 +530,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkMenuBarTitles: (NSWindow *)window;
 - (void) checkScrollerStripNarrowsContent;
 - (void) checkWindowsTitles;
+- (void) checkMotion;
 - (void) checkPopoverFlyout;
 - (void) checkMenuBarKeyboard: (NSWindow *)window;
 - (void) checkMenuBarOverflow: (NSWindow *)window;
@@ -7898,6 +7899,153 @@ static BOOL QuirkProbeMenuItemPicked = NO;
     }
 }
 
+/* Pointer-over state as the theme's tracker gets it from a tracking
+   rect, without moving the real pointer. */
+static void
+QuirkProbeSendHover(NSView *view, BOOL entered)
+{
+  id tracker = [NSClassFromString(@"WinUIThemeHoverTracker") performSelector: @selector(sharedTracker)];
+  NSEvent *event = [NSEvent enterExitEventWithType: entered ? NSMouseEntered : NSMouseExited
+                                          location: NSZeroPoint
+                                     modifierFlags: 0
+                                         timestamp: 0
+                                      windowNumber: [[view window] windowNumber]
+                                           context: nil
+                                       eventNumber: 0
+                                    trackingNumber: 0
+                                          userData: view];
+
+  if (entered)
+    {
+      [tracker mouseEntered: event];
+    }
+  else
+    {
+      [tracker mouseExited: event];
+    }
+}
+
+/* Motion (#105): a button's pointer-over fill fades in over WinUI's 83ms
+   rather than jumping, and the theme's clock redraws it until it arrives;
+   with animations off (Windows' "Animation effects", here the
+   WinUIThemeAnimations default) it's at once. Menus and flyouts fade in
+   as they open. */
+- (void) checkMotion
+{
+  NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+  NSWindow *window = [self windowWithFrame: NSMakeRect(420, 300, 300, 80)
+                                     title: @"QuirkProbe Motion"];
+  NSButton *button = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(20, 20, 120, 32)]);
+  CGFloat scale = 1.0;
+  NSBitmapImageRep *rep = nil;
+  NSInteger rest, start, settled, instant;
+  NSPanel *flyout = nil;
+  NSMenu *parent = nil;
+  NSMenu *menu = nil;
+  NSWindow *menuWindow = nil;
+  BOOL menuShown = NO;
+  CGFloat flyoutOpening = -1.0, flyoutOpen = -1.0, flyoutInstant = -1.0;
+  CGFloat menuOpening = -1.0, menuOpen = -1.0;
+
+  if (NSClassFromString(@"WinUIThemeHoverTracker") == Nil)
+    {
+      [self skip: @"motion-hover-fades" detail: @"the theme has no hover tracker"];
+      [self skip: @"motion-opens-fade-in" detail: @"the theme has no hover tracker"];
+      return;
+    }
+
+  [defaults setBool: YES forKey: @"WinUIThemeAnimations"];
+  [button setTitle: @"Motion"];
+  [button setBezelStyle: NSRoundedBezelStyle];
+  [[window contentView] addSubview: button];
+  [window orderFront: nil];
+  [window display];
+  rep = QuirkProbeRender(button);
+  scale = [rep pixelsWide] / NSWidth([button bounds]);
+  rest = QuirkProbeBrightnessAt(rep, scale, 8, 16);
+
+  /* Entered: drawn at once, the fill has barely moved; 300ms later, with
+     no one asking but the theme's clock, it has arrived. */
+  QuirkProbeSendHover(button, YES);
+  [button display];
+  start = QuirkProbeBrightnessAt(QuirkProbeRender(button), scale, 8, 16);
+  QuirkProbeDispatchEvents(0.3);
+  settled = QuirkProbeBrightnessAt(QuirkProbeRender(button), scale, 8, 16);
+
+  /* Left with animations off: back at once. */
+  [defaults setBool: NO forKey: @"WinUIThemeAnimations"];
+  QuirkProbeSendHover(button, NO);
+  [button display];
+  instant = QuirkProbeBrightnessAt(QuirkProbeRender(button), scale, 8, 16);
+  [defaults setBool: YES forKey: @"WinUIThemeAnimations"];
+
+  if (rest != settled && start != settled
+      && labs((long)(start - rest)) < labs((long)(settled - rest)) && instant == rest)
+    {
+      [self pass: @"motion-hover-fades" detail: [NSString stringWithFormat:
+        @"fill %ld at rest, %ld as the pointer enters, %ld after 300ms; %ld at once with animations off",
+        (long)rest, (long)start, (long)settled, (long)instant]];
+    }
+  else
+    {
+      [self fail: @"motion-hover-fades" detail: [NSString stringWithFormat:
+        @"fill %ld at rest, %ld as the pointer enters, %ld after 300ms, %ld leaving with animations off",
+        (long)rest, (long)start, (long)settled, (long)instant]];
+    }
+  [window orderOut: nil];
+
+  /* A flyout panel and a menu as they open, and 300ms later. */
+  flyout = AUTORELEASE([[QuirkProbeFlyoutPanel alloc] initWithContentRect: NSMakeRect(620, 300, 160, 120)
+                                                                styleMask: NSBorderlessWindowMask
+                                                                  backing: NSBackingStoreBuffered
+                                                                    defer: NO]);
+  [flyout orderFront: nil];
+  flyoutOpening = [flyout alphaValue];
+  QuirkProbeDispatchEvents(0.3);
+  flyoutOpen = [flyout alphaValue];
+  [flyout orderOut: nil];
+  [defaults setBool: NO forKey: @"WinUIThemeAnimations"];
+  [flyout orderFront: nil];
+  flyoutInstant = [flyout alphaValue];
+  [flyout orderOut: nil];
+  [defaults setBool: YES forKey: @"WinUIThemeAnimations"];
+
+  /* A submenu: in the Windows interface style a menu with no supermenu
+     is the bar, and its window never shows. */
+  parent = AUTORELEASE([[NSMenu alloc] initWithTitle: @"Motion Parent"]);
+  menu = AUTORELEASE([[NSMenu alloc] initWithTitle: @"Motion"]);
+  [parent setSubmenu: menu forItem: [parent addItemWithTitle: @"Motion" action: NULL keyEquivalent: @""]];
+  [menu addItemWithTitle: @"First" action: NULL keyEquivalent: @""];
+  [menu addItemWithTitle: @"Second" action: NULL keyEquivalent: @""];
+  menuWindow = [[menu menuRepresentation] window];
+  if (menuWindow != nil)
+    {
+      [menuWindow setFrameTopLeftPoint: NSMakePoint(820, 420)];
+      [menuWindow orderFrontRegardless];
+      menuOpening = [menuWindow alphaValue];
+      menuShown = [menuWindow isVisible];
+      QuirkProbeDispatchEvents(0.3);
+      menuOpen = [menuWindow alphaValue];
+      [menuWindow orderOut: nil];
+    }
+  [defaults removeObjectForKey: @"WinUIThemeAnimations"];
+
+  if (flyoutOpening < 0.5 && flyoutOpen == 1.0 && flyoutInstant == 1.0
+      && menuShown && menuOpening < 0.5 && menuOpen == 1.0)
+    {
+      [self pass: @"motion-opens-fade-in" detail: [NSString stringWithFormat:
+        @"flyout alpha %.2f opening, %.2f open, %.2f with animations off; menu %.2f, %.2f",
+        flyoutOpening, flyoutOpen, flyoutInstant, menuOpening, menuOpen]];
+    }
+  else
+    {
+      [self fail: @"motion-opens-fade-in" detail: [NSString stringWithFormat:
+        @"flyout alpha %.2f opening, %.2f open, %.2f with animations off; menu %@ %.2f, %.2f",
+        flyoutOpening, flyoutOpen, flyoutInstant, menuShown ? @"shown" : @"not shown",
+        menuOpening, menuOpen]];
+    }
+}
+
 /* The text Windows shows in a window's caption, the taskbar and Alt+Tab. */
 static NSString *
 QuirkProbeCaptionText(NSWindow *window)
@@ -8470,6 +8618,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkFileDialogFilters];
   [self checkScrollerStripNarrowsContent];
   [self checkWindowsTitles];
+  [self checkMotion];
   [self checkPopoverFlyout];
   [self after: QuirkProbeSettleDelay perform: @selector(createLateWindow:)];
 }
