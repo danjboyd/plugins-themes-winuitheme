@@ -1306,9 +1306,12 @@ WinUIThemeDrawTextBoxChromeInState(WinUITheme *theme, NSRect frame, BOOL flipped
   else
     {
       NSColor *ink = dark ? [NSColor whiteColor] : [NSColor blackColor];
+      /* Over the window, not the fill (BackgroundSizing InnerBorderEdge). */
+      NSColor *window = WinUIThemeColorFromTheme(theme, @"windowBackgroundColor",
+                                                 [NSColor windowBackgroundColor]);
 
-      stroke = WinUIThemeBlendColor(fill, ink, dark ? 0.07 : 0.058);
-      bottom = enabled ? WinUIThemeBlendColor(fill, ink, dark ? 0.544 : 0.446) : stroke;
+      stroke = WinUIThemeBlendColor(window, ink, dark ? 0.07 : 0.058);
+      bottom = enabled ? WinUIThemeBlendColor(window, ink, dark ? 0.544 : 0.446) : stroke;
       if (focused)
         {
           bottom = accent;

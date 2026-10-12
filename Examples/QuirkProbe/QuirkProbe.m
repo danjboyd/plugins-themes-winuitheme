@@ -2359,7 +2359,11 @@ QuirkProbeBrightnessAt(NSBitmapImageRep *rep, CGFloat scale, CGFloat x, CGFloat 
 
 /* WinUI's Button (issues #38, #10, #35): a flat fill, without the gloss
    over its top half; 4pt corners; a title that doesn't move when pressed;
-   and a lighter fill under the pointer (only with -ProbeMovesPointer YES). */
+   and a lighter fill under the pointer (only with -ProbeMovesPointer YES).
+   As measured in WinUI 3 (Compare-Reference.ps1): the title centred; the
+   border ControlStrokeColorDefault and ...Secondary over the window, not
+   over the fill, with Secondary along the bottom in light and the top in
+   dark; and the window SolidBackgroundFillColorBase. */
 - (void) checkButtonChrome
 {
   NSWindow *window = [self windowWithFrame: NSMakeRect(420, 460, 300, 80)
@@ -2470,6 +2474,76 @@ QuirkProbeBrightnessAt(NSBitmapImageRep *rep, CGFloat scale, CGFloat x, CGFloat 
         }
     }
 
+  /* The title's ink centred top to bottom, as WinUI's is. "Button" has no
+     descenders, so its ink is its cap height. */
+  if (resting.count >= 20)
+    {
+      CGFloat low = ((resting.minY + resting.height / 2.0) - [rep pixelsHigh] / 2.0) / scale;
+
+      if (fabs(low) <= 1.0)
+        {
+          [self pass: @"button-title-centred" detail: [NSString stringWithFormat:
+            @"the title's ink is %.1f px from the button's centre", low]];
+        }
+      else
+        {
+          [self fail: @"button-title-centred" detail: [NSString stringWithFormat:
+            @"the title's ink is %.1f px below the button's centre", low]];
+        }
+    }
+
+  /* The border, its top and bottom middle, against Fluent's strokes over
+     the window. */
+  if (highContrast)
+    {
+      [self skip: @"button-stroke-over-window" detail: @"high contrast's border is ButtonText"];
+      [self skip: @"window-background-base" detail: @"high contrast's window is Window"];
+    }
+  else
+    {
+      BOOL dark = QuirkProbeHasArgument(@"--mode", @"dark");
+      NSColor *page = [[NSColor windowBackgroundColor] colorUsingColorSpaceName: NSCalibratedRGBColorSpace];
+      CGFloat base = dark ? 0x20 / 255.0 : 0xF3 / 255.0;
+      CGFloat ink = dark ? 1.0 : 0.0;
+      CGFloat topWeight = dark ? 0.094 : 0.058;
+      CGFloat bottomWeight = dark ? 0.07 : 0.16;
+      NSInteger expectTop = (NSInteger)round(255.0 * ([page redComponent] + (ink - [page redComponent]) * topWeight));
+      NSInteger expectBottom = (NSInteger)round(255.0 * ([page redComponent] + (ink - [page redComponent]) * bottomWeight));
+      NSUInteger red, green, blue;
+      NSInteger topRed, bottomRed;
+
+      rep = QuirkProbeRender(button);
+      QuirkProbePixel(rep, [rep pixelsWide] / 2, 0, &red, &green, &blue);
+      topRed = red;
+      QuirkProbePixel(rep, [rep pixelsWide] / 2, [rep pixelsHigh] - 1, &red, &green, &blue);
+      bottomRed = red;
+      if (llabs((long long)(topRed - expectTop)) <= 2 && llabs((long long)(bottomRed - expectBottom)) <= 2)
+        {
+          [self pass: @"button-stroke-over-window" detail: [NSString stringWithFormat:
+            @"the border is %ld at the top, %ld at the bottom", (long)topRed, (long)bottomRed]];
+        }
+      else
+        {
+          [self fail: @"button-stroke-over-window" detail: [NSString stringWithFormat:
+            @"the border is %ld at the top, %ld at the bottom; Fluent's over the window are %ld and %ld",
+            (long)topRed, (long)bottomRed, (long)expectTop, (long)expectBottom]];
+        }
+
+      if (fabs([page redComponent] - base) <= 1.5 / 255.0
+          && fabs([page greenComponent] - base) <= 1.5 / 255.0
+          && fabs([page blueComponent] - base) <= 1.5 / 255.0)
+        {
+          [self pass: @"window-background-base" detail: [NSString stringWithFormat:
+            @"the window is %@, SolidBackgroundFillColorBase", QuirkProbeHex(page)]];
+        }
+      else
+        {
+          [self fail: @"window-background-base" detail: [NSString stringWithFormat:
+            @"the window is %@; WinUI's page is %@", QuirkProbeHex(page),
+            QuirkProbeHex([NSColor colorWithCalibratedWhite: base alpha: 1.0])]];
+        }
+    }
+
   if ([[NSUserDefaults standardUserDefaults] boolForKey: @"ProbeMovesPointer"] == NO)
     {
       [self skip: @"button-hover" detail: @"moves the pointer: needs -ProbeMovesPointer YES"];
@@ -2545,8 +2619,9 @@ QuirkProbeColumnCount(NSBitmapImageRep *rep, QuirkProbePixelTest test,
 }
 
 /* WinUI's Slider (issue #41): a 4px track, the value part in the accent,
-   and a 20px thumb around an accent dot, 12px at rest and 10px pressed.
-   The theme drew a plain circle on a 6px bordered track. */
+   and a 22px thumb centred on it around an accent dot, 10px at rest and
+   8px pressed, as measured in WinUI 3 (Compare-Reference.ps1). The theme
+   drew a plain circle on a 6px bordered track. */
 - (void) checkSlider
 {
   NSWindow *window = [self windowWithFrame: NSMakeRect(420, 300, 280, 80)
@@ -2605,7 +2680,7 @@ QuirkProbeColumnCount(NSBitmapImageRep *rep, QuirkProbePixelTest test,
   [[slider cell] setHighlighted: NO];
   [slider display];
   if (QuirkProbeIsAccentBlue(red, green, blue)
-      && fabs(rest - 12.0 * desktop * scale) <= 2.0 && fabs(pressed - 10.0 * desktop * scale) <= 2.0)
+      && fabs(rest - 10.0 * desktop * scale) <= 1.0 && fabs(pressed - 8.0 * desktop * scale) <= 1.0)
     {
       [self pass: @"slider-thumb-dot" detail: [NSString stringWithFormat:
         @"an accent dot %lu px wide, %lu pressed", (unsigned long)rest, (unsigned long)pressed]];
@@ -2613,10 +2688,56 @@ QuirkProbeColumnCount(NSBitmapImageRep *rep, QuirkProbePixelTest test,
   else
     {
       [self fail: @"slider-thumb-dot" detail: [NSString stringWithFormat:
-        @"the thumb's centre is %lu,%lu,%lu; accent %lu px across, %lu pressed (expected 12 and 10)",
+        @"the thumb's centre is %lu,%lu,%lu; accent %lu px across, %lu pressed (expected 10 and 8)",
         (unsigned long)red, (unsigned long)green, (unsigned long)blue,
         (unsigned long)rest, (unsigned long)pressed]];
     }
+
+  /* The thumb, down its centre column against the window, and the value
+     part's accent band a quarter of the way along: WinUI's thumb is 22px
+     and centred on the track. */
+  {
+    NSInteger background, y, thumbTop = -1, thumbBottom = -1, trackTop = -1, trackBottom = -1;
+    NSInteger column = (NSInteger)(60 * scale);
+    CGFloat expected = round(22.0 * desktop) * scale;
+    CGFloat offset;
+
+    QuirkProbePixel(rep, centreX, 0, &red, &green, &blue);
+    background = red + green + blue;
+    for (y = 0; y < height; y++)
+      {
+        QuirkProbePixel(rep, centreX, y, &red, &green, &blue);
+        if (llabs((long long)(red + green + blue) - background) > 9)
+          {
+            if (thumbTop < 0) thumbTop = y;
+            thumbBottom = y;
+          }
+        QuirkProbePixel(rep, column, y, &red, &green, &blue);
+        if (QuirkProbeIsAccentBlue(red, green, blue))
+          {
+            if (trackTop < 0) trackTop = y;
+            trackBottom = y;
+          }
+      }
+    offset = (thumbTop + thumbBottom) / 2.0 - (trackTop + trackBottom) / 2.0;
+    if (expected + 2.0 > height)
+      {
+        [self skip: @"slider-thumb-size" detail: [NSString stringWithFormat:
+          @"a %.0f px thumb doesn't fit the probe's %ld px slider", expected, (long)height]];
+      }
+    else if (thumbTop >= 0 && trackTop >= 0
+        && fabs((thumbBottom - thumbTop + 1) - expected) <= 1.0 && fabs(offset) <= 0.5)
+      {
+        [self pass: @"slider-thumb-size" detail: [NSString stringWithFormat:
+          @"a %ld px thumb, centred on the track", (long)(thumbBottom - thumbTop + 1)]];
+      }
+    else
+      {
+        [self fail: @"slider-thumb-size" detail: [NSString stringWithFormat:
+          @"the thumb is %ld px (expected %.0f), %.1f px off the track's centre",
+          (long)(thumbBottom - thumbTop + 1), expected, offset]];
+      }
+  }
   [window orderOut: nil];
 }
 

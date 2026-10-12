@@ -78,7 +78,9 @@ WinUIThemeTextFieldUsesChromeFill(NSTextFieldCell *cell)
    the bottom; 4pt corners (#35); no gloss (#10). An accent button fills
    with the accent, at 90% under the pointer and 80% pressed. Fluent's
    colours are white or black at an opacity over the layer; these blend
-   them over the window background. Pop-ups and combo boxes (#40) use it
+   them over the window background. The border lies over the window, not
+   the fill (BackgroundSizing InnerBorderEdge), and in dark mode its
+   lighter Secondary is the top. Pop-ups and combo boxes (#40) use it
    too. `hover` runs from 0 to 1 as the pointer-over state fades in
    (WinUIThemeHoverAmount, #105). Returns the title colour. */
 NSColor *
@@ -130,8 +132,8 @@ WinUIThemeDrawButtonChrome(WinUITheme *theme, NSRect frame, NSView *view, BOOL e
     {
       /* ControlFillColorDisabled and TextFillColorDisabled. */
       fillColor = WinUIThemeBlendColor(window, [NSColor whiteColor], dark ? 0.04 : 0.30);
-      strokeColor = WinUIThemeBlendColor(fillColor, dark ? [NSColor whiteColor] : [NSColor blackColor],
-                                         dark ? 0.07 : 0.06);
+      strokeColor = WinUIThemeBlendColor(window, dark ? [NSColor whiteColor] : [NSColor blackColor],
+                                         dark ? 0.07 : 0.058);
       bottomStrokeColor = strokeColor;
       titleColor = WinUIThemeColorFromTheme(theme, @"disabledControlTextColor",
                                             [NSColor disabledControlTextColor]);
@@ -142,12 +144,14 @@ WinUIThemeDrawButtonChrome(WinUITheme *theme, NSRect frame, NSView *view, BOOL e
       CGFloat over = dark ? 0.08 : 0.50;
       CGFloat fill = pressed ? (dark ? 0.03 : 0.30) : rest + (over - rest) * hover;
 
+      NSColor *ink = dark ? [NSColor whiteColor] : [NSColor blackColor];
+      /* ControlStrokeColorDefault and ...Secondary. */
+      NSColor *strokeDefault = WinUIThemeBlendColor(window, ink, dark ? 0.07 : 0.058);
+      NSColor *strokeSecondary = WinUIThemeBlendColor(window, ink, dark ? 0.094 : 0.16);
+
       fillColor = WinUIThemeBlendColor(window, [NSColor whiteColor], fill);
-      strokeColor = WinUIThemeBlendColor(fillColor, dark ? [NSColor whiteColor] : [NSColor blackColor],
-                                         dark ? 0.07 : 0.06);
-      bottomStrokeColor = pressed ? strokeColor
-        : WinUIThemeBlendColor(fillColor, dark ? [NSColor whiteColor] : [NSColor blackColor],
-                               dark ? 0.09 : 0.16);
+      strokeColor = (dark && pressed == NO) ? strokeSecondary : strokeDefault;
+      bottomStrokeColor = pressed ? strokeColor : (dark ? strokeDefault : strokeSecondary);
       /* TextFillColorSecondary while pressed. */
       titleColor = pressed ? WinUIThemeColorFromTheme(theme, @"secondaryLabelColor", text) : text;
     }
@@ -712,11 +716,12 @@ WinUIThemeRangeColors(WinUITheme *theme, BOOL enabled,
   if (bottomOut != NULL) *bottomOut = bottom;
 }
 
-/* WinUI's 20px Slider thumb, scaled with the desktop. */
+/* WinUI's Slider thumb, 22px with its border as WinUI 3 draws it,
+   scaled with the desktop. */
 static CGFloat
 WinUIThemeSliderThumbSize(WinUITheme *theme)
 {
-  return round(20.0 * MAX(1.0, [[theme settings] desktopScaleFactor]));
+  return round(22.0 * MAX(1.0, [[theme settings] desktopScaleFactor]));
 }
 
 /* WinUI's ProgressRing: an accent arc, its stroke an eighth of the ring's
@@ -879,8 +884,11 @@ WinUIThemeDrawProgressRing(WinUITheme *theme, NSRect bounds, NSColor *color,
 
   margins.left = MAX(8.0, ceil([[self metrics] buttonHorizontalPadding] * 0.78));
   margins.right = margins.left;
-  margins.top = MAX(6.0, ceil([[self metrics] buttonVerticalPadding] + 1.0));
-  margins.bottom = MAX(4.0, margins.top - 2.0);
+  /* More below the title than above, as WinUI's padding (5 and 6) and
+     its line's descent leave it, so the title's ink sits in the middle.
+     The top had 2pt more, and the title sat 2px low. */
+  margins.top = MAX(5.0, ceil([[self metrics] buttonVerticalPadding])) - 1.0;
+  margins.bottom = margins.top + 2.0;
 
   (void)state;
   return margins;
@@ -1398,8 +1406,10 @@ WinUIThemeSwitchColors(WinUITheme *theme,
   WinUIThemeFillAndStrokeRoundedRect(NSIntegralRect(activeRect), 2.0, value, nil, 0.0);
 }
 
-/* The thumb: a 20px circle in ControlSolidFill with the elevation border,
-   around an accent dot of 12px, 14px under the pointer and 10px pressed. */
+/* The thumb: a 22px circle in ControlSolidFill with the elevation border,
+   centred on the track, around an accent dot of 10px, 14px under the
+   pointer and 8px pressed (the inner ellipse's 12px at WinUI's 0.86,
+   1.167 and 0.71 scales). */
 - (void) drawKnobInCell: (NSCell *)cell
 {
   NSSliderCell *sliderCell = (NSSliderCell *)cell;
@@ -1413,7 +1423,9 @@ WinUIThemeSwitchColors(WinUITheme *theme,
   NSColor *border = nil;
   NSColor *bottom = nil;
   NSColor *dot = nil;
-  CGFloat dotSize = 12.0;
+  CGFloat dotSize = 10.0;
+  CGFloat track = round(4.0 * MAX(1.0, scale));
+  BOOL vertical = ([sliderCell isVertical] == 1);
   NSBezierPath *path = nil;
 
   if ([sliderCell sliderType] != NSLinearSlider)
@@ -1423,9 +1435,20 @@ WinUIThemeSwitchColors(WinUITheme *theme,
     }
 
   knobRect = [sliderCell knobRectFlipped: [controlView isFlipped]];
-  circleRect = NSMakeRect(floor(NSMidX(knobRect) - thumb / 2.0) + 0.5,
-                          floor(NSMidY(knobRect) - thumb / 2.0) + 0.5,
-                          thumb - 1.0, thumb - 1.0);
+  /* Across the track, on the track's centre as -drawBarInside:... puts
+     it (WinUIThemeSliderTrackRect); along it, on the knob's. */
+  if (vertical)
+    {
+      circleRect = NSMakeRect(floor(NSMidX(knobRect) - track / 2.0) + track / 2.0 - thumb / 2.0 + 0.5,
+                              floor(NSMidY(knobRect) - thumb / 2.0) + 0.5,
+                              thumb - 1.0, thumb - 1.0);
+    }
+  else
+    {
+      circleRect = NSMakeRect(floor(NSMidX(knobRect) - thumb / 2.0) + 0.5,
+                              floor(NSMidY(knobRect) - track / 2.0) + track / 2.0 - thumb / 2.0 + 0.5,
+                              thumb - 1.0, thumb - 1.0);
+    }
   WinUIThemeRangeColors(self, enabled, NULL, &dot, &fill, &border, &bottom);
 
   if ([controlView isKindOfClass: [NSView class]])
@@ -1434,7 +1457,7 @@ WinUIThemeSwitchColors(WinUITheme *theme,
     }
   if (enabled && [cell isHighlighted])
     {
-      dotSize = 10.0;
+      dotSize = 8.0;
     }
   else if (enabled && controlView != nil && WinUIThemeViewIsHovered(controlView))
     {

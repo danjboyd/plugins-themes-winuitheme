@@ -5,6 +5,24 @@ Releases of the WinUI theme for GNUstep. Versions are semver pre-releases
 `GSThemeVersion` in `WinUIThemeInfo.plist`, and an annotated tag on `main`.
 Apps that bundle the theme should pin a tag, not `main`.
 
+## Unreleased
+
+**Measured against WinUI**
+- `Compare-Reference.ps1` finds no measurement out of tolerance in light
+  or dark (#105):
+  - The light window is SolidBackgroundFillColorBase, #F3F3F3, a WinUI
+    window's page; it was #F9F9F9.
+  - Button, combo box and text box borders lie over the window, not the
+    control's fill, as WinUI's do; in dark mode the lighter edge is the
+    top.
+  - Button titles sit in the middle; they were 2px low.
+  - The slider thumb is 22px and centred on the track, around a 10px dot
+    (14px under the pointer, 8px pressed).
+
+**Fixes**
+- A disabled toolbar item's icon stays dimmed when its button redraws on
+  its own; it darkened until it looked enabled (#110).
+
 ## 0.1.0-alpha2 (2026-10-12)
 
 Menu bar keyboard access, Windows' print and page setup dialogs, popover

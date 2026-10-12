@@ -31,7 +31,7 @@
    out from -cellSize squashed them: the selected segment's pill and the
    slider's thumb were clipped, and a text field sat shorter than the
    button beside it. WinUI's Segmented, TextBox and Slider (its touch
-   target, round a 4px rail and 20px thumb) are 32px at standard density;
+   target, round a 4px rail and 22px thumb) are 32px at standard density;
    compact metrics (#31) get the compact button's height. */
 
 static WinUITheme *
@@ -92,7 +92,7 @@ WinUIThemeButtonHeightForFont(WinUITheme *theme, NSFont *font)
       return size;
     }
   target = MAX(WinUIThemeButtonHeightForFont(theme, nil),
-               round(20.0 * MAX(1.0, [[theme settings] desktopScaleFactor])) + 4.0);
+               round(22.0 * MAX(1.0, [[theme settings] desktopScaleFactor])) + 4.0);
   if ([cell isVertical] == 1)
     {
       size.width = MAX(size.width, target);
