@@ -515,6 +515,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkOverlayAutohide;
 - (void) checkFocusVisual;
 - (void) checkTextBox;
+- (void) checkContrastPopUpSelection;
 - (void) checkComboBoxes;
 - (void) checkListSelection;
 - (void) checkSelectedRowText;
@@ -775,6 +776,74 @@ static NSUInteger QuirkProbeRedoCount = 0;
 - (void) redo: (id)sender
 {
   QuirkProbeRedoCount++;
+}
+
+/* In high contrast an open pop-up's list marks its selected item in
+   Highlight, as WinUI's ComboBox does (#82); it was left unmarked. */
+- (void) checkContrastPopUpSelection
+{
+  NSWindow *window = nil;
+  NSPopUpButton *popUp = nil;
+  NSMenuView *menuView = nil;
+  NSBitmapImageRep *rep = nil;
+  NSColor *highlight = nil;
+  NSInteger rgb[3];
+  NSUInteger matching = 0;
+  NSInteger x, y;
+  NSRect selectedRow;
+  CGFloat scale;
+
+  if (QuirkProbeHasArgument(@"--high-contrast", nil) == NO)
+    {
+      [self skip: @"contrast-popup-selection" detail: @"high contrast only"];
+      return;
+    }
+  window = [self windowWithFrame: NSMakeRect(420, 300, 300, 120) title: @"QuirkProbe Contrast Pop-up"];
+  popUp = AUTORELEASE([[NSPopUpButton alloc] initWithFrame: NSMakeRect(20, 60, 200, 32) pullsDown: NO]);
+  [popUp addItemsWithTitles: [NSArray arrayWithObjects: @"First", @"Second", @"Third", nil]];
+  [popUp selectItemAtIndex: 1];
+  [[window contentView] addSubview: popUp];
+  [window makeKeyAndOrderFront: nil];
+  [window display];
+  [[popUp cell] attachPopUpWithFrame: [popUp bounds] inView: popUp];
+  QuirkProbeDispatchEvents(0.3);
+  menuView = (NSMenuView *)[[popUp menu] menuRepresentation];
+  /* Not under the pointer: the item's marked only for being selected. */
+  [menuView setHighlightedItemIndex: -1];
+  [menuView display];
+  rep = QuirkProbeRender(menuView);
+  scale = QuirkProbeScale(rep, menuView);
+  [self saveView: menuView named: @"contrast-popup-selection"];
+  highlight = [[GSTheme theme] colorNamed: @"selectedMenuItemColor" state: GSThemeNormalState];
+  if (highlight == nil)
+    {
+      highlight = [NSColor selectedMenuItemColor];
+    }
+  QuirkProbeRGB(highlight, rgb);
+  selectedRow = QuirkProbePixelRect(menuView, [menuView rectOfItemAtIndex: 1], scale);
+  for (y = (NSInteger)NSMinY(selectedRow); y < (NSInteger)NSMaxY(selectedRow); y++)
+    {
+      for (x = (NSInteger)NSMinX(selectedRow); x < (NSInteger)NSMaxX(selectedRow); x++)
+        {
+          if (QuirkProbeChannelDistance(rep, x, y, rgb) <= 8)
+            {
+              matching++;
+            }
+        }
+    }
+  [[popUp cell] dismissPopUp];
+  [window orderOut: nil];
+
+  if (matching >= 200)
+    {
+      [self pass: @"contrast-popup-selection" detail: [NSString stringWithFormat:
+        @"the selected item has %lu px of Highlight", (unsigned long)matching]];
+    }
+  else
+    {
+      [self fail: @"contrast-popup-selection" detail: [NSString stringWithFormat:
+        @"the selected item has %lu px of Highlight (%@)", (unsigned long)matching, QuirkProbeHex(highlight)]];
+    }
 }
 
 - (id) init
@@ -9125,6 +9194,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkOverlayAutohide];
   [self checkFocusVisual];
   [self checkTextBox];
+  [self checkContrastPopUpSelection];
   [self checkComboBoxes];
   [self checkListSelection];
   [self checkSelectedRowText];

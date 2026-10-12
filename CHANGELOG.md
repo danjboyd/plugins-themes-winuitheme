@@ -40,6 +40,9 @@ Apps that bundle the theme should pin a tag, not `main`.
 - Redo shows Ctrl+Y, as on Windows, and Ctrl+Y redoes; the app's
   Ctrl+Shift+Z still does. Left alone when something else has Ctrl+Y
   (#92).
+- In high contrast an open pop-up marks its selected item in Highlight,
+  with its title and pill in HighlightText, as WinUI's ComboBox does
+  (#82).
 
 **Fixes**
 - A disabled toolbar item's icon stays dimmed when its button redraws on
