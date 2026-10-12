@@ -28,8 +28,10 @@
 #include <windows.h>
 
 /* Motion (#105). WinUI eases between visual states rather than jumping:
-   a control's fills cross-fade when the pointer comes and goes
-   (BrushTransition, 83ms), and flyouts and menus fade in as they open.
+   a control's fills cross-fade when the pointer comes and goes and when
+   it's pressed (BrushTransition, 83ms); a toggle switch's knob slides and
+   a checkbox's tick draws in; flyouts and menus fade in as they open,
+   sliding into place, and dialogs fade in.
 
    One clock drives it all. A drawing function asks for an animated value
    (WinUIThemeAnimatedValue) with the state it wants to show; while a
@@ -259,17 +261,46 @@ WinUIThemePressAmount(NSView *view, BOOL pressed)
                                  WinUIThemeStateFadeDuration);
 }
 
+/* ControlFastAnimationDuration: a toggle switch's knob crossing, and a
+   checkbox's tick drawing in. */
+static const NSTimeInterval WinUIThemeToggleDuration = 0.167;
+
+static char WinUIThemeToggleAmountKey;
+static char WinUIThemeCheckAmountKey;
+
+CGFloat
+WinUIThemeToggleAmount(NSView *view, BOOL on)
+{
+  return WinUIThemeAnimatedValue(view, &WinUIThemeToggleAmountKey, on ? 1.0 : 0.0,
+                                 WinUIThemeToggleDuration);
+}
+
+/* Checking draws the tick in; unchecking takes it away at once. */
+CGFloat
+WinUIThemeCheckAmount(NSView *view, BOOL checked)
+{
+  return WinUIThemeAnimatedValue(view, &WinUIThemeCheckAmountKey, checked ? 1.0 : 0.0,
+                                 checked ? WinUIThemeToggleDuration : 0.0);
+}
+
 /* Fading a window in as it opens: menus and flyouts (WinUI's popup
-   theme transition, about 167ms). The window's alpha goes from 0 to 1;
-   libs-back's windows are layered, so this is SetLayeredWindowAttributes. */
+   theme transition, about 167ms), tool tips and dialogs. The window's
+   alpha goes from 0 to 1; libs-back's windows are layered, so this is
+   SetLayeredWindowAttributes. Menus and flyouts also slide down into
+   place. If the app moves the window meanwhile, the slide gives way. */
 @interface WinUIThemeWindowFade : NSObject
 {
   NSWindow *_window;
   NSTimeInterval _start;
   NSTimeInterval _duration;
   NSTimer *_timer;
+  CGFloat _slide;
+  NSPoint _target;
+  NSPoint _last;
 }
-- (id) initWithWindow: (NSWindow *)window duration: (NSTimeInterval)duration;
+- (id) initWithWindow: (NSWindow *)window
+             duration: (NSTimeInterval)duration
+                slide: (CGFloat)slide;
 - (void) finish;
 @end
 
@@ -277,7 +308,9 @@ static NSMapTable *WinUIThemeWindowFades = nil;
 
 @implementation WinUIThemeWindowFade
 
-- (id) initWithWindow: (NSWindow *)window duration: (NSTimeInterval)duration
+- (id) initWithWindow: (NSWindow *)window
+             duration: (NSTimeInterval)duration
+                slide: (CGFloat)slide
 {
   if ((self = [super init]) != nil)
     {
@@ -296,8 +329,31 @@ static NSMapTable *WinUIThemeWindowFades = nil;
       [loop addTimer: _timer forMode: NSModalPanelRunLoopMode];
       [loop addTimer: _timer forMode: NSRunLoopCommonModes];
       [_window setAlphaValue: 0.0];
+      if (slide != 0.0)
+        {
+          _slide = slide;
+          _target = [_window frame].origin;
+          _last = NSMakePoint(_target.x, _target.y + slide);
+          [_window setFrameOrigin: _last];
+        }
     }
   return self;
+}
+
+/* Where the slide has the window at `eased`, unless the app moved it. */
+- (void) slideTo: (CGFloat)eased
+{
+  if (_slide == 0.0)
+    {
+      return;
+    }
+  if (NSEqualPoints([_window frame].origin, _last) == NO)
+    {
+      _slide = 0.0;
+      return;
+    }
+  _last = NSMakePoint(_target.x, round(_target.y + _slide * (1.0 - eased)));
+  [_window setFrameOrigin: _last];
 }
 
 - (void) tick: (NSTimer *)timer
@@ -310,6 +366,7 @@ static NSMapTable *WinUIThemeWindowFades = nil;
       return;
     }
   [_window setAlphaValue: WinUIThemeEaseOut(MAX(0.0, t))];
+  [self slideTo: WinUIThemeEaseOut(MAX(0.0, t))];
 }
 
 - (void) finish
@@ -320,6 +377,7 @@ static NSMapTable *WinUIThemeWindowFades = nil;
   _timer = nil;
   if (window != nil)
     {
+      [self slideTo: 1.0];
       _window = nil;
       [window setAlphaValue: 1.0];
       NSMapRemove(WinUIThemeWindowFades, window);
@@ -329,8 +387,8 @@ static NSMapTable *WinUIThemeWindowFades = nil;
 
 @end
 
-void
-WinUIThemeFadeInWindow(NSWindow *window, NSTimeInterval duration)
+static void
+WinUIThemeOpenWindow(NSWindow *window, NSTimeInterval duration, CGFloat slide)
 {
   WinUIThemeWindowFade *fade = nil;
 
@@ -347,9 +405,15 @@ WinUIThemeFadeInWindow(NSWindow *window, NSTimeInterval duration)
     {
       return;
     }
-  fade = [[WinUIThemeWindowFade alloc] initWithWindow: window duration: duration];
+  fade = [[WinUIThemeWindowFade alloc] initWithWindow: window duration: duration slide: slide];
   NSMapInsert(WinUIThemeWindowFades, window, fade);
   RELEASE(fade);
+}
+
+void
+WinUIThemeFadeInWindow(NSWindow *window, NSTimeInterval duration)
+{
+  WinUIThemeOpenWindow(window, duration, 0.0);
 }
 
 BOOL
@@ -377,8 +441,44 @@ WinUIThemeWindowFadesInWhenShown(NSWindow *window)
     || WinUIThemeWindowIsFlyout(window);
 }
 
-/* WinUI's popup theme transition, about 167ms. */
+/* Menus that slide as they open: a menu bar's menus, context menus,
+   pop-up lists and flyouts. A submenu doesn't, so it opens beside its
+   menu where that menu will stay, even if it's still sliding. */
+static BOOL
+WinUIThemeWindowSlidesInWhenShown(NSWindow *window)
+{
+  NSMenu *menu = nil;
+  NSMenu *supermenu = nil;
+
+  if (WinUIThemeWindowIsFlyout(window))
+    {
+      return YES;
+    }
+  if ([window respondsToSelector: @selector(_menu)] == NO)
+    {
+      return NO;
+    }
+  menu = [window performSelector: @selector(_menu)];
+  supermenu = [menu supermenu];
+  return supermenu == nil || supermenu == [NSApp mainMenu];
+}
+
+/* A dialog: an alert, as WinUI's ContentDialog fades in. */
+static BOOL
+WinUIThemeWindowIsDialog(NSWindow *window)
+{
+  static Class alertPanelClass = Nil;
+
+  if (alertPanelClass == Nil)
+    {
+      alertPanelClass = NSClassFromString(@"GSAlertPanel");
+    }
+  return alertPanelClass != Nil && [window isKindOfClass: alertPanelClass];
+}
+
+/* WinUI's popup theme transition, about 167ms, and its distance. */
 static const NSTimeInterval WinUIThemeOpenFadeDuration = 0.167;
+static const CGFloat WinUIThemeOpenSlideDistance = 8.0;
 
 @implementation WinUITheme (Motion)
 
@@ -391,10 +491,18 @@ typedef void (*OrderWindowIMP)(id, SEL, NSWindowOrderingMode, NSInteger);
   NSWindow *window = (NSWindow *)self;
 
   if (place != NSWindowOut && [window isVisible] == NO
-      && [[GSTheme theme] isKindOfClass: [WinUITheme class]]
-      && WinUIThemeWindowFadesInWhenShown(window))
+      && [[GSTheme theme] isKindOfClass: [WinUITheme class]])
     {
-      WinUIThemeFadeInWindow(window, WinUIThemeOpenFadeDuration);
+      if (WinUIThemeWindowFadesInWhenShown(window))
+        {
+          WinUIThemeOpenWindow(window, WinUIThemeOpenFadeDuration,
+                               WinUIThemeWindowSlidesInWhenShown(window)
+                               ? WinUIThemeOpenSlideDistance : 0.0);
+        }
+      else if (WinUIThemeWindowIsDialog(window))
+        {
+          WinUIThemeFadeInWindow(window, WinUIThemeOpenFadeDuration);
+        }
     }
   if (originalIMP != NULL)
     {

@@ -83,6 +83,8 @@ CGFloat WinUIThemeAnimatedValue(NSView *view, const void *key, CGFloat target,
                                 NSTimeInterval duration);
 CGFloat WinUIThemeHoverAmount(NSView *view, BOOL hovered);
 CGFloat WinUIThemePressAmount(NSView *view, BOOL pressed);
+CGFloat WinUIThemeToggleAmount(NSView *view, BOOL on);
+CGFloat WinUIThemeCheckAmount(NSView *view, BOOL checked);
 void WinUIThemeFadeInWindow(NSWindow *window, NSTimeInterval duration);
 BOOL WinUIThemeWindowIsFadingIn(NSWindow *window);
 
@@ -165,6 +167,7 @@ void WinUIThemeDrawIndicatorLabel(NSButtonCell *cell,
 
 void WinUIThemeDrawChevron(NSPoint center, BOOL pointingUp, NSColor *color);
 void WinUIThemeDrawCheckmark(NSRect rect, NSColor *color);
+void WinUIThemeDrawCheckmarkDrawnIn(NSRect rect, NSColor *color, CGFloat amount);
 void WinUIThemeDrawRadioDot(NSRect rect, NSColor *color);
 void WinUIThemeDrawSearchGlyph(NSRect rect, NSColor *color);
 NSRect WinUIThemeCenteredRect(NSRect frame, CGFloat width, CGFloat height);

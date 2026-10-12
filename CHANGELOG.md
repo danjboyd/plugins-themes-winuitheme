@@ -19,9 +19,22 @@ Apps that bundle the theme should pin a tag, not `main`.
   - The slider thumb is 22px and centred on the track, around a 10px dot
     (14px under the pointer, 8px pressed).
 
+**Motion** (#105)
+- Pressed fills fade in and out over 83ms, as hover fills do: buttons,
+  pop-ups, combo boxes, checkboxes and radios.
+- A toggle switch's knob slides across and its track cross-fades; a
+  checkbox's tick draws in (167ms).
+- A menu bar's menus, context menus, pop-up lists and flyouts slide 8pt
+  down into place as they fade in; alerts fade in.
+
 **Fixes**
 - A disabled toolbar item's icon stays dimmed when its button redraws on
   its own; it darkened until it looked enabled (#110).
+- Reading Windows' "Animation effects" setting overran the stack by three
+  bytes, which could stop an app with "stack smashing detected" when a
+  hover faded.
+- A push button no longer sets its title again each time it's drawn,
+  which asked for another redraw every time.
 
 ## 0.1.0-alpha2 (2026-10-12)
 

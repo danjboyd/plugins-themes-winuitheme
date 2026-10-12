@@ -8104,11 +8104,62 @@ QuirkProbeSendHover(NSView *view, BOOL entered)
     }
 }
 
+static void
+QuirkProbePress(NSView *view, BOOL pressed)
+{
+  [(NSButton *)view highlight: pressed];
+}
+
+static void
+QuirkProbeCheck(NSView *view, BOOL checked)
+{
+  [(NSButton *)view setState: checked ? NSOnState : NSOffState];
+}
+
+/* A state change as it's drawn at once, and 300ms later, each against the
+   new state drawn with animations off: the first is on its way, the last
+   has arrived. The new state is drawn as the animation's frames are, from
+   -setNeedsDisplay:, since libs-gui's redraw of a view marked for display
+   can draw a rounded control's antialiased corners a shade darker than
+   -display does. */
+static BOOL
+QuirkProbeAnimates(NSView *view, void (*change)(NSView *, BOOL), NSString **detail)
+{
+  NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+  NSBitmapImageRep *target = nil;
+  NSUInteger start, end;
+
+  /* Settled first: the window becoming key, say, mustn't count. */
+  QuirkProbeDispatchEvents(0.2);
+  [defaults setBool: NO forKey: @"WinUIThemeAnimations"];
+  change(view, YES);
+  [view setNeedsDisplay: YES];
+  QuirkProbeDispatchEvents(0.1);
+  target = QuirkProbeRender(view);
+  change(view, NO);
+  [view display];
+  [defaults setBool: YES forKey: @"WinUIThemeAnimations"];
+  change(view, YES);
+  [view display];
+  start = QuirkProbeDifferingPixels(QuirkProbeRender(view), target);
+  QuirkProbeDispatchEvents(0.3);
+  end = QuirkProbeDifferingPixels(QuirkProbeRender(view), target);
+  [defaults setBool: NO forKey: @"WinUIThemeAnimations"];
+  change(view, NO);
+  [view display];
+  [defaults setBool: YES forKey: @"WinUIThemeAnimations"];
+  *detail = [NSString stringWithFormat: @"%lu px from the new state as it changes, %lu after 300ms",
+                                        (unsigned long)start, (unsigned long)end];
+  return start >= 40 && end <= 2;
+}
+
 /* Motion (#105): a button's pointer-over fill fades in over WinUI's 83ms
    rather than jumping, and the theme's clock redraws it until it arrives;
    with animations off (Windows' "Animation effects", here the
    WinUIThemeAnimations default) it's at once. Menus and flyouts fade in
-   as they open. */
+   as they open, a flyout sliding down into place, and alerts fade in. A
+   pressed button's fill fades too, a switch's knob slides across, and a
+   checkbox's tick draws in. */
 - (void) checkMotion
 {
   NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
@@ -8125,6 +8176,12 @@ QuirkProbeSendHover(NSView *view, BOOL entered)
   BOOL menuShown = NO;
   CGFloat flyoutOpening = -1.0, flyoutOpen = -1.0, flyoutInstant = -1.0;
   CGFloat menuOpening = -1.0, menuOpen = -1.0;
+  CGFloat flyoutTarget = 0.0, flyoutStart = 0.0, flyoutEnd = 0.0;
+  NSPanel *alert = nil;
+  CGFloat alertOpening = -1.0, alertOpen = -1.0;
+  NSSwitch *toggle = nil;
+  NSButton *checkbox = nil;
+  NSString *detail = nil;
 
   if (NSClassFromString(@"WinUIThemeHoverTracker") == Nil)
     {
@@ -8171,6 +8228,46 @@ QuirkProbeSendHover(NSView *view, BOOL entered)
         @"fill %ld at rest, %ld as the pointer enters, %ld after 300ms, %ld leaving with animations off",
         (long)rest, (long)start, (long)settled, (long)instant]];
     }
+
+  [window makeFirstResponder: window];
+  if (QuirkProbeHasArgument(@"--high-contrast", nil))
+    {
+      [self skip: @"motion-press-fades" detail: @"high contrast's pressed button changes at once, with its title"];
+    }
+  else if (QuirkProbeAnimates(button, QuirkProbePress, &detail))
+    {
+      [self pass: @"motion-press-fades" detail: detail];
+    }
+  else
+    {
+      [self fail: @"motion-press-fades" detail: detail];
+    }
+
+  toggle = AUTORELEASE([[NSSwitch alloc] initWithFrame: NSMakeRect(160, 26, 40, 20)]);
+  [[window contentView] addSubview: toggle];
+  [toggle display];
+  if (QuirkProbeAnimates(toggle, QuirkProbeCheck, &detail))
+    {
+      [self pass: @"motion-switch-slides" detail: detail];
+    }
+  else
+    {
+      [self fail: @"motion-switch-slides" detail: detail];
+    }
+
+  checkbox = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(220, 26, 60, 20)]);
+  [checkbox setButtonType: NSSwitchButton];
+  [checkbox setTitle: @""];
+  [[window contentView] addSubview: checkbox];
+  [checkbox display];
+  if (QuirkProbeAnimates(checkbox, QuirkProbeCheck, &detail))
+    {
+      [self pass: @"motion-check-draws-in" detail: detail];
+    }
+  else
+    {
+      [self fail: @"motion-check-draws-in" detail: detail];
+    }
   [window orderOut: nil];
 
   /* A flyout panel and a menu as they open, and 300ms later. */
@@ -8178,10 +8275,13 @@ QuirkProbeSendHover(NSView *view, BOOL entered)
                                                                 styleMask: NSBorderlessWindowMask
                                                                   backing: NSBackingStoreBuffered
                                                                     defer: NO]);
+  flyoutTarget = NSMinY([flyout frame]);
   [flyout orderFront: nil];
   flyoutOpening = [flyout alphaValue];
+  flyoutStart = NSMinY([flyout frame]);
   QuirkProbeDispatchEvents(0.3);
   flyoutOpen = [flyout alphaValue];
+  flyoutEnd = NSMinY([flyout frame]);
   [flyout orderOut: nil];
   [defaults setBool: NO forKey: @"WinUIThemeAnimations"];
   [flyout orderFront: nil];
@@ -8207,7 +8307,40 @@ QuirkProbeSendHover(NSView *view, BOOL entered)
       menuOpen = [menuWindow alphaValue];
       [menuWindow orderOut: nil];
     }
-  [defaults removeObjectForKey: @"WinUIThemeAnimations"];
+
+  alert = NSGetAlertPanel(@"QuirkProbe Motion", @"An alert fading in.", @"OK", nil, nil);
+  if (alert != nil)
+    {
+      [alert orderFront: nil];
+      alertOpening = [alert alphaValue];
+      QuirkProbeDispatchEvents(0.3);
+      alertOpen = [alert alphaValue];
+      [alert orderOut: nil];
+      NSReleaseAlertPanel(alert);
+    }
+  [defaults setBool: NO forKey: @"WinUIThemeAnimations"];
+
+  if (flyoutStart > flyoutTarget && flyoutEnd == flyoutTarget)
+    {
+      [self pass: @"motion-flyout-slides" detail: [NSString stringWithFormat:
+        @"the flyout opens %.0f px above its place and settles there", flyoutStart - flyoutTarget]];
+    }
+  else
+    {
+      [self fail: @"motion-flyout-slides" detail: [NSString stringWithFormat:
+        @"the flyout's bottom is %.0f, %.0f opening and %.0f after 300ms",
+        flyoutTarget, flyoutStart, flyoutEnd]];
+    }
+  if (alertOpening >= 0.0 && alertOpening < 0.5 && alertOpen == 1.0)
+    {
+      [self pass: @"motion-dialog-fades-in" detail: [NSString stringWithFormat:
+        @"an alert's alpha is %.2f opening, %.2f open", alertOpening, alertOpen]];
+    }
+  else
+    {
+      [self fail: @"motion-dialog-fades-in" detail: [NSString stringWithFormat:
+        @"an alert's alpha is %.2f opening, %.2f open", alertOpening, alertOpen]];
+    }
 
   if (flyoutOpening < 0.5 && flyoutOpen == 1.0 && flyoutInstant == 1.0
       && menuShown && menuOpening < 0.5 && menuOpen == 1.0)
@@ -8725,6 +8858,10 @@ QuirkProbeFilterPatterns(NSArray *filters)
     }
   printf("THEME %s\n", [[[[GSTheme theme] bundle] bundlePath] UTF8String] ?: "(default)");
   fflush(stdout);
+
+  /* The checks render each state as it's set, so without motion (#105);
+     checkMotion turns it on for its own checks. */
+  [[NSUserDefaults standardUserDefaults] setBool: NO forKey: @"WinUIThemeAnimations"];
 
   /* The native dialogs at run time, alone: Tests/Scripts/Invoke-DialogCheck.ps1
      runs them, with a driver for Windows 11's print dialog. They show real

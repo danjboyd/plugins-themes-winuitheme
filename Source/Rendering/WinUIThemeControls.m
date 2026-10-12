@@ -82,7 +82,8 @@ WinUIThemeTextFieldUsesChromeFill(NSTextFieldCell *cell)
    the fill (BackgroundSizing InnerBorderEdge), and in dark mode its
    lighter Secondary is the top. Pop-ups and combo boxes (#40) use it
    too. `hover` runs from 0 to 1 as the pointer-over state fades in
-   (WinUIThemeHoverAmount, #105). Returns the title colour. */
+   (WinUIThemeHoverAmount, #105), and the pressed fill fades in and out
+   as well (WinUIThemePressAmount). Returns the title colour. */
 NSColor *
 WinUIThemeDrawButtonChrome(WinUITheme *theme, NSRect frame, NSView *view, BOOL enabled,
                            BOOL defaultButton, BOOL pressed, CGFloat hover)
@@ -99,6 +100,8 @@ WinUIThemeDrawButtonChrome(WinUITheme *theme, NSRect frame, NSView *view, BOOL e
   NSColor *titleColor = nil;
   NSRect drawRect = NSInsetRect(NSIntegralRect(frame), 0.5, 0.5);
   NSBezierPath *buttonPath = nil;
+  CGFloat press = (view != nil) ? WinUIThemePressAmount(view, enabled && pressed)
+                                : ((enabled && pressed) ? 1.0 : 0.0);
 
   /* High contrast (#45): ButtonFace with ButtonText at rest, the
      highlight when default, hovered or pressed, GrayText disabled. */
@@ -120,11 +123,14 @@ WinUIThemeDrawButtonChrome(WinUITheme *theme, NSRect frame, NSView *view, BOOL e
       NSColor *onAccent = WinUIThemeColorFromTheme(theme, @"accentTextColor",
                                                    [NSColor selectedControlTextColor]);
 
-      fillColor = WinUIThemeBlendColor(window, accent, pressed ? 0.80 : 1.0 - 0.10 * hover);
+      CGFloat over = 1.0 - 0.10 * hover;
+
+      fillColor = WinUIThemeBlendColor(window, accent, over + (0.80 - over) * press);
       /* ControlStrokeColorOnAccentDefault and ...Secondary. */
       strokeColor = WinUIThemeBlendColor(fillColor, [NSColor whiteColor], 0.08);
-      bottomStrokeColor = pressed ? strokeColor
-        : WinUIThemeBlendColor(fillColor, [NSColor blackColor], dark ? 0.14 : 0.40);
+      bottomStrokeColor = WinUIThemeBlendColor(WinUIThemeBlendColor(fillColor, [NSColor blackColor],
+                                                                    dark ? 0.14 : 0.40),
+                                               strokeColor, press);
       /* TextOnAccentFillColorSecondary while pressed. */
       titleColor = pressed ? WinUIThemeBlendColor(fillColor, onAccent, dark ? 0.50 : 0.70) : onAccent;
     }
@@ -142,16 +148,18 @@ WinUIThemeDrawButtonChrome(WinUITheme *theme, NSRect frame, NSView *view, BOOL e
     {
       CGFloat rest = dark ? 0.06 : 0.70;
       CGFloat over = dark ? 0.08 : 0.50;
-      CGFloat fill = pressed ? (dark ? 0.03 : 0.30) : rest + (over - rest) * hover;
-
+      CGFloat lifted = rest + (over - rest) * hover;
+      CGFloat fill = lifted + ((dark ? 0.03 : 0.30) - lifted) * press;
       NSColor *ink = dark ? [NSColor whiteColor] : [NSColor blackColor];
-      /* ControlStrokeColorDefault and ...Secondary. */
+      /* ControlStrokeColorDefault and ...Secondary; pressed, Default all
+         round. */
       NSColor *strokeDefault = WinUIThemeBlendColor(window, ink, dark ? 0.07 : 0.058);
       NSColor *strokeSecondary = WinUIThemeBlendColor(window, ink, dark ? 0.094 : 0.16);
 
       fillColor = WinUIThemeBlendColor(window, [NSColor whiteColor], fill);
-      strokeColor = (dark && pressed == NO) ? strokeSecondary : strokeDefault;
-      bottomStrokeColor = pressed ? strokeColor : (dark ? strokeDefault : strokeSecondary);
+      strokeColor = dark ? WinUIThemeBlendColor(strokeSecondary, strokeDefault, press) : strokeDefault;
+      bottomStrokeColor = dark ? strokeDefault
+        : WinUIThemeBlendColor(strokeSecondary, strokeDefault, press);
       /* TextFillColorSecondary while pressed. */
       titleColor = pressed ? WinUIThemeColorFromTheme(theme, @"secondaryLabelColor", text) : text;
     }
@@ -257,6 +265,8 @@ WinUIThemeDrawCheckboxOrRadioIndicator(WinUITheme *theme,
   BOOL enabled = [cell isEnabled];
   BOOL pressed = enabled && [cell isHighlighted];
   CGFloat hover = 0.0;
+  CGFloat press = pressed ? 1.0 : 0.0;
+  CGFloat check = ([cell state] == NSOnState) ? 1.0 : 0.0;
   BOOL dark = [[theme settings] prefersDarkAppearance];
   BOOL highContrast = [[theme settings] highContrastEnabled];
   NSInteger state = [cell state];
@@ -283,6 +293,8 @@ WinUIThemeDrawCheckboxOrRadioIndicator(WinUITheme *theme,
     {
       WinUIThemeTrackHover(controlView);
       hover = WinUIThemeHoverAmount(controlView, enabled && WinUIThemeViewIsHovered(controlView));
+      press = WinUIThemePressAmount(controlView, pressed);
+      check = WinUIThemeCheckAmount(controlView, [cell state] == NSOnState);
     }
 
   if (highContrast)
@@ -298,7 +310,7 @@ WinUIThemeDrawCheckboxOrRadioIndicator(WinUITheme *theme,
   else if (on)
     {
       fillColor = enabled
-        ? WinUIThemeBlendColor(window, accent, pressed ? 0.80 : 1.0 - 0.10 * hover)
+        ? WinUIThemeBlendColor(window, accent, (1.0 - 0.10 * hover) + (0.80 - (1.0 - 0.10 * hover)) * press)
         : WinUIThemeBlendColor(window, ink, dark ? 0.16 : 0.22);
       borderColor = fillColor;
       markColor = enabled ? onAccent
@@ -311,8 +323,8 @@ WinUIThemeDrawCheckboxOrRadioIndicator(WinUITheme *theme,
                            : WinUIThemeBlendColor(window, ink, 0.024);
       NSColor *over = WinUIThemeBlendColor(window, ink, dark ? 0.04 : 0.06);
 
-      fillColor = pressed ? WinUIThemeBlendColor(window, ink, dark ? 0.07 : 0.09)
-                          : WinUIThemeBlendColor(rest, over, hover);
+      fillColor = WinUIThemeBlendColor(WinUIThemeBlendColor(rest, over, hover),
+                                       WinUIThemeBlendColor(window, ink, dark ? 0.07 : 0.09), press);
       borderColor = enabled
         ? WinUIThemeBlendColor(window, ink, dark ? 0.54 : 0.45)
         : WinUIThemeBlendColor(window, ink, dark ? 0.16 : 0.22);
@@ -338,14 +350,14 @@ WinUIThemeDrawCheckboxOrRadioIndicator(WinUITheme *theme,
          in the border's colour. WinUI's is 12 of its 20px (14 under the
          pointer, 10 pressed): a share of the indicator, so the accent ring
          stays at compact metrics' smaller size (#81). */
-      CGFloat dot = round(indicatorSize * (pressed ? 0.5 : 0.6 + 0.1 * hover));
+      CGFloat dot = round(indicatorSize * (pressed ? 0.5 : 0.6 + 0.1 * hover - 0.1 * press));
 
       WinUIThemeDrawRadioDot(WinUIThemeCenteredRect(indicatorRect, dot, dot),
                              state == NSOnState ? markColor : borderColor);
     }
   else if (radio == NO && state == NSOnState)
     {
-      WinUIThemeDrawCheckmark(indicatorRect, markColor);
+      WinUIThemeDrawCheckmarkDrawnIn(indicatorRect, markColor, check);
     }
   else if (radio == NO && state == NSMixedState)
     {
@@ -1166,14 +1178,30 @@ WinUIThemeSwitchColors(WinUITheme *theme,
     }
 }
 
+/* How far a switch is on, 0 to 1: it eases across as it's flipped
+   (WinUIThemeToggleAmount, #105). The switch being drawn is the focus
+   view; GSTheme's switch methods aren't given it. */
+static CGFloat
+WinUIThemeSwitchOnAmount(NSControlStateValue value)
+{
+  NSView *view = [NSView focusView];
+  BOOL on = (value == NSControlStateValueOn);
+
+  if ([view isKindOfClass: [NSControl class]] == NO)
+    {
+      return on ? 1.0 : 0.0;
+    }
+  return WinUIThemeToggleAmount(view, on);
+}
+
 - (void) drawSwitchBezel: (NSRect)frame
                 forState: (NSControlStateValue)value
                  enabled: (BOOL)enabled
 {
   NSRect trackRect = WinUIThemeSwitchTrackRect(frame);
-  NSColor *fillColor = nil;
-  NSColor *strokeColor = nil;
-  NSColor *knobColor = nil;
+  CGFloat on = WinUIThemeSwitchOnAmount(value);
+  NSColor *onFill = nil, *onStroke = nil, *onKnob = nil;
+  NSColor *offFill = nil, *offStroke = nil, *offKnob = nil;
   NSBezierPath *trackPath = nil;
 
   if (NSHeight(trackRect) < 2.0)
@@ -1181,22 +1209,23 @@ WinUIThemeSwitchColors(WinUITheme *theme,
       return;
     }
 
-  WinUIThemeSwitchColors(self, value == NSControlStateValueOn, enabled,
-                         &fillColor, &strokeColor, &knobColor);
-  if (fillColor != nil)
-    {
-      trackPath = WinUIThemeRoundedPath(trackRect, NSHeight(trackRect) / 2.0);
-      [fillColor set];
-      [trackPath fill];
-    }
-  if (strokeColor != nil)
+  WinUIThemeSwitchColors(self, YES, enabled, &onFill, &onStroke, &onKnob);
+  WinUIThemeSwitchColors(self, NO, enabled, &offFill, &offStroke, &offKnob);
+  /* Off's outline fades out as on's fill fades in. */
+  if (offStroke != nil && on < 1.0)
     {
       NSRect strokeRect = NSInsetRect(trackRect, 0.5, 0.5);
 
       trackPath = WinUIThemeRoundedPath(strokeRect, NSHeight(strokeRect) / 2.0);
-      [strokeColor set];
+      [WinUIThemeColorWithAlpha(offStroke, 1.0 - on) set];
       [trackPath setLineWidth: 1.0];
       [trackPath stroke];
+    }
+  if (onFill != nil && on > 0.0)
+    {
+      trackPath = WinUIThemeRoundedPath(trackRect, NSHeight(trackRect) / 2.0);
+      [WinUIThemeColorWithAlpha(onFill, on) set];
+      [trackPath fill];
     }
 }
 
@@ -1205,22 +1234,25 @@ WinUIThemeSwitchColors(WinUITheme *theme,
                 enabled: (BOOL)enabled
 {
   NSRect trackRect = WinUIThemeSwitchTrackRect(frame);
-  BOOL on = (value == NSControlStateValueOn);
+  CGFloat on = WinUIThemeSwitchOnAmount(value);
   CGFloat radius = NSHeight(trackRect) / 2.0;
   /* A 12px knob in the 20px track. */
   CGFloat diameter = round(NSHeight(trackRect) * 0.6);
-  CGFloat centerX = on ? NSMaxX(trackRect) - radius : NSMinX(trackRect) + radius;
+  CGFloat offX = NSMinX(trackRect) + radius;
+  CGFloat centerX = offX + (NSMaxX(trackRect) - radius - offX) * on;
   NSColor *fillColor = nil;
   NSColor *strokeColor = nil;
-  NSColor *knobColor = nil;
+  NSColor *onKnob = nil;
+  NSColor *offKnob = nil;
 
   if (NSHeight(trackRect) < 2.0)
     {
       return;
     }
 
-  WinUIThemeSwitchColors(self, on, enabled, &fillColor, &strokeColor, &knobColor);
-  [knobColor set];
+  WinUIThemeSwitchColors(self, YES, enabled, &fillColor, &strokeColor, &onKnob);
+  WinUIThemeSwitchColors(self, NO, enabled, &fillColor, &strokeColor, &offKnob);
+  [WinUIThemeBlendColor(offKnob, onKnob, on) set];
   [[NSBezierPath bezierPathWithOvalInRect:
      NSMakeRect(centerX - (diameter / 2.0),
                 NSMidY(trackRect) - (diameter / 2.0),
