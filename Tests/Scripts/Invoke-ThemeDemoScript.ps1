@@ -42,6 +42,7 @@ $OutputDirectory = (Resolve-Path $OutputDirectory).Path
 
 $env:PATH = "C:\msys64\clang64\bin;C:\msys64\mingw64\bin;" + $env:PATH
 Remove-Item Env:GNUSTEP_PATHLIST -ErrorAction SilentlyContinue
+. (Join-Path $PSScriptRoot "GNUstepTestHome.ps1")
 
 $commands = Join-Path $OutputDirectory "commands.txt"
 (Get-Content $Script) -replace '\{out\}', $OutputDirectory | Set-Content -Encoding UTF8 $commands
@@ -49,16 +50,27 @@ $stdout = Join-Path $OutputDirectory "themedemo.out"
 $stderr = Join-Path $OutputDirectory "themedemo.err"
 $launchArguments = @("-GSTheme", "`"$Theme`"", "--mode", $Mode) + $Arguments +
   @("--command-script", "`"$commands`"")
-$process = Start-Process -FilePath $demoExe `
-                         -WorkingDirectory (Split-Path -Parent $demoExe) `
-                         -ArgumentList $launchArguments `
-                         -RedirectStandardOutput $stdout `
-                         -RedirectStandardError $stderr `
-                         -PassThru
-$null = $process.Handle
+# ThemeDemo gets a home directory of its own, as the probe does, so it
+# neither reads nor writes the owner's GNUstep defaults.
+$testHome = Enter-GNUstepTestHome
+try {
+  $process = Start-Process -FilePath $demoExe `
+                           -WorkingDirectory (Split-Path -Parent $demoExe) `
+                           -ArgumentList $launchArguments `
+                           -RedirectStandardOutput $stdout `
+                           -RedirectStandardError $stderr `
+                           -PassThru
+  $null = $process.Handle
 
-if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
-  Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+  $finished = $process.WaitForExit($TimeoutSeconds * 1000)
+  if (-not $finished) {
+    Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+    $null = $process.WaitForExit(5000)
+  }
+} finally {
+  Exit-GNUstepTestHome $testHome
+}
+if (-not $finished) {
   Get-Content $stdout -ErrorAction SilentlyContinue | Write-Output
   Write-Output "FAIL  ThemeDemo didn't quit within $TimeoutSeconds s (end the script with quit)"
   exit 1

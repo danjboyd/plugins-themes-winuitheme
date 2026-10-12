@@ -3,14 +3,20 @@ param(
   [string]$OutputDirectory,
   [string[]]$Configuration = @("light", "dark", "high-contrast", "light-150", "large-text", "compact", "dusk", "desert"),
   [int]$TimeoutSeconds = 60,
-  # Checks that click with the real pointer (popup-click-stays-open) move
-  # it; pass -NoPointer to skip them while using the desktop.
+  # Checks that move the real pointer (button-hover, table-row-hover,
+  # scroller-hover-expands, popup-click-stays-open) skip unless -Pointer is
+  # given: they take over the desktop's pointer, and fail when other
+  # windows are in the way. Run them with the desktop clear.
+  [switch]$Pointer,
+  # The default now; kept so older command lines still work.
   [switch]$NoPointer
 )
 
 # Runs Examples/QuirkProbe against the theme built in this checkout (or
 # -Theme PATH) once per configuration, and exits with the number of failed
-# checks. Build the theme and the probe first:
+# checks. Each run gets a home directory of its own (GNUstepTestHome.ps1),
+# so the probe neither reads nor writes the owner's GNUstep defaults.
+# Build the theme and the probe first:
 #   Scripts/Build-ThemeBundle.ps1
 #   Scripts/Invoke-GNUstepMake.ps1 -Directory Examples/QuirkProbe
 
@@ -31,6 +37,7 @@ if (-not (Test-Path $Theme)) {
 
 $env:PATH = "C:\msys64\clang64\bin;C:\msys64\mingw64\bin;" + $env:PATH
 Remove-Item Env:GNUSTEP_PATHLIST -ErrorAction SilentlyContinue
+. (Join-Path $PSScriptRoot "GNUstepTestHome.ps1")
 
 $configurationArguments = @{
   "light"         = @("--mode", "light")
@@ -56,7 +63,7 @@ foreach ($name in $Configuration) {
 
   # Window tabs are off by default (#72); the probe checks them on.
   $arguments = @("-GSTheme", "`"$Theme`"", "-WinUIThemeWindowTabs", "YES") + $configurationArguments[$name]
-  if (-not $NoPointer) {
+  if ($Pointer -and -not $NoPointer) {
     $arguments += @("-ProbeMovesPointer", "YES")
   }
   if (-not [string]::IsNullOrWhiteSpace($OutputDirectory)) {
@@ -65,18 +72,29 @@ foreach ($name in $Configuration) {
 
   $stdout = Join-Path $logDirectory "$name.out"
   $stderr = Join-Path $logDirectory "$name.err"
-  $process = Start-Process -FilePath $probeExe `
-                           -WorkingDirectory (Split-Path -Parent $probeExe) `
-                           -ArgumentList $arguments `
-                           -RedirectStandardOutput $stdout `
-                           -RedirectStandardError $stderr `
-                           -PassThru
-  # Without a cached handle, ExitCode is empty once the process has exited.
-  $null = $process.Handle
+  # A fresh home for each configuration, so one can't leave defaults that
+  # change the next.
+  $testHome = Enter-GNUstepTestHome
+  try {
+    $process = Start-Process -FilePath $probeExe `
+                             -WorkingDirectory (Split-Path -Parent $probeExe) `
+                             -ArgumentList $arguments `
+                             -RedirectStandardOutput $stdout `
+                             -RedirectStandardError $stderr `
+                             -PassThru
+    # Without a cached handle, ExitCode is empty once the process has exited.
+    $null = $process.Handle
 
-  Write-Output "== $name"
-  if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
-    Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+    Write-Output "== $name"
+    $finished = $process.WaitForExit($TimeoutSeconds * 1000)
+    if (-not $finished) {
+      Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+      $null = $process.WaitForExit(5000)
+    }
+  } finally {
+    Exit-GNUstepTestHome $testHome
+  }
+  if (-not $finished) {
     Write-Output "FAIL  probe: timed out after $TimeoutSeconds s"
     $totalFailed += 1
     continue
