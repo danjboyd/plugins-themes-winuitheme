@@ -19,6 +19,7 @@
 */
 
 #import "WinUIThemeCaption.h"
+#import "WinUIThemeWindowIntegration.h"
 #import "../WinUITheme.h"
 #import "../Rendering/WinUIThemeDrawing.h"
 #import "../Settings/WinUIThemeSettings.h"
@@ -530,7 +531,7 @@ WinUIThemeCaptionHasSystemMenu(NSWindow *window)
   CGFloat height = [self visibleHeight];
   CGFloat x = round(16.0 * density);
   NSImage *icon = [NSApp applicationIconImage];
-  NSString *title = [window title];
+  NSString *title = WinUIThemeDisplayTitle(window);
 
   [WinUIThemeCaptionBackground() set];
   NSRectFill([self bounds]);

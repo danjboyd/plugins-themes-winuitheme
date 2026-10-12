@@ -16,6 +16,14 @@ Apps that bundle the theme should pin a tag, not `main`.
   A stock libs-back keeps Windows' caption (#83). QuirkProbe
   `client-caption-row`, `client-caption-hit-test`,
   `client-caption-no-system-menu`.
+- **Window titles:** a document window is captioned "README.md - App"
+  (the app's `CFBundleDisplayName`, then `CFBundleName`), with "*" before
+  it while edited, where GNUstep showed "README.md  --  ~/folder" (#33).
+  `[window title]` is unchanged. QuirkProbe `window-title-document`,
+  `window-title-app-set`.
+- **Alerts:** an alert libs-gui left as "Alert", "Critical",
+  "Information" or blank is captioned with the app's name (#79). QuirkProbe
+  `alert-caption-app-name`.
 
 ## 0.1.0-alpha1 (2026-10-08)
 

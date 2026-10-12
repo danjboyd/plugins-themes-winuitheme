@@ -26,6 +26,7 @@
 #import "GSWindowTabbing.h"
 
 #import <AppKit/AppKit.h>
+#import <GNUstepGUI/GSDisplayServer.h>
 #import <math.h>
 #import <objc/runtime.h>
 
@@ -987,6 +988,103 @@ WinUIThemeKeepTabFrame(NSWindow *window, NSRect frame)
     }
 }
 
+@interface NSWindow (WinUIThemeRepresentedTitle)
+- (BOOL) _hasTitleWithRepresentedFilename;
+@end
+
+NSString *
+WinUIThemeApplicationDisplayName(void)
+{
+  NSDictionary *info = [[NSBundle mainBundle] infoDictionary];
+  NSArray *keys = [NSArray arrayWithObjects: @"CFBundleDisplayName", @"CFBundleName",
+                           @"ApplicationName", nil];
+  NSEnumerator *enumerator = [keys objectEnumerator];
+  NSString *key = nil;
+
+  while ((key = [enumerator nextObject]) != nil)
+    {
+      NSString *name = [info objectForKey: key];
+
+      if ([name isKindOfClass: [NSString class]] && [name length] > 0)
+        {
+          return name;
+        }
+    }
+  return [[NSProcessInfo processInfo] processName];
+}
+
+/* The titles libs-gui gives an alert panel when the app gives none
+   (NSAlert.m): Windows captions a message box with the app's name (#79). */
+static BOOL
+WinUIThemeIsDefaultAlertTitle(NSWindow *window, NSString *title)
+{
+  static Class alertPanelClass = Nil;
+  NSString *trimmed = nil;
+
+  if (alertPanelClass == Nil)
+    {
+      alertPanelClass = NSClassFromString(@"GSAlertPanel");
+    }
+  if (alertPanelClass == Nil || [window isKindOfClass: alertPanelClass] == NO)
+    {
+      return NO;
+    }
+  trimmed = [title stringByTrimmingCharactersInSet:
+                     [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+  return [trimmed length] == 0 || [trimmed isEqualToString: @"Alert"]
+    || [trimmed isEqualToString: @"Critical"] || [trimmed isEqualToString: @"Information"];
+}
+
+/* The title as Windows shows it (#33): a document window is
+   "name - App", where GNUstep has "name  --  ~/folder", and starts with
+   "*" while it has unsaved changes, as Notepad's does. Other titles the app
+   set itself are left alone, but for the "*". */
+NSString *
+WinUIThemeDisplayTitle(NSWindow *window)
+{
+  NSString *title = [window title];
+  NSString *path = [window representedFilename];
+  id document = nil;
+
+  if (title == nil)
+    {
+      title = @"";
+    }
+  if (WinUIThemeIsDefaultAlertTitle(window, title))
+    {
+      return WinUIThemeApplicationDisplayName();
+    }
+  if ([path length] > 0 && [window respondsToSelector: @selector(_hasTitleWithRepresentedFilename)]
+      && [window _hasTitleWithRepresentedFilename])
+    {
+      title = [NSString stringWithFormat: @"%@ - %@",
+                        [[NSFileManager defaultManager] displayNameAtPath: path],
+                        WinUIThemeApplicationDisplayName()];
+    }
+  else if ([[window windowController] respondsToSelector: @selector(document)]
+           && (document = [[window windowController] document]) != nil
+           && [document respondsToSelector: @selector(displayName)]
+           && [title length] > 0 && [title isEqualToString: [document displayName]])
+    {
+      /* An NSDocument with no file yet ("Untitled"). */
+      title = [NSString stringWithFormat: @"%@ - %@", title, WinUIThemeApplicationDisplayName()];
+    }
+  if ([title length] > 0 && [window isDocumentEdited])
+    {
+      title = [@"*" stringByAppendingString: title];
+    }
+  return title;
+}
+
+static void
+WinUIThemeSendDisplayTitle(NSWindow *window, int windowNumber)
+{
+  if (windowNumber != 0)
+    {
+      [GSServerForWindow(window) titlewindow: WinUIThemeDisplayTitle(window) : windowNumber];
+    }
+}
+
 @implementation WinUIThemeBackendWindowDecorationView
 
 /* With a backend that leaves the caption to the theme (#83), the caption
@@ -1008,9 +1106,17 @@ WinUIThemeKeepTabFrame(NSWindow *window, NSRect frame)
   WinUIThemeCaptionLayout(self, window, windowNumber);
 }
 
+/* Windows gets the title as WinUIThemeDisplayTitle() gives it. */
 - (void) setTitle: (NSString *)title
 {
-  [super setTitle: title];
+  WinUIThemeSendDisplayTitle(window, windowNumber);
+  WinUIThemeCaptionSetNeedsDisplay(self);
+}
+
+- (void) setDocumentEdited: (BOOL)flag
+{
+  [super setDocumentEdited: flag];
+  WinUIThemeSendDisplayTitle(window, windowNumber);
   WinUIThemeCaptionSetNeedsDisplay(self);
 }
 
@@ -1024,6 +1130,7 @@ WinUIThemeKeepTabFrame(NSWindow *window, NSRect frame)
     }
   else
     {
+      WinUIThemeSendDisplayTitle(window, theWindowNumber);
       WinUIThemeWindowIntegrationSynchronizeWindow(window);
       WinUIThemeCaptionLayout(self, window, theWindowNumber);
     }

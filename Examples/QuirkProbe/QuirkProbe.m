@@ -529,6 +529,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkLateWindow: (NSTimer *)timer;
 - (void) checkMenuBarTitles: (NSWindow *)window;
 - (void) checkScrollerStripNarrowsContent;
+- (void) checkWindowsTitles;
 - (void) checkPopoverFlyout;
 - (void) checkMenuBarKeyboard: (NSWindow *)window;
 - (void) checkMenuBarOverflow: (NSWindow *)window;
@@ -7897,6 +7898,102 @@ static BOOL QuirkProbeMenuItemPicked = NO;
     }
 }
 
+/* The text Windows shows in a window's caption, the taskbar and Alt+Tab. */
+static NSString *
+QuirkProbeCaptionText(NSWindow *window)
+{
+  HWND hwnd = (HWND)[window windowHandle];
+  WCHAR buffer[512];
+  int length = (hwnd != NULL) ? GetWindowTextW(hwnd, buffer, 512) : 0;
+
+  return [NSString stringWithCharacters: (const unichar *)buffer length: MAX(length, 0)];
+}
+
+/* Captions as Windows apps have them: a document window is "name - App"
+   with "*" while edited (#33), where GNUstep sends "name  --  ~/folder"; a
+   title the app set itself stays; an alert libs-gui left untitled is
+   captioned with the app's name (#79). [window title] is left as the app
+   set it. */
+- (void) checkWindowsTitles
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(660, 300, 320, 160)
+                                     title: @"QuirkProbe Titles"];
+  NSDictionary *info = [[NSBundle mainBundle] infoDictionary];
+  NSString *app = nil;
+  NSString *path = [NSTemporaryDirectory() stringByAppendingPathComponent: @"Probe Notes.txt"];
+  NSString *expected = nil;
+  NSString *caption = nil;
+  NSString *edited = nil;
+  NSString *saved = nil;
+  NSPanel *alert = nil;
+  NSEnumerator *keys = [[NSArray arrayWithObjects: @"CFBundleDisplayName", @"CFBundleName",
+                                 @"ApplicationName", nil] objectEnumerator];
+  NSString *key = nil;
+
+  while (app == nil && (key = [keys nextObject]) != nil)
+    {
+      if ([[info objectForKey: key] length] > 0)
+        {
+          app = [info objectForKey: key];
+        }
+    }
+  if (app == nil)
+    {
+      app = [[NSProcessInfo processInfo] processName];
+    }
+
+  [window orderFront: nil];
+  [window setTitleWithRepresentedFilename: path];
+  expected = [NSString stringWithFormat: @"Probe Notes.txt - %@", app];
+  caption = QuirkProbeCaptionText(window);
+  [window setDocumentEdited: YES];
+  edited = QuirkProbeCaptionText(window);
+  [window setDocumentEdited: NO];
+  saved = QuirkProbeCaptionText(window);
+  if ([caption isEqualToString: expected]
+      && [edited isEqualToString: [@"*" stringByAppendingString: expected]]
+      && [saved isEqualToString: expected]
+      && [[window title] rangeOfString: @"  --  "].location != NSNotFound)
+    {
+      [self pass: @"window-title-document" detail: [NSString stringWithFormat:
+        @"\"%@\", \"%@\" while edited", caption, edited]];
+    }
+  else
+    {
+      [self fail: @"window-title-document" detail: [NSString stringWithFormat:
+        @"caption \"%@\", edited \"%@\", saved \"%@\" (want \"%@\"); window title \"%@\"",
+        caption, edited, saved, expected, [window title]]];
+    }
+
+  [window setTitle: @"Probe Custom Title"];
+  caption = QuirkProbeCaptionText(window);
+  if ([caption isEqualToString: @"Probe Custom Title"])
+    {
+      [self pass: @"window-title-app-set" detail: @"a title the app set is Windows' caption as it is"];
+    }
+  else
+    {
+      [self fail: @"window-title-app-set" detail: [NSString stringWithFormat: @"caption \"%@\"", caption]];
+    }
+  [window orderOut: nil];
+
+  alert = NSGetAlertPanel(@"Quit", @"Quit with unsaved documents?", @"Quit", @"Cancel", nil);
+  [alert orderFront: nil];
+  caption = QuirkProbeCaptionText(alert);
+  if ([caption isEqualToString: app])
+    {
+      [self pass: @"alert-caption-app-name" detail: [NSString stringWithFormat:
+        @"an untitled alert is captioned \"%@\"", caption]];
+    }
+  else
+    {
+      [self fail: @"alert-caption-app-name" detail: [NSString stringWithFormat:
+        @"caption \"%@\" (window title \"%@\"), want \"%@\"", caption, [alert title], app]];
+    }
+  [alert orderOut: nil];
+  NSReleaseAlertPanel(alert);
+}
+
 /* Whether any item in `menu` or its submenus has `action`, or a submenu
    titled `title`. */
 static BOOL
@@ -8372,6 +8469,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkPopUpClick];
   [self checkFileDialogFilters];
   [self checkScrollerStripNarrowsContent];
+  [self checkWindowsTitles];
   [self checkPopoverFlyout];
   [self after: QuirkProbeSettleDelay perform: @selector(createLateWindow:)];
 }
