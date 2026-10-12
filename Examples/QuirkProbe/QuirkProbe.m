@@ -778,61 +778,113 @@ static NSUInteger QuirkProbeRedoCount = 0;
   QuirkProbeRedoCount++;
 }
 
+/* The open list of the pop-up in a timer's userInfo, drawn during its
+   menu tracking with nothing under the pointer; then a click away from it
+   ends the tracking. */
+static NSBitmapImageRep *QuirkProbeOpenListRep = nil;
+static NSRect QuirkProbeOpenListRow;
+
+- (void) renderOpenPopUpList: (NSTimer *)timer
+{
+  NSPopUpButton *popUp = [timer userInfo];
+  NSWindow *window = [popUp window];
+  NSMenuView *menuView = (NSMenuView *)[[popUp menu] menuRepresentation];
+  NSPoint away = NSMakePoint(NSWidth([window frame]) - 20, 20);
+  NSEvent *down = [NSEvent mouseEventWithType: NSLeftMouseDown location: away modifierFlags: 0
+                                    timestamp: 0 windowNumber: [window windowNumber] context: nil
+                                  eventNumber: 0 clickCount: 1 pressure: 1];
+  NSEvent *up = [NSEvent mouseEventWithType: NSLeftMouseUp location: away modifierFlags: 0
+                                  timestamp: 0 windowNumber: [window windowNumber] context: nil
+                                eventNumber: 0 clickCount: 1 pressure: 0];
+
+  if ([[menuView window] isVisible])
+    {
+      [menuView setHighlightedItemIndex: -1];
+      [menuView display];
+      ASSIGN(QuirkProbeOpenListRep, QuirkProbeRender(menuView));
+      QuirkProbeOpenListRow = QuirkProbePixelRect(menuView, [menuView rectOfItemAtIndex: 1],
+                                                  QuirkProbeScale(QuirkProbeOpenListRep, menuView));
+      [self saveView: menuView named: @"contrast-popup-selection"];
+    }
+  [NSApp postEvent: down atStart: NO];
+  [NSApp postEvent: up atStart: NO];
+}
+
 /* In high contrast an open pop-up's list marks its selected item in
-   Highlight, as WinUI's ComboBox does (#82); it was left unmarked. */
+   Highlight, as WinUI's ComboBox does (#82); it was left unmarked. The
+   list is opened by a click, as an app's is, and closed by one: opened
+   outside menu tracking, a later check could be left waiting. */
 - (void) checkContrastPopUpSelection
 {
   NSWindow *window = nil;
   NSPopUpButton *popUp = nil;
-  NSMenuView *menuView = nil;
-  NSBitmapImageRep *rep = nil;
   NSColor *highlight = nil;
   NSInteger rgb[3];
   NSUInteger matching = 0;
   NSInteger x, y;
-  NSRect selectedRow;
-  CGFloat scale;
+  NSRect frame;
+  NSPoint point;
+  NSEvent *down = nil;
+  NSEvent *up = nil;
+  NSTimer *timer = nil;
 
   if (QuirkProbeHasArgument(@"--high-contrast", nil) == NO)
     {
       [self skip: @"contrast-popup-selection" detail: @"high contrast only"];
       return;
     }
-  window = [self windowWithFrame: NSMakeRect(420, 300, 300, 120) title: @"QuirkProbe Contrast Pop-up"];
-  popUp = AUTORELEASE([[NSPopUpButton alloc] initWithFrame: NSMakeRect(20, 60, 200, 32) pullsDown: NO]);
+  window = [self windowWithFrame: NSMakeRect(420, 300, 300, 160) title: @"QuirkProbe Contrast Pop-up"];
+  popUp = AUTORELEASE([[NSPopUpButton alloc] initWithFrame: NSMakeRect(20, 100, 200, 32) pullsDown: NO]);
   [popUp addItemsWithTitles: [NSArray arrayWithObjects: @"First", @"Second", @"Third", nil]];
   [popUp selectItemAtIndex: 1];
   [[window contentView] addSubview: popUp];
   [window makeKeyAndOrderFront: nil];
   [window display];
-  [[popUp cell] attachPopUpWithFrame: [popUp bounds] inView: popUp];
-  QuirkProbeDispatchEvents(0.3);
-  menuView = (NSMenuView *)[[popUp menu] menuRepresentation];
-  /* Not under the pointer: the item's marked only for being selected. */
-  [menuView setHighlightedItemIndex: -1];
-  [menuView display];
-  rep = QuirkProbeRender(menuView);
-  scale = QuirkProbeScale(rep, menuView);
-  [self saveView: menuView named: @"contrast-popup-selection"];
+
+  frame = [popUp convertRect: [popUp bounds] toView: nil];
+  point = NSMakePoint(NSMidX(frame), NSMidY(frame));
+  down = [NSEvent mouseEventWithType: NSLeftMouseDown location: point modifierFlags: 0
+                           timestamp: 0 windowNumber: [window windowNumber] context: nil
+                         eventNumber: 0 clickCount: 1 pressure: 1];
+  up = [NSEvent mouseEventWithType: NSLeftMouseUp location: point modifierFlags: 0
+                         timestamp: 0 windowNumber: [window windowNumber] context: nil
+                       eventNumber: 0 clickCount: 1 pressure: 0];
+  timer = [NSTimer timerWithTimeInterval: 0.3 target: self selector: @selector(renderOpenPopUpList:)
+                                userInfo: popUp repeats: NO];
+  DESTROY(QuirkProbeOpenListRep);
+  [[NSRunLoop currentRunLoop] addTimer: timer forMode: NSEventTrackingRunLoopMode];
+  [NSApp postEvent: up atStart: NO];
+  [popUp mouseDown: down];
+  [timer invalidate];
+  if ([[[[popUp menu] menuRepresentation] window] isVisible])
+    {
+      [[popUp cell] dismissPopUp];
+    }
+  QuirkProbeDispatchEvents(0.1);
+  [window orderOut: nil];
+
+  if (QuirkProbeOpenListRep == nil)
+    {
+      [self fail: @"contrast-popup-selection" detail: @"the list didn't open on a click"];
+      return;
+    }
   highlight = [[GSTheme theme] colorNamed: @"selectedMenuItemColor" state: GSThemeNormalState];
   if (highlight == nil)
     {
       highlight = [NSColor selectedMenuItemColor];
     }
   QuirkProbeRGB(highlight, rgb);
-  selectedRow = QuirkProbePixelRect(menuView, [menuView rectOfItemAtIndex: 1], scale);
-  for (y = (NSInteger)NSMinY(selectedRow); y < (NSInteger)NSMaxY(selectedRow); y++)
+  for (y = (NSInteger)NSMinY(QuirkProbeOpenListRow); y < (NSInteger)NSMaxY(QuirkProbeOpenListRow); y++)
     {
-      for (x = (NSInteger)NSMinX(selectedRow); x < (NSInteger)NSMaxX(selectedRow); x++)
+      for (x = (NSInteger)NSMinX(QuirkProbeOpenListRow); x < (NSInteger)NSMaxX(QuirkProbeOpenListRow); x++)
         {
-          if (QuirkProbeChannelDistance(rep, x, y, rgb) <= 8)
+          if (QuirkProbeChannelDistance(QuirkProbeOpenListRep, x, y, rgb) <= 8)
             {
               matching++;
             }
         }
     }
-  [[popUp cell] dismissPopUp];
-  [window orderOut: nil];
+  DESTROY(QuirkProbeOpenListRep);
 
   if (matching >= 200)
     {
