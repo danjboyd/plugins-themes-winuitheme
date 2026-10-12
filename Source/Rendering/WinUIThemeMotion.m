@@ -154,7 +154,9 @@ BOOL
 WinUIThemeAnimationsEnabled(void)
 {
   id setting = [[NSUserDefaults standardUserDefaults] objectForKey: @"WinUIThemeAnimations"];
-  BOOL enabled = TRUE;
+  /* Win32's 4-byte BOOL: SystemParametersInfoW writes all of it, and
+     Objective-C's 1-byte BOOL here had it overrun the stack. */
+  WINBOOL enabled = TRUE;
 
   if (setting != nil && [setting respondsToSelector: @selector(boolValue)])
     {
