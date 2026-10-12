@@ -225,4 +225,17 @@ NSColor *WinUIThemeCardStrokeColor(WinUITheme *theme);
 NSColor *WinUIThemeDividerColor(WinUITheme *theme);
 void WinUIThemeSyncBrowserColumn(NSScrollView *scrollView);
 
+/* The menu bar from the keyboard (#78) and its overflow (#77),
+   WinUIThemeMenuBarKeyboard.m. -[NSApplication sendEvent:] offers it each
+   event first; YES when it took the event. */
+BOOL WinUIThemeMenuBarHandleEvent(NSEvent *event);
+/* Whether menu titles show their access keys underlined (Alt held, or the
+   bar reached from the keyboard), and the part of a title to underline. */
+BOOL WinUIThemeMenuAccessKeysVisible(void);
+NSRange WinUIThemeMenuAccessKeyRange(NSString *title);
+/* The overflow button of a bar too narrow for its titles (empty when they
+   fit), and whether it's selected. */
+NSRect WinUIThemeMenuBarOverflowRect(NSMenuView *bar);
+BOOL WinUIThemeMenuBarOverflowSelected(NSMenuView *bar);
+
 #endif
