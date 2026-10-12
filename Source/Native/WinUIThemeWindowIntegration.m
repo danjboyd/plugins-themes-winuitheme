@@ -321,86 +321,6 @@ WinUIThemeWindowHandle(NSWindow *window)
   return (HWND)[window windowHandle];
 }
 
-/* Window tabs (#72): the tab that last gave up key status, not retained
-   (cleared when it closes or another tab of its group takes over). */
-static NSWindow *WinUIThemeLastResignedKeyWindow = nil;
-
-static BOOL
-WinUIThemeWindowIsTabbed(NSWindow *window)
-{
-  return [window respondsToSelector: @selector(tabbedWindows)]
-    && [[window tabbedWindows] count] > 1;
-}
-
-/* Only tabs are noted: selecting a tab hides the old one first, and key
-   may pass through another window before the new tab takes it. */
-static void
-WinUIThemeTabResignedKey(NSWindow *window)
-{
-  if (WinUIThemeWindowIsTabbed(window))
-    {
-      WinUIThemeLastResignedKeyWindow = window;
-    }
-}
-
-/* A selected tab takes its group's place on screen. The shared tabbing
-   code gives it the previous tab's frame, but Windows keeps maximized
-   (and the size to restore to) per window: a tab selected while the group
-   was maximized filled the screen without being maximized, so the caption
-   button and double-click didn't restore it, and a tab maximized before
-   came back maximized in a restored group. When key moves from one tab
-   of a group to another, the new tab takes the old one's placement. */
-static void
-WinUIThemeTabTakeOverPlacement(NSWindow *window)
-{
-  NSWindow *previous = WinUIThemeLastResignedKeyWindow;
-  HWND handle;
-  HWND previousHandle;
-  WINDOWPLACEMENT placement;
-  WINDOWPLACEMENT previousPlacement;
-  BOOL zoomed;
-  BOOL previousZoomed;
-
-  if (previous == nil || WinUIThemeWindowIsTabbed(window) == NO)
-    {
-      return;
-    }
-  if (previous == window)
-    {
-      /* Key came back to the same tab. */
-      WinUIThemeLastResignedKeyWindow = nil;
-      return;
-    }
-  if ([[window tabbedWindows] indexOfObjectIdenticalTo: previous] == NSNotFound)
-    {
-      return;
-    }
-  WinUIThemeLastResignedKeyWindow = nil;
-  handle = WinUIThemeWindowHandle(window);
-  previousHandle = WinUIThemeWindowHandle(previous);
-  if (handle == NULL || previousHandle == NULL)
-    {
-      return;
-    }
-  placement.length = sizeof(placement);
-  previousPlacement.length = sizeof(previousPlacement);
-  if (GetWindowPlacement(handle, &placement) == 0
-      || GetWindowPlacement(previousHandle, &previousPlacement) == 0)
-    {
-      return;
-    }
-  zoomed = IsZoomed(handle) ? YES : NO;
-  previousZoomed = IsZoomed(previousHandle) ? YES : NO;
-  if (zoomed == NO && previousZoomed == NO)
-    {
-      return;
-    }
-  placement.flags = 0;
-  placement.showCmd = previousZoomed ? SW_SHOWMAXIMIZED : SW_SHOWNORMAL;
-  placement.rcNormalPosition = previousPlacement.rcNormalPosition;
-  SetWindowPlacement(handle, &placement);
-}
-
 static NSString *
 WinUIThemeWindowCacheKey(NSWindow *window)
 {
@@ -908,18 +828,12 @@ WinUIThemeApplyWindowIdentity(NSWindow *window,
 
 - (void) windowBecameKey: (NSNotification *)notification
 {
-#ifdef _WIN32
-  WinUIThemeTabTakeOverPlacement([notification object]);
-#endif
   [self _refreshThemeIfSystemStateChanged];
   [self synchronizeWindow: [notification object] forceRedraw: NO];
 }
 
 - (void) windowResignedKey: (NSNotification *)notification
 {
-#ifdef _WIN32
-  WinUIThemeTabResignedKey([notification object]);
-#endif
   [self _refreshThemeIfSystemStateChanged];
   [self synchronizeWindow: [notification object] forceRedraw: NO];
 }
@@ -942,12 +856,6 @@ WinUIThemeApplyWindowIdentity(NSWindow *window,
 
 - (void) windowWillClose: (NSNotification *)notification
 {
-#ifdef _WIN32
-  if (WinUIThemeLastResignedKeyWindow == [notification object])
-    {
-      WinUIThemeLastResignedKeyWindow = nil;
-    }
-#endif
   [self forgetWindow: [notification object]];
 }
 
@@ -964,25 +872,10 @@ WinUIThemeApplyWindowIdentity(NSWindow *window,
    grows the frame by the bar). The theme gives a window made after launch
    the main menu's bar when it becomes key or main (#1), and libs-gui may
    add it to every window when the menu changes; a tab (#72) has by then
-   taken its group's frame, so each new tab grew the group by a menu bar.
-   A window tabbed with others keeps its frame, and its content gives up
-   the row. The shared tabbing code (4cb1b63) gives a selected tab its
-   group's frame but doesn't see a menu bar added later, so this stays
-   (QuirkProbe window-tab-keeps-group-frame fails without it). */
-@interface GSWindowDecorationView (WinUIThemeMenuView)
-- (void) addMenuView: (NSMenuView *)menuView;
-@end
-
-static void
-WinUIThemeKeepTabFrame(NSWindow *window, NSRect frame)
-{
-  if ([window respondsToSelector: @selector(tabbedWindows)]
-      && [[window tabbedWindows] count] > 1
-      && NSEqualRects([window frame], frame) == NO)
-    {
-      [window setFrame: frame display: YES];
-    }
-}
+   taken its group's frame. The shared tabbing code (since ed47a49) wraps
+   -changeWindowHeight:, which -addMenuView: goes through, so a window
+   tabbed with others keeps its frame and its content gives up the row
+   (QuirkProbe window-tab-keeps-group-frame). */
 
 @implementation WinUIThemeBackendWindowDecorationView
 
@@ -1004,14 +897,6 @@ WinUIThemeKeepTabFrame(NSWindow *window, NSRect frame)
 {
   [super setInputState: state];
   WinUIThemeWindowIntegrationSynchronizeWindow(window);
-}
-
-- (void) addMenuView: (NSMenuView *)menuView
-{
-  NSRect frame = [window frame];
-
-  [super addMenuView: menuView];
-  WinUIThemeKeepTabFrame(window, frame);
 }
 
 @end
@@ -1036,14 +921,6 @@ WinUIThemeKeepTabFrame(NSWindow *window, NSRect frame)
 {
   [super setInputState: state];
   WinUIThemeWindowIntegrationSynchronizeWindow(window);
-}
-
-- (void) addMenuView: (NSMenuView *)menuView
-{
-  NSRect frame = [window frame];
-
-  [super addMenuView: menuView];
-  WinUIThemeKeepTabFrame(window, frame);
 }
 
 @end
