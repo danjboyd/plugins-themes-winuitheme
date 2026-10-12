@@ -49,4 +49,10 @@ NSString *WinUIThemeDisplayTitle(NSWindow *window);
    window and kept out of the taskbar and Alt+Tab (#30). */
 void WinUIThemeWindowIntegrationMakeFlyout(NSWindow *window, NSColor *borderColor);
 
+/* Menus and tool tips (#30): owned by the app's main window, tool windows
+   that are never activated. Alerts: owned by it, out of the taskbar, as a
+   Windows message box is. */
+void WinUIThemeWindowIntegrationMakePopup(NSWindow *window);
+void WinUIThemeWindowIntegrationOwnDialog(NSWindow *window);
+
 #endif

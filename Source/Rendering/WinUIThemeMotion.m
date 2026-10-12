@@ -20,6 +20,7 @@
 
 #import "WinUIThemeDrawing.h"
 #import "../WinUITheme.h"
+#import "../Native/WinUIThemeWindowIntegration.h"
 
 #import <AppKit/AppKit.h>
 #import <GNUstepGUI/GSTheme.h>
@@ -484,11 +485,17 @@ static const CGFloat WinUIThemeOpenSlideDistance = 8.0;
 
 typedef void (*OrderWindowIMP)(id, SEL, NSWindowOrderingMode, NSInteger);
 
+/* Panels as they're shown: menus, tool tips, flyouts and alerts open as
+   WinUI's do, and menus, tool tips and alerts get the owner and window
+   styles Windows' own have (#30). */
 - (void) _overrideNSPanelMethod_orderWindow: (NSWindowOrderingMode)place
                                  relativeTo: (NSInteger)otherWin
 {
   OrderWindowIMP originalIMP = (OrderWindowIMP)WinUIThemeOriginalMethod(_cmd, self, [NSPanel class]);
   NSWindow *window = (NSWindow *)self;
+  BOOL themed = (place != NSWindowOut && [[GSTheme theme] isKindOfClass: [WinUITheme class]]);
+  BOOL popup = themed && WinUIThemeWindowFadesInWhenShown(window) && WinUIThemeWindowIsFlyout(window) == NO;
+  BOOL dialog = themed && WinUIThemeWindowIsDialog(window);
 
   if (place != NSWindowOut && [window isVisible] == NO
       && [[GSTheme theme] isKindOfClass: [WinUITheme class]])
@@ -504,9 +511,27 @@ typedef void (*OrderWindowIMP)(id, SEL, NSWindowOrderingMode, NSInteger);
           WinUIThemeFadeInWindow(window, WinUIThemeOpenFadeDuration);
         }
     }
+  /* Before it shows, so it's never activated; and after, for a deferred
+     window, which has no handle until it's first shown. */
+  if (popup)
+    {
+      WinUIThemeWindowIntegrationMakePopup(window);
+    }
+  else if (dialog)
+    {
+      WinUIThemeWindowIntegrationOwnDialog(window);
+    }
   if (originalIMP != NULL)
     {
       originalIMP(self, _cmd, place, otherWin);
+    }
+  if (popup)
+    {
+      WinUIThemeWindowIntegrationMakePopup(window);
+    }
+  else if (dialog)
+    {
+      WinUIThemeWindowIntegrationOwnDialog(window);
     }
 }
 

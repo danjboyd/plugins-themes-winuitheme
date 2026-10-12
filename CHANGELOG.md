@@ -27,6 +27,12 @@ Apps that bundle the theme should pin a tag, not `main`.
 - A menu bar's menus, context menus, pop-up lists and flyouts slide 8pt
   down into place as they fade in; alerts fade in.
 
+**Windows**
+- Menus and tool tips are owned by the app's main window and are never
+  activated, so the window you were typing in keeps the focus; alerts are
+  owned by it and have no taskbar button of their own, as a Windows
+  message box hasn't (#30).
+
 **Fixes**
 - A disabled toolbar item's icon stays dimmed when its button redraws on
   its own; it darkened until it looked enabled (#110).

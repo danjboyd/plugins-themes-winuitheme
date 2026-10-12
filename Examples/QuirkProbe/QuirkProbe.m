@@ -532,6 +532,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkWindowsTitles;
 - (void) checkMotion;
 - (void) checkPopoverFlyout;
+- (void) checkPopupWindows;
 - (void) checkMenuBarKeyboard: (NSWindow *)window;
 - (void) checkMenuBarOverflow: (NSWindow *)window;
 - (void) checkThemeSwitchRestoresMethods;
@@ -7517,6 +7518,98 @@ QuirkProbeInkIn(NSBitmapImageRep *rep, NSRect area, NSInteger fill, NSInteger th
   [defaults removeObjectForKey: @"WinUIThemeOverlayScrollbars"];
 }
 
+/* Menus and alerts as Windows has its own (#30): a menu is a tool window
+   owned by the main window that never takes activation; an alert is owned
+   by the main window and has no taskbar button. */
+- (void) checkPopupWindows
+{
+  NSWindow *main = [self windowWithFrame: NSMakeRect(200, 260, 320, 160)
+                                   title: @"QuirkProbe Popups"];
+  NSMenu *parent = AUTORELEASE([[NSMenu alloc] initWithTitle: @"Popup Parent"]);
+  NSMenu *menu = AUTORELEASE([[NSMenu alloc] initWithTitle: @"Popup"]);
+  NSWindow *menuWindow = nil;
+  NSPanel *alert = nil;
+  HWND mainHandle = NULL;
+  HWND handle = NULL;
+  HWND activeBefore = NULL;
+  HWND activeAfter = NULL;
+  LONG_PTR exStyle = 0;
+  NSMutableArray *problems = [NSMutableArray array];
+
+  [main makeKeyAndOrderFront: nil];
+  [main makeMainWindow];
+  QuirkProbeDispatchEvents(0.3);
+  mainHandle = (HWND)[main windowHandle];
+
+  [parent setSubmenu: menu forItem: [parent addItemWithTitle: @"Popup" action: NULL keyEquivalent: @""]];
+  [menu addItemWithTitle: @"First" action: NULL keyEquivalent: @""];
+  menuWindow = [[menu menuRepresentation] window];
+  if (menuWindow == nil)
+    {
+      [self skip: @"menu-popup-owned" detail: @"no window for the menu"];
+    }
+  else
+    {
+      activeBefore = GetActiveWindow();
+      [menuWindow setFrameTopLeftPoint: NSMakePoint(560, 420)];
+      [menuWindow orderFrontRegardless];
+      QuirkProbeDispatchEvents(0.3);
+      activeAfter = GetActiveWindow();
+      handle = (HWND)[menuWindow windowHandle];
+      exStyle = GetWindowLongPtrW(handle, GWL_EXSTYLE);
+      if ((exStyle & WS_EX_TOOLWINDOW) == 0 || (exStyle & WS_EX_NOACTIVATE) == 0 || (exStyle & WS_EX_APPWINDOW))
+        {
+          [problems addObject: [NSString stringWithFormat: @"extended style %lx", (unsigned long)exStyle]];
+        }
+      if (GetWindow(handle, GW_OWNER) != mainHandle)
+        {
+          [problems addObject: [NSString stringWithFormat: @"owner %p, not the main window %p",
+                                                           GetWindow(handle, GW_OWNER), mainHandle]];
+        }
+      if (activeAfter != activeBefore)
+        {
+          [problems addObject: [NSString stringWithFormat: @"the active window went from %p to %p",
+                                                           activeBefore, activeAfter]];
+        }
+      [menuWindow orderOut: nil];
+      if ([problems count] == 0)
+        {
+          [self pass: @"menu-popup-owned" detail: @"a tool window owned by the main window, never activated"];
+        }
+      else
+        {
+          [self fail: @"menu-popup-owned" detail: [problems componentsJoinedByString: @"; "]];
+        }
+    }
+
+  [problems removeAllObjects];
+  alert = NSGetAlertPanel(@"QuirkProbe Popups", @"An owned alert.", @"OK", nil, nil);
+  [alert orderFront: nil];
+  QuirkProbeDispatchEvents(0.2);
+  handle = (HWND)[alert windowHandle];
+  exStyle = GetWindowLongPtrW(handle, GWL_EXSTYLE);
+  if (exStyle & WS_EX_APPWINDOW)
+    {
+      [problems addObject: @"it has a taskbar button (WS_EX_APPWINDOW)"];
+    }
+  if (GetWindow(handle, GW_OWNER) != mainHandle)
+    {
+      [problems addObject: [NSString stringWithFormat: @"owner %p, not the main window %p",
+                                                       GetWindow(handle, GW_OWNER), mainHandle]];
+    }
+  [alert orderOut: nil];
+  NSReleaseAlertPanel(alert);
+  if ([problems count] == 0)
+    {
+      [self pass: @"alert-owned" detail: @"owned by the main window, no taskbar button"];
+    }
+  else
+    {
+      [self fail: @"alert-owned" detail: [problems componentsJoinedByString: @"; "]];
+    }
+  [main orderOut: nil];
+}
+
 /* Popover panels as WinUI flyouts (ScreenshotTool #67): a panel whose
    class adopts GSThemePopoverPanel gets the flyout fill (an app's
    STFloatingPopoverWindow leaves its background clear for the theme), is a
@@ -8936,6 +9029,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkWindowsTitles];
   [self checkMotion];
   [self checkPopoverFlyout];
+  [self checkPopupWindows];
   [self after: QuirkProbeSettleDelay perform: @selector(createLateWindow:)];
 }
 
