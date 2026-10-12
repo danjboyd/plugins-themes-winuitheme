@@ -946,6 +946,46 @@ WinUIThemeEndRow(BOOL began)
 
       [borderColor set];
       NSRectFill(NSIntersectionRect(edgeRect, dirtyRect));
+
+      /* The overflow button of a bar too narrow for its titles (#77):
+         WinUI's More glyph, three dots in a row; the folded titles have no
+         rects, so nothing else draws here. Selected or open, it has an
+         open title's fill. */
+      {
+        NSRect overflow = WinUIThemeMenuBarOverflowRect(menuView);
+        NSInteger dot;
+
+        if (NSIsEmptyRect(overflow) == NO && NSIntersectsRect(overflow, dirtyRect))
+          {
+            if (WinUIThemeMenuBarOverflowSelected(menuView))
+              {
+                NSRect fill = NSInsetRect(overflow, 5.0, 4.0);
+
+                if ([[self settings] highContrastEnabled])
+                  {
+                    [WinUIThemeColorFromTheme(self, @"selectedMenuItemColor",
+                                              [NSColor selectedMenuItemColor]) set];
+                    NSRectFill(fill);
+                  }
+                else
+                  {
+                    [WinUIThemeMenuItemHoverColor(self, YES) set];
+                    [WinUIThemeRoundedPath(fill, WinUIThemeEffectiveMenuCornerRadius(self, YES, NO)) fill];
+                  }
+              }
+            [WinUIThemeColorFromTheme(self,
+                                      (WinUIThemeMenuBarOverflowSelected(menuView)
+                                       && [[self settings] highContrastEnabled])
+                                        ? @"selectedMenuItemTextColor" : @"labelColor",
+                                      [NSColor controlTextColor]) set];
+            for (dot = -1; dot <= 1; dot++)
+              {
+                [[NSBezierPath bezierPathWithOvalInRect:
+                   NSMakeRect(floor(NSMidX(overflow)) - 1.0 + 6.0 * dot,
+                              floor(NSMidY(overflow)) - 1.0, 2.0, 2.0)] fill];
+              }
+          }
+      }
       return;
     }
 
@@ -1187,6 +1227,22 @@ WinUIThemeEndRow(BOOL began)
   attributedTitle = [[[NSAttributedString alloc] initWithString: title
                                                      attributes: attributes] autorelease];
   titleSize = [attributedTitle size];
+  /* Access keys, underlined while Alt is held or the bar was reached from
+     the keyboard (#78), as Win32 menus show them. */
+  if (popupButtonDisplay == NO && popupOwned == NO && WinUIThemeMenuAccessKeysVisible())
+    {
+      NSRange accessKey = WinUIThemeMenuAccessKeyRange(title);
+
+      if (accessKey.location != NSNotFound)
+        {
+          NSMutableAttributedString *underlined = AUTORELEASE([attributedTitle mutableCopy]);
+
+          [underlined addAttribute: NSUnderlineStyleAttributeName
+                             value: [NSNumber numberWithInteger: NSUnderlineStyleSingle]
+                             range: accessKey];
+          attributedTitle = underlined;
+        }
+    }
   if (popupButtonDisplay)
     {
       NSRect drawRect = NSInsetRect(NSIntegralRect(cellFrame), 1.0, 1.0);

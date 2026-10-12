@@ -864,6 +864,8 @@ WinUIThemeUnavailableNativeDialogResult(void)
   return NSIntegerMin;
 }
 
+static BOOL WinUIThemeFilePanelNeedsGNUstep(NSSavePanel *panel);
+
 static NSInteger
 WinUIThemeRunNativeSaveDialog(WinUIThemeSavePanel *panel, NSWindow *ownerWindow)
 {
@@ -875,6 +877,10 @@ WinUIThemeRunNativeSaveDialog(WinUIThemeSavePanel *panel, NSWindow *ownerWindow)
   IShellItem *item = NULL;
   NSString *path = nil;
 
+  if (WinUIThemeFilePanelNeedsGNUstep(panel))
+    {
+      return WinUIThemeUnavailableNativeDialogResult();
+    }
   initResult = WinUIThemeCoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
   if (SUCCEEDED(initResult) || initResult == RPC_E_CHANGED_MODE)
     {
@@ -960,6 +966,12 @@ WinUIThemeRunNativeOpenDialog(WinUIThemeOpenPanel *panel, NSWindow *ownerWindow)
   DWORD options = FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST;
   NSMutableArray *selectedPaths = nil;
 
+  /* GNUstep's panel answers -filenames itself after a run of its own. */
+  [panel _winUIThemeSetNativeSelectedPaths: nil];
+  if (WinUIThemeFilePanelNeedsGNUstep(panel))
+    {
+      return WinUIThemeUnavailableNativeDialogResult();
+    }
   initResult = WinUIThemeCoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
   if (SUCCEEDED(initResult) || initResult == RPC_E_CHANGED_MODE)
     {
@@ -1076,6 +1088,492 @@ WinUIThemeRunNativeOpenDialog(WinUIThemeOpenPanel *panel, NSWindow *ownerWindow)
 
   return ([selectedPaths count] > 0) ? NSOKButton : NSCancelButton;
 }
+
+#pragma mark Print and page setup dialogs (#69)
+
+/* winspool.drv, loaded when a dialog is seeded. */
+typedef BOOL (WINAPI *WinUIThemeOpenPrinterWFunc)(LPWSTR name, LPHANDLE printer, LPVOID defaults);
+typedef BOOL (WINAPI *WinUIThemeClosePrinterFunc)(HANDLE printer);
+typedef LONG (WINAPI *WinUIThemeDocumentPropertiesWFunc)(HWND window, HANDLE printer, LPWSTR name,
+                                                         PDEVMODEW output, PDEVMODEW input, DWORD mode);
+
+/* Paper both Windows and GNUstep name, with its portrait size in points. */
+typedef struct
+{
+  NSString *name;
+  short paper;
+  CGFloat width;
+  CGFloat height;
+} WinUIThemePaper;
+
+static const WinUIThemePaper *
+WinUIThemePapers(NSUInteger *count)
+{
+  static WinUIThemePaper papers[8];
+  static BOOL ready = NO;
+
+  if (ready == NO)
+    {
+      WinUIThemePaper list[8] = {
+        { @"Letter", DMPAPER_LETTER, 612.0, 792.0 },
+        { @"Legal", DMPAPER_LEGAL, 612.0, 1008.0 },
+        { @"Executive", DMPAPER_EXECUTIVE, 522.0, 756.0 },
+        { @"Tabloid", DMPAPER_TABLOID, 792.0, 1224.0 },
+        { @"A3", DMPAPER_A3, 842.0, 1191.0 },
+        { @"A4", DMPAPER_A4, 595.0, 842.0 },
+        { @"A5", DMPAPER_A5, 420.0, 595.0 },
+        { @"B5", DMPAPER_B5, 516.0, 729.0 },
+      };
+
+      memcpy(papers, list, sizeof(papers));
+      ready = YES;
+    }
+  *count = sizeof(papers) / sizeof(papers[0]);
+  return papers;
+}
+
+/* The owner's choice: GNUstep's own panels with `key` set to NO. */
+static BOOL
+WinUIThemeNativeDialogsEnabled(NSString *key)
+{
+  id value = [[NSUserDefaults standardUserDefaults] objectForKey: key];
+
+  return (value == nil || [value boolValue]);
+}
+
+/* The print info's copies, collation, orientation and paper, in a DEVMODE
+   the printer filled in. */
+static void
+WinUIThemeApplyPrintInfoToDevMode(NSPrintInfo *info, DEVMODEW *mode)
+{
+  NSDictionary *dict = [info dictionary];
+  NSInteger copies = [[dict objectForKey: NSPrintCopies] integerValue];
+  NSString *paperName = [info paperName];
+  NSUInteger count = 0;
+  const WinUIThemePaper *papers = WinUIThemePapers(&count);
+  NSUInteger index;
+
+  if (copies > 0)
+    {
+      mode->dmCopies = (short)MIN(copies, 9999);
+      mode->dmFields |= DM_COPIES;
+    }
+  if ([dict objectForKey: NSPrintMustCollate] != nil)
+    {
+      mode->dmCollate = [[dict objectForKey: NSPrintMustCollate] boolValue] ? DMCOLLATE_TRUE : DMCOLLATE_FALSE;
+      mode->dmFields |= DM_COLLATE;
+    }
+  mode->dmOrientation = ([info orientation] == NSLandscapeOrientation) ? DMORIENT_LANDSCAPE : DMORIENT_PORTRAIT;
+  mode->dmFields |= DM_ORIENTATION;
+  for (index = 0; [paperName length] > 0 && index < count; index++)
+    {
+      if ([paperName caseInsensitiveCompare: papers[index].name] == NSOrderedSame)
+        {
+          mode->dmPaperSize = papers[index].paper;
+          mode->dmFields |= DM_PAPERSIZE;
+          break;
+        }
+    }
+}
+
+/* What the dialog chose, back in the print info: paper, orientation and,
+   from the print dialog, copies and collation. */
+static void
+WinUIThemeApplyDevModeToPrintInfo(HGLOBAL memory, NSPrintInfo *info, BOOL copies)
+{
+  DEVMODEW *mode = (memory != NULL) ? (DEVMODEW *)GlobalLock(memory) : NULL;
+  NSMutableDictionary *dict = [info dictionary];
+  NSUInteger count = 0;
+  const WinUIThemePaper *papers = WinUIThemePapers(&count);
+  NSUInteger index;
+
+  if (mode == NULL)
+    {
+      return;
+    }
+  if (mode->dmFields & DM_PAPERSIZE)
+    {
+      for (index = 0; index < count; index++)
+        {
+          if (papers[index].paper == mode->dmPaperSize)
+            {
+              [info setPaperName: papers[index].name];
+              [info setPaperSize: NSMakeSize(papers[index].width, papers[index].height)];
+              break;
+            }
+        }
+    }
+  if (mode->dmFields & DM_ORIENTATION)
+    {
+      [info setOrientation: (mode->dmOrientation == DMORIENT_LANDSCAPE)
+                              ? NSLandscapeOrientation : NSPortraitOrientation];
+    }
+  if (copies && (mode->dmFields & DM_COPIES))
+    {
+      [dict setObject: [NSNumber numberWithInt: MAX(1, mode->dmCopies)] forKey: NSPrintCopies];
+    }
+  if (copies && (mode->dmFields & DM_COLLATE))
+    {
+      [dict setObject: [NSNumber numberWithBool: (mode->dmCollate == DMCOLLATE_TRUE)]
+               forKey: NSPrintMustCollate];
+    }
+  GlobalUnlock(memory);
+}
+
+/* A DEVMODE for the printer named `name`, seeded from `info`; NULL when
+   Windows doesn't know the printer. */
+static HGLOBAL
+WinUIThemeDevModeForPrinter(NSString *name, NSPrintInfo *info)
+{
+  WinUIThemeOpenPrinterWFunc openPrinter
+    = (WinUIThemeOpenPrinterWFunc)WinUIThemeGetOptionalSystemProcedure(L"winspool.drv", "OpenPrinterW");
+  WinUIThemeClosePrinterFunc closePrinter
+    = (WinUIThemeClosePrinterFunc)WinUIThemeGetOptionalSystemProcedure(L"winspool.drv", "ClosePrinter");
+  WinUIThemeDocumentPropertiesWFunc documentProperties
+    = (WinUIThemeDocumentPropertiesWFunc)WinUIThemeGetOptionalSystemProcedure(L"winspool.drv",
+                                                                              "DocumentPropertiesW");
+  WCHAR *wideName = WinUIThemeCopyWideString(name);
+  HANDLE printer = NULL;
+  HGLOBAL memory = NULL;
+  LONG size = 0;
+
+  if (wideName == NULL || openPrinter == NULL || closePrinter == NULL || documentProperties == NULL
+      || openPrinter(wideName, &printer, NULL) == FALSE)
+    {
+      free(wideName);
+      return NULL;
+    }
+  size = documentProperties(NULL, printer, wideName, NULL, NULL, 0);
+  if (size > 0)
+    {
+      memory = GlobalAlloc(GHND, (SIZE_T)size);
+    }
+  if (memory != NULL)
+    {
+      DEVMODEW *mode = (DEVMODEW *)GlobalLock(memory);
+
+      if (documentProperties(NULL, printer, wideName, mode, NULL, DM_OUT_BUFFER) == IDOK)
+        {
+          WinUIThemeApplyPrintInfoToDevMode(info, mode);
+          GlobalUnlock(memory);
+        }
+      else
+        {
+          GlobalUnlock(memory);
+          GlobalFree(memory);
+          memory = NULL;
+        }
+    }
+  closePrinter(printer);
+  free(wideName);
+  return memory;
+}
+
+/* A DEVNAMES naming the printer `name`. */
+static HGLOBAL
+WinUIThemeDevNamesForPrinter(NSString *name)
+{
+  NSUInteger length = [name length];
+  NSUInteger header = sizeof(DEVNAMES) / sizeof(WCHAR);
+  HGLOBAL memory = NULL;
+  DEVNAMES *names = NULL;
+  WCHAR *characters = NULL;
+
+  if (length == 0)
+    {
+      return NULL;
+    }
+  memory = GlobalAlloc(GHND, sizeof(DEVNAMES) + (length + 3) * sizeof(WCHAR));
+  if (memory == NULL)
+    {
+      return NULL;
+    }
+  names = (DEVNAMES *)GlobalLock(memory);
+  characters = (WCHAR *)names;
+  /* An empty driver, the device, an empty port. */
+  names->wDriverOffset = (WORD)header;
+  names->wDeviceOffset = (WORD)(header + 1);
+  names->wOutputOffset = (WORD)(header + 1 + length + 1);
+  names->wDefault = 0;
+  characters[header] = 0;
+  [name getCharacters: (unichar *)(characters + header + 1)];
+  characters[header + 1 + length] = 0;
+  characters[header + 1 + length + 1] = 0;
+  GlobalUnlock(memory);
+  return memory;
+}
+
+static NSString *
+WinUIThemePrinterNameFromDevNames(HGLOBAL memory)
+{
+  DEVNAMES *names = (memory != NULL) ? (DEVNAMES *)GlobalLock(memory) : NULL;
+  NSString *name = nil;
+
+  if (names == NULL)
+    {
+      return nil;
+    }
+  name = WinUIThemeStringFromWideString((WCHAR *)names + names->wDeviceOffset);
+  GlobalUnlock(memory);
+  return name;
+}
+
+/* The printer the dialog chose, in the print info, when GNUstep knows it
+   (its Windows printing bundle names printers as Windows does). */
+static void
+WinUIThemeApplyPrinter(HGLOBAL devNames, NSPrintInfo *info)
+{
+  NSString *name = WinUIThemePrinterNameFromDevNames(devNames);
+  NSPrinter *printer = ([name length] > 0) ? [NSPrinter printerWithName: name] : nil;
+
+  if (printer != nil && [[[info printer] name] isEqualToString: name] == NO)
+    {
+      [info setPrinter: printer];
+    }
+}
+
+/* Seeds the dialog's printer and settings from the print info. */
+static void
+WinUIThemeSeedPrinter(NSPrintInfo *info, HGLOBAL *devNames, HGLOBAL *devMode)
+{
+  NSString *name = [[info printer] name];
+
+  *devNames = WinUIThemeDevNamesForPrinter(name);
+  *devMode = (*devNames != NULL) ? WinUIThemeDevModeForPrinter(name, info) : NULL;
+  if (*devMode == NULL && *devNames != NULL)
+    {
+      /* A printer Windows doesn't know: its default instead. */
+      GlobalFree(*devNames);
+      *devNames = NULL;
+    }
+}
+
+static void
+WinUIThemeFreeGlobal(HGLOBAL memory)
+{
+  if (memory != NULL)
+    {
+      GlobalFree(memory);
+    }
+}
+
+/* Windows' print dialog for a print operation (#69): seeded from the print
+   info, and on OK the printer, copies, collation, page range, paper and
+   orientation go back into it. Cancel is NSCancelButton. GNUstep's panel
+   stays for an accessory view (which the dialog can't show) and with
+   WinUIThemeNativePrintDialogs NO. */
+static NSInteger
+WinUIThemeRunNativePrintDialog(NSPrintPanel *panel, NSPrintInfo *info, NSWindow *ownerWindow)
+{
+  PRINTDLGW dialog;
+  NSMutableDictionary *dict = nil;
+  NSInteger first = 0;
+  NSInteger last = 0;
+  BOOL allPages = YES;
+  BOOL shown = NO;
+  DWORD error = 0;
+
+  if (info == nil || WinUIThemeNativeDialogsEnabled(@"WinUIThemeNativePrintDialogs") == NO
+      || [panel accessoryView] != nil || [[panel accessoryControllers] count] > 0)
+    {
+      return WinUIThemeUnavailableNativeDialogResult();
+    }
+
+  dict = [info dictionary];
+  if ([dict objectForKey: NSPrintAllPages] != nil)
+    {
+      allPages = [[dict objectForKey: NSPrintAllPages] boolValue];
+    }
+  first = [[dict objectForKey: NSPrintFirstPage] integerValue];
+  last = [[dict objectForKey: NSPrintLastPage] integerValue];
+
+  memset(&dialog, 0, sizeof(dialog));
+  dialog.lStructSize = sizeof(dialog);
+  dialog.hwndOwner = WinUIThemeOwnerWindowHandle(ownerWindow);
+  /* No selection or current page (GNUstep prints page ranges), and no
+     print to file, which would leave the app to ask for the file. */
+  dialog.Flags = PD_USEDEVMODECOPIESANDCOLLATE | PD_NOSELECTION | PD_NOCURRENTPAGE | PD_HIDEPRINTTOFILE;
+  dialog.nMinPage = 1;
+  dialog.nMaxPage = 9999;
+  dialog.nFromPage = 1;
+  dialog.nToPage = 1;
+  if (allPages == NO && first > 0)
+    {
+      dialog.Flags |= PD_PAGENUMS;
+      dialog.nFromPage = (WORD)MIN(first, 9999);
+      dialog.nToPage = (WORD)MIN(MAX(first, last), 9999);
+    }
+  WinUIThemeSeedPrinter(info, &dialog.hDevNames, &dialog.hDevMode);
+
+  shown = WinUIThemePrintDlgW(&dialog);
+  error = shown ? 0 : CommDlgExtendedError();
+  if (shown == NO && error != 0 && (dialog.hDevNames != NULL || dialog.hDevMode != NULL))
+    {
+      /* The seed didn't suit the printer: Windows' defaults. */
+      WinUIThemeFreeGlobal(dialog.hDevNames);
+      WinUIThemeFreeGlobal(dialog.hDevMode);
+      dialog.hDevNames = NULL;
+      dialog.hDevMode = NULL;
+      shown = WinUIThemePrintDlgW(&dialog);
+      error = shown ? 0 : CommDlgExtendedError();
+    }
+  if (shown == NO)
+    {
+      WinUIThemeFreeGlobal(dialog.hDevNames);
+      WinUIThemeFreeGlobal(dialog.hDevMode);
+      /* Cancelled; otherwise no dialog (no printers, no comdlg32). */
+      return (error == 0) ? NSCancelButton : WinUIThemeUnavailableNativeDialogResult();
+    }
+
+  WinUIThemeApplyPrinter(dialog.hDevNames, info);
+  WinUIThemeApplyDevModeToPrintInfo(dialog.hDevMode, info, YES);
+  dict = [info dictionary];
+  if (dialog.Flags & PD_PAGENUMS)
+    {
+      [dict setObject: [NSNumber numberWithBool: NO] forKey: NSPrintAllPages];
+      [dict setObject: [NSNumber numberWithInt: dialog.nFromPage] forKey: NSPrintFirstPage];
+      [dict setObject: [NSNumber numberWithInt: MAX(dialog.nFromPage, dialog.nToPage)]
+               forKey: NSPrintLastPage];
+    }
+  else
+    {
+      [dict setObject: [NSNumber numberWithBool: YES] forKey: NSPrintAllPages];
+    }
+  WinUIThemeFreeGlobal(dialog.hDevNames);
+  WinUIThemeFreeGlobal(dialog.hDevMode);
+  return NSOKButton;
+}
+
+/* Windows' page setup dialog: paper, orientation, margins and printer,
+   seeded from the print info and written back on OK. */
+static NSInteger
+WinUIThemeRunNativePageSetupDialog(NSPageLayout *layout, NSPrintInfo *info, NSWindow *ownerWindow)
+{
+  PAGESETUPDLGW dialog;
+  BOOL shown = NO;
+  DWORD error = 0;
+
+  if (info == nil || WinUIThemeNativeDialogsEnabled(@"WinUIThemeNativePrintDialogs") == NO
+      || [layout accessoryView] != nil)
+    {
+      return WinUIThemeUnavailableNativeDialogResult();
+    }
+
+  memset(&dialog, 0, sizeof(dialog));
+  dialog.lStructSize = sizeof(dialog);
+  dialog.hwndOwner = WinUIThemeOwnerWindowHandle(ownerWindow);
+  dialog.Flags = PSD_INTHOUSANDTHSOFINCHES | PSD_MARGINS;
+  /* Points to thousandths of an inch. */
+  dialog.rtMargin.left = (LONG)lround([info leftMargin] * 1000.0 / 72.0);
+  dialog.rtMargin.top = (LONG)lround([info topMargin] * 1000.0 / 72.0);
+  dialog.rtMargin.right = (LONG)lround([info rightMargin] * 1000.0 / 72.0);
+  dialog.rtMargin.bottom = (LONG)lround([info bottomMargin] * 1000.0 / 72.0);
+  WinUIThemeSeedPrinter(info, &dialog.hDevNames, &dialog.hDevMode);
+
+  shown = WinUIThemePageSetupDlgW(&dialog);
+  error = shown ? 0 : CommDlgExtendedError();
+  if (shown == NO && error != 0 && (dialog.hDevNames != NULL || dialog.hDevMode != NULL))
+    {
+      WinUIThemeFreeGlobal(dialog.hDevNames);
+      WinUIThemeFreeGlobal(dialog.hDevMode);
+      dialog.hDevNames = NULL;
+      dialog.hDevMode = NULL;
+      shown = WinUIThemePageSetupDlgW(&dialog);
+      error = shown ? 0 : CommDlgExtendedError();
+    }
+  if (shown == NO)
+    {
+      WinUIThemeFreeGlobal(dialog.hDevNames);
+      WinUIThemeFreeGlobal(dialog.hDevMode);
+      return (error == 0) ? NSCancelButton : WinUIThemeUnavailableNativeDialogResult();
+    }
+
+  WinUIThemeApplyPrinter(dialog.hDevNames, info);
+  WinUIThemeApplyDevModeToPrintInfo(dialog.hDevMode, info, NO);
+  [info setLeftMargin: dialog.rtMargin.left * 72.0 / 1000.0];
+  [info setTopMargin: dialog.rtMargin.top * 72.0 / 1000.0];
+  [info setRightMargin: dialog.rtMargin.right * 72.0 / 1000.0];
+  [info setBottomMargin: dialog.rtMargin.bottom * 72.0 / 1000.0];
+  WinUIThemeFreeGlobal(dialog.hDevNames);
+  WinUIThemeFreeGlobal(dialog.hDevMode);
+  return NSOKButton;
+}
+
+#pragma mark When GNUstep's file panels stay (#20)
+
+/* NSDocument's save panel accessory: a "File Type" box holding only the
+   pop-up whose action is -changeSaveType:. The dialog's own type filters
+   stand in for it (#76). */
+static BOOL
+WinUIThemeIsDocumentTypeAccessory(NSView *view, NSUInteger *controls)
+{
+  NSEnumerator *enumerator = [[view subviews] objectEnumerator];
+  NSView *subview = nil;
+  BOOL found = NO;
+
+  if ([view isKindOfClass: [NSPopUpButton class]])
+    {
+      (*controls)++;
+      return (sel_isEqual([(NSPopUpButton *)view action], @selector(changeSaveType:))
+              && [[(NSPopUpButton *)view target] isKindOfClass: [NSDocument class]]);
+    }
+  if ([view isKindOfClass: [NSControl class]]
+      && ([view isKindOfClass: [NSTextField class]] == NO || [(NSTextField *)view isEditable]))
+    {
+      (*controls)++;
+      return NO;
+    }
+  while ((subview = [enumerator nextObject]) != nil)
+    {
+      if (WinUIThemeIsDocumentTypeAccessory(subview, controls))
+        {
+          found = YES;
+        }
+    }
+  return found;
+}
+
+/* Whether a file panel needs GNUstep's own: the owner opted out
+   (WinUIThemeNativeFileDialogs NO), it has an accessory view the dialog
+   can't show, or its delegate filters or checks names, which the dialog
+   can't ask it. */
+static BOOL
+WinUIThemeFilePanelNeedsGNUstep(NSSavePanel *panel)
+{
+  static const char *delegateSelectors[] = {
+    "panel:shouldShowFilename:",
+    "panel:shouldEnableURL:",
+    "panel:isValidFilename:",
+    "panel:validateURL:error:",
+    "panel:userEnteredFilename:confirmed:",
+    NULL
+  };
+  NSView *accessory = [panel accessoryView];
+  id delegate = [panel delegate];
+  NSUInteger index;
+
+  if (WinUIThemeNativeDialogsEnabled(@"WinUIThemeNativeFileDialogs") == NO)
+    {
+      return YES;
+    }
+  if (accessory != nil)
+    {
+      NSUInteger controls = 0;
+
+      if (WinUIThemeIsDocumentTypeAccessory(accessory, &controls) == NO || controls != 1)
+        {
+          return YES;
+        }
+    }
+  for (index = 0; delegate != nil && delegateSelectors[index] != NULL; index++)
+    {
+      if ([delegate respondsToSelector: sel_registerName(delegateSelectors[index])])
+        {
+          return YES;
+        }
+    }
+  return NO;
+}
 #endif
 
 @implementation WinUIThemeSavePanel
@@ -1113,7 +1611,18 @@ WinUIThemeRunNativeOpenDialog(WinUIThemeOpenPanel *panel, NSWindow *ownerWindow)
       [self setNameFieldStringValue: filename];
     }
 
-  return [self runModal];
+#ifdef _WIN32
+  {
+    NSInteger result = WinUIThemeRunNativeSaveDialog(self, nil);
+
+    if (result != WinUIThemeUnavailableNativeDialogResult())
+      {
+        return result;
+      }
+  }
+#endif
+  /* GNUstep's -runModal comes here: its own panel, not -runModal again. */
+  return [super runModalForDirectory: path file: filename];
 }
 
 - (void) beginSheetModalForWindow: (NSWindow *)window
@@ -1216,8 +1725,7 @@ WinUIThemeRunNativeOpenDialog(WinUIThemeOpenPanel *panel, NSWindow *ownerWindow)
 
 - (NSInteger) runModalForTypes: (NSArray *)fileTypes
 {
-  [self setAllowedFileTypes: fileTypes];
-  return [self runModal];
+  return [self runModalForDirectory: [self directory] file: nil types: fileTypes];
 }
 
 - (NSInteger) runModalForDirectory: (NSString *)path
@@ -1229,8 +1737,19 @@ WinUIThemeRunNativeOpenDialog(WinUIThemeOpenPanel *panel, NSWindow *ownerWindow)
       [self setDirectory: path];
     }
   [self setAllowedFileTypes: fileTypes];
-  (void)name;
-  return [self runModal];
+
+#ifdef _WIN32
+  {
+    NSInteger result = WinUIThemeRunNativeOpenDialog(self, nil);
+
+    if (result != WinUIThemeUnavailableNativeDialogResult())
+      {
+        return result;
+      }
+  }
+#endif
+  /* GNUstep's -runModal comes here: its own panel, not -runModal again. */
+  return [super runModalForDirectory: path file: name types: fileTypes];
 }
 
 - (void) beginSheetModalForWindow: (NSWindow *)window
@@ -1290,30 +1809,25 @@ WinUIThemeRunNativeOpenDialog(WinUIThemeOpenPanel *panel, NSWindow *ownerWindow)
 
 @implementation WinUIThemePrintPanel
 
+/* As GNUstep's panel: the current operation's print info. */
 - (NSInteger) runModal
 {
-#ifdef _WIN32
-  PRINTDLGW dialog;
+  NSPrintInfo *info = [[NSPrintOperation currentOperation] printInfo];
 
-  memset(&dialog, 0, sizeof(dialog));
-  dialog.lStructSize = sizeof(dialog);
-  dialog.hwndOwner = WinUIThemeOwnerWindowHandle(nil);
-  dialog.Flags = PD_RETURNDC | PD_USEDEVMODECOPIESANDCOLLATE;
-  if (WinUIThemePrintDlgW(&dialog))
-    {
-      if (dialog.hDevMode != NULL) GlobalFree(dialog.hDevMode);
-      if (dialog.hDevNames != NULL) GlobalFree(dialog.hDevNames);
-      if (dialog.hDC != NULL) DeleteDC(dialog.hDC);
-      return NSOKButton;
-    }
-#endif
-  return [super runModal];
+  return [self runModalWithPrintInfo: (info != nil) ? info : [NSPrintInfo sharedPrintInfo]];
 }
 
 - (NSInteger) runModalWithPrintInfo: (NSPrintInfo *)printInfo
 {
-  (void)printInfo;
-  return [self runModal];
+#ifdef _WIN32
+  NSInteger result = WinUIThemeRunNativePrintDialog(self, printInfo, nil);
+
+  if (result != WinUIThemeUnavailableNativeDialogResult())
+    {
+      return result;
+    }
+#endif
+  return [super runModalWithPrintInfo: printInfo];
 }
 
 - (void) beginSheetWithPrintInfo: (NSPrintInfo *)printInfo
@@ -1322,39 +1836,43 @@ WinUIThemeRunNativeOpenDialog(WinUIThemeOpenPanel *panel, NSWindow *ownerWindow)
                   didEndSelector: (SEL)didEndSelector
                      contextInfo: (void *)contextInfo
 {
-  NSInteger result = [self runModalWithPrintInfo: printInfo];
+#ifdef _WIN32
+  NSInteger result = WinUIThemeRunNativePrintDialog(self, printInfo, docWindow);
 
-  WinUIThemeInvokeModalDelegate(delegate, didEndSelector, self, result, contextInfo);
-  (void)docWindow;
+  if (result != WinUIThemeUnavailableNativeDialogResult())
+    {
+      WinUIThemeInvokeModalDelegate(delegate, didEndSelector, self, result, contextInfo);
+      return;
+    }
+#endif
+  [super beginSheetWithPrintInfo: printInfo
+                  modalForWindow: docWindow
+                        delegate: delegate
+                  didEndSelector: didEndSelector
+                     contextInfo: contextInfo];
 }
 
 @end
 
 @implementation WinUIThemePageLayout
 
+/* As GNUstep's panel: the shared print info. */
 - (NSInteger) runModal
 {
-#ifdef _WIN32
-  PAGESETUPDLGW dialog;
-
-  memset(&dialog, 0, sizeof(dialog));
-  dialog.lStructSize = sizeof(dialog);
-  dialog.hwndOwner = WinUIThemeOwnerWindowHandle(nil);
-  dialog.Flags = PSD_DEFAULTMINMARGINS | PSD_MARGINS;
-  if (WinUIThemePageSetupDlgW(&dialog))
-    {
-      if (dialog.hDevMode != NULL) GlobalFree(dialog.hDevMode);
-      if (dialog.hDevNames != NULL) GlobalFree(dialog.hDevNames);
-      return NSOKButton;
-    }
-#endif
-  return [super runModal];
+  return [self runModalWithPrintInfo: [NSPrintInfo sharedPrintInfo]];
 }
 
 - (NSInteger) runModalWithPrintInfo: (NSPrintInfo *)printInfo
 {
-  (void)printInfo;
-  return [self runModal];
+#ifdef _WIN32
+  NSInteger result = WinUIThemeRunNativePageSetupDialog(self, printInfo, nil);
+
+  if (result != WinUIThemeUnavailableNativeDialogResult())
+    {
+      return result;
+    }
+#endif
+  return [super runModalWithPrintInfo: printInfo];
 }
 
 - (void) beginSheetWithPrintInfo: (NSPrintInfo *)printInfo
@@ -1363,10 +1881,83 @@ WinUIThemeRunNativeOpenDialog(WinUIThemeOpenPanel *panel, NSWindow *ownerWindow)
                   didEndSelector: (SEL)didEndSelector
                      contextInfo: (void *)contextInfo
 {
-  NSInteger result = [self runModalWithPrintInfo: printInfo];
+#ifdef _WIN32
+  NSInteger result = WinUIThemeRunNativePageSetupDialog(self, printInfo, docWindow);
 
-  WinUIThemeInvokeModalDelegate(delegate, didEndSelector, self, result, contextInfo);
-  (void)docWindow;
+  if (result != WinUIThemeUnavailableNativeDialogResult())
+    {
+      WinUIThemeInvokeModalDelegate(delegate, didEndSelector, self, result, contextInfo);
+      return;
+    }
+#endif
+  [super beginSheetWithPrintInfo: printInfo
+                  modalForWindow: docWindow
+                        delegate: delegate
+                  didEndSelector: didEndSelector
+                     contextInfo: contextInfo];
+}
+
+@end
+
+/* Page setup without GNUstep's panel: +[NSPageLayout pageLayout] loads
+   GSPageLayout.gorm, which fails on Windows with gui 0.32 ("Could not
+   load page layout panel resource") whatever the theme, so the menu's Page
+   Setup goes straight to Windows' dialog. A document that prepares the
+   panel itself (-preparePageLayout:, for an accessory view) keeps
+   GNUstep's. */
+@implementation WinUITheme (PageSetup)
+
+- (void) _overrideNSApplicationMethod_runPageLayout: (id)sender
+{
+  typedef void (*RunIMP)(id, SEL, id);
+  RunIMP originalIMP = (RunIMP)WinUIThemeOriginalMethod(_cmd, self, [NSApplication class]);
+
+#ifdef _WIN32
+  if (WinUIThemeRunNativePageSetupDialog(nil, [NSPrintInfo sharedPrintInfo], nil)
+      != WinUIThemeUnavailableNativeDialogResult())
+    {
+      return;
+    }
+#endif
+  if (originalIMP != NULL)
+    {
+      originalIMP(self, _cmd, sender);
+    }
+}
+
+- (void) _overrideNSDocumentMethod_runModalPageLayoutWithPrintInfo: (NSPrintInfo *)info
+                                                          delegate: (id)delegate
+                                                    didRunSelector: (SEL)selector
+                                                       contextInfo: (void *)context
+{
+  typedef void (*RunIMP)(id, SEL, NSPrintInfo *, id, SEL, void *);
+  RunIMP originalIMP = (RunIMP)WinUIThemeOriginalMethod(_cmd, self, [NSDocument class]);
+  SEL prepare = @selector(preparePageLayout:);
+
+#ifdef _WIN32
+  if ([self methodForSelector: prepare] == [NSDocument instanceMethodForSelector: prepare])
+    {
+      NSInteger result = WinUIThemeRunNativePageSetupDialog(nil, info, [(NSDocument *)self windowForSheet]);
+
+      if (result != WinUIThemeUnavailableNativeDialogResult())
+        {
+          /* As NSDocument's delegate: the document, whether it was
+             accepted, the context. */
+          if (delegate != nil && selector != NULL && [delegate respondsToSelector: selector])
+            {
+              typedef void (*DidRunIMP)(id, SEL, id, BOOL, void *);
+              DidRunIMP didRun = (DidRunIMP)[delegate methodForSelector: selector];
+
+              didRun(delegate, selector, self, (result == NSOKButton), context);
+            }
+          return;
+        }
+    }
+#endif
+  if (originalIMP != NULL)
+    {
+      originalIMP(self, _cmd, info, delegate, selector, context);
+    }
 }
 
 @end

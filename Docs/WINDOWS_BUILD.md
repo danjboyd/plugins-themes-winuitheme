@@ -160,3 +160,11 @@ Each run gets a home directory of its own under `%TEMP%`
 (`Tests/Scripts/GNUstepTestHome.ps1`), with fixed `NSGlobalDomain` defaults,
 so the probe neither reads nor writes yours. `Invoke-ThemeDemoScript.ps1`
 does the same for ThemeDemo.
+
+`Tests/Scripts/Invoke-DialogCheck.ps1` runs the native dialogs for real
+(#20, #69): QuirkProbe `-ProbeOnly dialogs` opens Windows' print, page
+setup, open and save dialogs, a thread of its own fills in the classic
+ones, and the script drives Windows 11's print dialog, which runs in a
+process of its own, by UI Automation. It needs the "Microsoft Print to
+PDF" printer, takes the keyboard focus for about a minute and doesn't move
+the pointer.
