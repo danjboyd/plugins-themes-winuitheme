@@ -36,6 +36,11 @@ Apps that bundle the theme should pin a tag, not `main`.
   back's `setmaxsize` toggled it on. Minimize and maximize follow the
   window's style mask and maximum size (#67).
 
+**Menus**
+- Redo shows Ctrl+Y, as on Windows, and Ctrl+Y redoes; the app's
+  Ctrl+Shift+Z still does. Left alone when something else has Ctrl+Y
+  (#92).
+
 **Fixes**
 - A disabled toolbar item's icon stays dimmed when its button redraws on
   its own; it darkened until it looked enabled (#110).

@@ -276,7 +276,114 @@ WinUIThemeModifierString(NSString *key, NSString *fallback)
   return ([string length] > 0) ? string : fallback;
 }
 
+/* Redo as Windows has it (#92): Ctrl+Y, with Ctrl+Shift+Z still taken.
+   GNUstep apps give Redo Command-Shift-Z (Command is the left Ctrl key on
+   Windows); the item keeps it, so other themes see the app's own. */
+static BOOL
+WinUIThemeItemIsShiftCommandZRedo(NSMenuItem *item)
+{
+  NSString *key = [item keyEquivalent];
+  NSUInteger mask = [item keyEquivalentModifierMask]
+    & (NSCommandKeyMask | NSShiftKeyMask | NSAlternateKeyMask | NSControlKeyMask);
+
+  return WinUIThemeActionIs(item, @selector(redo:))
+    && (([key isEqualToString: @"Z"] && (mask & ~NSShiftKeyMask) == NSCommandKeyMask)
+        || ([key isEqualToString: @"z"] && mask == (NSCommandKeyMask | NSShiftKeyMask)));
+}
+
+/* An item in `menu` or its submenus whose shortcut is Command-Y, or that
+   is Command-Shift-Z Redo. */
+static NSMenuItem *
+WinUIThemeFindItem(NSMenu *menu, BOOL redo)
+{
+  NSEnumerator *enumerator = [[menu itemArray] objectEnumerator];
+  NSMenuItem *item = nil;
+
+  while ((item = [enumerator nextObject]) != nil)
+    {
+      NSMenuItem *found = nil;
+
+      if ([item hasSubmenu])
+        {
+          if ([item submenu] != [NSApp servicesMenu]
+              && (found = WinUIThemeFindItem([item submenu], redo)) != nil)
+            {
+              return found;
+            }
+        }
+      else if (redo ? WinUIThemeItemIsShiftCommandZRedo(item)
+               : ([[item keyEquivalent] isEqualToString: @"y"]
+                  && ([item keyEquivalentModifierMask]
+                      & (NSCommandKeyMask | NSShiftKeyMask | NSAlternateKeyMask | NSControlKeyMask))
+                     == NSCommandKeyMask))
+        {
+          return item;
+        }
+    }
+  return nil;
+}
+
+/* Whether Redo gets Ctrl+Y: it's Command-Shift-Z Redo in the main menu,
+   and no item there has Command-Y already. */
+static BOOL
+WinUIThemeRedoTakesCtrlY(NSMenuItem *item)
+{
+  NSMenu *mainMenu = [NSApp mainMenu];
+
+  return [[GSTheme theme] isKindOfClass: [WinUITheme class]]
+    && item != nil && WinUIThemeItemIsShiftCommandZRedo(item)
+    && mainMenu != nil && WinUIThemeFindItem(mainMenu, YES) == item
+    && WinUIThemeFindItem(mainMenu, NO) == nil;
+}
+
 @implementation WinUITheme (ApplicationMenu)
+
+/* Redo's shortcut as Windows shows it (#92). */
+- (NSString *) _overrideNSMenuItemCellMethod__keyEquivalentString
+{
+  typedef NSString *(*KeyStringIMP)(id, SEL);
+  KeyStringIMP originalIMP = (KeyStringIMP)WinUIThemeOriginalMethod(_cmd, self, [NSMenuItemCell class]);
+  NSMenuItem *item = (NSMenuItem *)[(NSMenuItemCell *)self menuItem];
+
+  if (WinUIThemeRedoTakesCtrlY(item))
+    {
+      return @"Ctrl+Y";
+    }
+  return (originalIMP != NULL) ? originalIMP(self, _cmd) : nil;
+}
+
+/* Ctrl+Y redoes when nothing in the menus has it (#92); the app's
+   Ctrl+Shift+Z still does, from the item itself. */
+- (BOOL) _overrideNSMenuMethod_performKeyEquivalent: (NSEvent *)event
+{
+  typedef BOOL (*PerformIMP)(id, SEL, NSEvent *);
+  PerformIMP originalIMP = (PerformIMP)WinUIThemeOriginalMethod(_cmd, self, [NSMenu class]);
+  NSMenu *menu = (NSMenu *)self;
+  NSUInteger modifiers = [event modifierFlags]
+    & (NSCommandKeyMask | NSShiftKeyMask | NSAlternateKeyMask | NSControlKeyMask);
+  NSMenuItem *redo = nil;
+
+  if (originalIMP != NULL && originalIMP(self, _cmd, event))
+    {
+      return YES;
+    }
+  if (menu != [NSApp mainMenu] || [event type] != NSKeyDown || modifiers != NSCommandKeyMask
+      || [[[event charactersIgnoringModifiers] lowercaseString] isEqualToString: @"y"] == NO)
+    {
+      return NO;
+    }
+  redo = WinUIThemeFindItem(menu, YES);
+  if (WinUIThemeRedoTakesCtrlY(redo) == NO)
+    {
+      return NO;
+    }
+  [[redo menu] update];
+  if ([redo isEnabled])
+    {
+      [[redo menu] performActionForItemAtIndex: [[redo menu] indexOfItem: redo]];
+    }
+  return YES;
+}
 
 - (void) organizeMenu: (NSMenu *)menu
          isHorizontal: (BOOL)horizontal

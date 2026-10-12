@@ -768,7 +768,14 @@ QuirkProbeLoadAccent(void)
   QuirkProbeAccentRGB[2] = (NSUInteger)lrint([accent blueComponent] * 255.0);
 }
 
+static NSUInteger QuirkProbeRedoCount = 0;
+
 @implementation QuirkProbe
+
+- (void) redo: (id)sender
+{
+  QuirkProbeRedoCount++;
+}
 
 - (id) init
 {
@@ -8709,6 +8716,55 @@ QuirkProbeLastItemOfMenu(NSString *title)
       [self fail: @"shortcut-text" detail:
         [NSString stringWithFormat: @"Command-Q shows as \"%@\", Command-Shift-Z as \"%@\"", quit, redo]];
     }
+
+  /* Redo as Windows has it (#92): an Edit menu Redo with Command-Shift-Z
+     shows Ctrl+Y and answers Ctrl+Y and Ctrl+Shift+Z. */
+  {
+    NSMenu *edit = [[mainMenu itemWithTitle: @"Edit"] submenu];
+    NSMenuItem *redoItem = nil;
+    NSMenuItemCell *cell = nil;
+    NSString *shown = nil;
+    NSUInteger byY, byZ;
+    NSEvent *ctrlY = [NSEvent keyEventWithType: NSKeyDown location: NSZeroPoint
+                                 modifierFlags: NSCommandKeyMask timestamp: 0 windowNumber: 0
+                                       context: nil characters: @"y" charactersIgnoringModifiers: @"y"
+                                     isARepeat: NO keyCode: 0];
+    NSEvent *ctrlShiftZ = [NSEvent keyEventWithType: NSKeyDown location: NSZeroPoint
+                                      modifierFlags: NSCommandKeyMask | NSShiftKeyMask timestamp: 0
+                                       windowNumber: 0 context: nil characters: @"Z"
+                                charactersIgnoringModifiers: @"Z" isARepeat: NO keyCode: 0];
+
+    if (edit == nil)
+      {
+        [self skip: @"redo-ctrl-y" detail: @"no Edit menu"];
+        return;
+      }
+    redoItem = AUTORELEASE([[NSMenuItem alloc] initWithTitle: @"Redo" action: @selector(redo:)
+                                                keyEquivalent: @"Z"]);
+    [redoItem setKeyEquivalentModifierMask: NSCommandKeyMask];
+    [redoItem setTarget: self];
+    [edit insertItem: redoItem atIndex: 0];
+    cell = [(NSMenuView *)[edit menuRepresentation] menuItemCellForItemAtIndex: 0];
+    shown = [cell performSelector: @selector(_keyEquivalentString)];
+    QuirkProbeRedoCount = 0;
+    [mainMenu performKeyEquivalent: ctrlY];
+    byY = QuirkProbeRedoCount;
+    QuirkProbeRedoCount = 0;
+    [mainMenu performKeyEquivalent: ctrlShiftZ];
+    byZ = QuirkProbeRedoCount;
+    [edit removeItem: redoItem];
+
+    if ([shown isEqualToString: @"Ctrl+Y"] && byY == 1 && byZ == 1)
+      {
+        [self pass: @"redo-ctrl-y" detail: @"Redo shows Ctrl+Y; Ctrl+Y and Ctrl+Shift+Z both redo"];
+      }
+    else
+      {
+        [self fail: @"redo-ctrl-y" detail: [NSString stringWithFormat:
+          @"Redo shows \"%@\"; Ctrl+Y redid %lu times, Ctrl+Shift+Z %lu", shown,
+          (unsigned long)byY, (unsigned long)byZ]];
+      }
+  }
 }
 
 /* Switching to another theme at run time leaves no WinUITheme code in
