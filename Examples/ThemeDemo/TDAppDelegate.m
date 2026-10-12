@@ -48,6 +48,24 @@ static NSString *TDToolbarSearch = @"TDToolbarSearch";
 
 @end
 
+/* The specimens page's canvas: the window background, as the reference
+   app's page background shows through its canvas, and the magenta square
+   that marks its top left for Tests/Scripts/measure_specimens.py. */
+@interface TDSpecimenView : TDFlippedView
+@end
+
+@implementation TDSpecimenView
+
+- (void) drawRect: (NSRect)rect
+{
+  [[NSColor windowBackgroundColor] set];
+  NSRectFill(rect);
+  [[NSColor colorWithCalibratedRed: 1.0 green: 0.0 blue: 1.0 alpha: 1.0] set];
+  NSRectFill(NSMakeRect(0.0, 0.0, 8.0, 8.0));
+}
+
+@end
+
 @interface TDMenuBarFixtureView : NSView
 {
   NSMutableArray *_cells;
@@ -430,6 +448,7 @@ TDMenuBarFixture(NSRect frame)
 - (NSView *) stressPageViewForPage: (NSDictionary *)page;
 - (NSView *) realAppPageViewForPage: (NSDictionary *)page;
 - (NSView *) surfacesPageViewForPage: (NSDictionary *)page;
+- (NSView *) specimensPageViewForPage: (NSDictionary *)page;
 - (NSView *) placeholderPageViewForPage: (NSDictionary *)page;
 - (NSToolbar *) windowToolbar;
 - (void) showAlertDemo: (id)sender;
@@ -1930,6 +1949,62 @@ objectValueForTableColumn: (NSTableColumn *)tableColumn
   return view;
 }
 
+/* One of each control at the places the reference app's specimens page
+   puts WinUI's, for Tests/Scripts/Compare-Reference.ps1 to measure. Keep
+   the two in step with Tests/Scripts/measure_specimens.py. */
+- (NSView *) specimensPageViewForPage: (NSDictionary *)page
+{
+  TDSpecimenView *view = [[[TDSpecimenView alloc] initWithFrame: NSMakeRect(0.0, 0.0, 720.0, 200.0)] autorelease];
+  NSButton *button = nil;
+  NSTextField *field = nil;
+  NSPopUpButton *popup = nil;
+  NSSwitch *toggle = nil;
+  NSSlider *slider = nil;
+  NSProgressIndicator *progress = nil;
+
+  (void)page;
+  [view addSubview: TDButton(@"Button", NSMakeRect(16.0, 24.0, 120.0, 32.0),
+                             NSMomentaryPushInButton, NSRoundedBezelStyle)];
+  button = TDButton(@"Accent", NSMakeRect(152.0, 24.0, 120.0, 32.0),
+                    NSMomentaryPushInButton, NSRoundedBezelStyle);
+  [button setKeyEquivalent: @"\r"];
+  [view addSubview: button];
+
+  field = [[[NSTextField alloc] initWithFrame: NSMakeRect(288.0, 24.0, 200.0, 32.0)] autorelease];
+  [field setStringValue: @"Text"];
+  [view addSubview: field];
+
+  popup = [[[NSPopUpButton alloc] initWithFrame: NSMakeRect(504.0, 24.0, 160.0, 32.0) pullsDown: NO] autorelease];
+  [popup addItemWithTitle: @"Item"];
+  [view addSubview: popup];
+
+  button = TDButton(@"Check", NSMakeRect(16.0, 88.0, 120.0, 32.0), NSSwitchButton, NSRoundedBezelStyle);
+  [button setState: NSOnState];
+  [view addSubview: button];
+
+  toggle = [[[NSSwitch alloc] initWithFrame: NSMakeRect(152.0, 88.0, 44.0, 32.0)] autorelease];
+  [toggle setState: NSControlStateValueOn];
+  [view addSubview: toggle];
+
+  slider = [[[NSSlider alloc] initWithFrame: NSMakeRect(288.0, 88.0, 200.0, 32.0)] autorelease];
+  [slider setMinValue: 0.0];
+  [slider setMaxValue: 100.0];
+  [slider setDoubleValue: 50.0];
+  [view addSubview: slider];
+
+  progress = [[[NSProgressIndicator alloc] initWithFrame: NSMakeRect(504.0, 92.0, 160.0, 16.0)] autorelease];
+  [progress setIndeterminate: NO];
+  [progress setMinValue: 0.0];
+  [progress setMaxValue: 100.0];
+  [progress setDoubleValue: 50.0];
+  [view addSubview: progress];
+
+  [view addSubview: TDLabel(@"The quick brown fox jumps over the lazy dog",
+                            NSMakeRect(16.0, 152.0, 500.0, 22.0),
+                            [NSFont systemFontOfSize: 0.0], [NSColor controlTextColor])];
+  return view;
+}
+
 - (NSView *) documentViewForPage: (NSDictionary *)page
 {
   NSString *pageID = TDStringOrEmpty([page objectForKey: @"id"]);
@@ -1965,6 +2040,10 @@ objectValueForTableColumn: (NSTableColumn *)tableColumn
   if ([pageID isEqualToString: @"surfaces"])
     {
       return [self surfacesPageViewForPage: page];
+    }
+  if ([pageID isEqualToString: @"specimens"])
+    {
+      return [self specimensPageViewForPage: page];
     }
 
   return [self placeholderPageViewForPage: page];
