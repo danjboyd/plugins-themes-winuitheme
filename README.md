@@ -168,6 +168,33 @@ one: `--contrast-theme dusk` on the command line, or the
 `night-sky`, or a `.theme` file's path). The colours are read from Windows'
 own theme files.
 
+## Open, Save and Print Dialogs
+
+`NSOpenPanel` and `NSSavePanel` show Windows' file dialogs, with the
+panel's allowed types as the dialog's filters; folder choice, multiple
+selection and the chosen paths come back as GNUstep's panels give them.
+GNUstep's own panel stays when the dialog couldn't do what the app asked:
+an accessory view (other than `NSDocument`'s File Type pop-up, whose job
+the filters do), or a delegate that filters or checks names
+(`-panel:shouldEnableURL:`, `-panel:isValidFilename:` and the like).
+
+Print shows Windows' print dialog (Windows 11's own, for `PrintDlgW`),
+seeded from the operation's `NSPrintInfo`; the printer, copies,
+collation, page range, paper and orientation chosen go back into it, and
+Cancel cancels. Page Setup shows Windows' page setup dialog for the
+paper, orientation, margins and printer. A print panel with an accessory
+view stays GNUstep's.
+
+`WinUIThemeNativeFileDialogs NO` and `WinUIThemeNativePrintDialogs NO`
+(user defaults) keep GNUstep's panels.
+
+Known limits, in GNUstep rather than the theme: GNUstep's Windows printing
+sends the job to the printer as PostScript, which most printers (Print to
+PDF among them) can't read (#69); and `+[NSPageLayout pageLayout]` can't
+load its panel on Windows with gui 0.32, so the theme runs Page Setup from
+`-[NSApplication runPageLayout:]` and `NSDocument`'s, and an app that asks
+`NSPageLayout` for the panel itself gets an error.
+
 ## Window Tabs
 
 Apps get Apple's `NSWindow` tabbing API (`-addTabbedWindow:ordered:`,
