@@ -1013,6 +1013,28 @@ WinUIThemeApplicationDisplayName(void)
   return [[NSProcessInfo processInfo] processName];
 }
 
+/* The titles libs-gui gives an alert panel when the app gives none
+   (NSAlert.m): Windows captions a message box with the app's name (#79). */
+static BOOL
+WinUIThemeIsDefaultAlertTitle(NSWindow *window, NSString *title)
+{
+  static Class alertPanelClass = Nil;
+  NSString *trimmed = nil;
+
+  if (alertPanelClass == Nil)
+    {
+      alertPanelClass = NSClassFromString(@"GSAlertPanel");
+    }
+  if (alertPanelClass == Nil || [window isKindOfClass: alertPanelClass] == NO)
+    {
+      return NO;
+    }
+  trimmed = [title stringByTrimmingCharactersInSet:
+                     [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+  return [trimmed length] == 0 || [trimmed isEqualToString: @"Alert"]
+    || [trimmed isEqualToString: @"Critical"] || [trimmed isEqualToString: @"Information"];
+}
+
 /* The title as Windows shows it (#33): a document window is
    "name - App", where GNUstep has "name  --  ~/folder", and starts with
    "*" while it has unsaved changes, as Notepad's does. Other titles the app
@@ -1027,6 +1049,10 @@ WinUIThemeDisplayTitle(NSWindow *window)
   if (title == nil)
     {
       title = @"";
+    }
+  if (WinUIThemeIsDefaultAlertTitle(window, title))
+    {
+      return WinUIThemeApplicationDisplayName();
     }
   if ([path length] > 0 && [window respondsToSelector: @selector(_hasTitleWithRepresentedFilename)]
       && [window _hasTitleWithRepresentedFilename])

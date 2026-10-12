@@ -7911,8 +7911,9 @@ QuirkProbeCaptionText(NSWindow *window)
 
 /* Captions as Windows apps have them: a document window is "name - App"
    with "*" while edited (#33), where GNUstep sends "name  --  ~/folder"; a
-   title the app set itself stays. [window title] is left as the app set
-   it. */
+   title the app set itself stays; an alert libs-gui left untitled is
+   captioned with the app's name (#79). [window title] is left as the app
+   set it. */
 - (void) checkWindowsTitles
 {
   NSWindow *window = [self windowWithFrame: NSMakeRect(660, 300, 320, 160)
@@ -7924,6 +7925,7 @@ QuirkProbeCaptionText(NSWindow *window)
   NSString *caption = nil;
   NSString *edited = nil;
   NSString *saved = nil;
+  NSPanel *alert = nil;
   NSEnumerator *keys = [[NSArray arrayWithObjects: @"CFBundleDisplayName", @"CFBundleName",
                                  @"ApplicationName", nil] objectEnumerator];
   NSString *key = nil;
@@ -7974,6 +7976,22 @@ QuirkProbeCaptionText(NSWindow *window)
       [self fail: @"window-title-app-set" detail: [NSString stringWithFormat: @"caption \"%@\"", caption]];
     }
   [window orderOut: nil];
+
+  alert = NSGetAlertPanel(@"Quit", @"Quit with unsaved documents?", @"Quit", @"Cancel", nil);
+  [alert orderFront: nil];
+  caption = QuirkProbeCaptionText(alert);
+  if ([caption isEqualToString: app])
+    {
+      [self pass: @"alert-caption-app-name" detail: [NSString stringWithFormat:
+        @"an untitled alert is captioned \"%@\"", caption]];
+    }
+  else
+    {
+      [self fail: @"alert-caption-app-name" detail: [NSString stringWithFormat:
+        @"caption \"%@\" (window title \"%@\"), want \"%@\"", caption, [alert title], app]];
+    }
+  [alert orderOut: nil];
+  NSReleaseAlertPanel(alert);
 }
 
 /* Whether any item in `menu` or its submenus has `action`, or a submenu

@@ -41,7 +41,8 @@ void WinUIThemeWindowIntegrationRoundPopupWindow(NSWindow *window, BOOL small, N
 
 /* The app's name as Windows shows it (CFBundleDisplayName, CFBundleName,
    ApplicationName, then the process name), and a window's title as its
-   caption shows it: "name - App" for a document, "*" while edited (#33). */
+   caption shows it: "name - App" for a document, "*" while edited, the
+   app's name on an alert libs-gui left untitled (#33, #79). */
 NSString *WinUIThemeApplicationDisplayName(void);
 NSString *WinUIThemeDisplayTitle(NSWindow *window);
 /* A popover panel as a WinUI flyout: rounded as a menu, owned by the main
