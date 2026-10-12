@@ -535,4 +535,21 @@ typedef void (*OrderWindowIMP)(id, SEL, NSWindowOrderingMode, NSInteger);
     }
 }
 
+typedef void (*SetMaxSizeIMP)(id, SEL, NSSize);
+
+/* libs-back's setmaxsize toggles a window's maximize box (#67). */
+- (void) _overrideNSWindowMethod_setMaxSize: (NSSize)size
+{
+  SetMaxSizeIMP originalIMP = (SetMaxSizeIMP)WinUIThemeOriginalMethod(_cmd, self, [NSWindow class]);
+
+  if (originalIMP != NULL)
+    {
+      originalIMP(self, _cmd, size);
+    }
+  if ([[GSTheme theme] isKindOfClass: [WinUITheme class]])
+    {
+      WinUIThemeWindowIntegrationFixCaptionBoxes((NSWindow *)self);
+    }
+}
+
 @end

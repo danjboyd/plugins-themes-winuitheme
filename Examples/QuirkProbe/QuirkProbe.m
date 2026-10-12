@@ -7518,9 +7518,11 @@ QuirkProbeInkIn(NSBitmapImageRep *rep, NSRect area, NSInteger fill, NSInteger th
   [defaults removeObjectForKey: @"WinUIThemeOverlayScrollbars"];
 }
 
-/* Menus and alerts as Windows has its own (#30): a menu is a tool window
-   owned by the main window that never takes activation; an alert is owned
-   by the main window and has no taskbar button. */
+/* Menus, alerts and dialogs as Windows has its own (#30, #67): a menu is
+   a tool window owned by the main window that never takes activation;
+   an alert is owned by the main window and has no taskbar button; and a
+   window's minimize and maximize boxes follow its style mask, which
+   libs-back's setmaxsize undid for a fixed-size dialog. */
 - (void) checkPopupWindows
 {
   NSWindow *main = [self windowWithFrame: NSMakeRect(200, 260, 320, 160)
@@ -7529,11 +7531,14 @@ QuirkProbeInkIn(NSBitmapImageRep *rep, NSRect area, NSInteger fill, NSInteger th
   NSMenu *menu = AUTORELEASE([[NSMenu alloc] initWithTitle: @"Popup"]);
   NSWindow *menuWindow = nil;
   NSPanel *alert = nil;
+  NSWindow *fixed = nil;
+  NSWindow *sizable = nil;
   HWND mainHandle = NULL;
   HWND handle = NULL;
   HWND activeBefore = NULL;
   HWND activeAfter = NULL;
   LONG_PTR exStyle = 0;
+  LONG_PTR style = 0;
   NSMutableArray *problems = [NSMutableArray array];
 
   [main makeKeyAndOrderFront: nil];
@@ -7606,6 +7611,56 @@ QuirkProbeInkIn(NSBitmapImageRep *rep, NSRect area, NSInteger fill, NSInteger th
   else
     {
       [self fail: @"alert-owned" detail: [problems componentsJoinedByString: @"; "]];
+    }
+
+  [problems removeAllObjects];
+  fixed = AUTORELEASE([[NSWindow alloc] initWithContentRect: NSMakeRect(200, 460, 240, 100)
+                                                  styleMask: NSTitledWindowMask | NSClosableWindowMask
+                                                    backing: NSBackingStoreBuffered
+                                                      defer: NO]);
+  sizable = AUTORELEASE([[NSWindow alloc] initWithContentRect: NSMakeRect(460, 460, 240, 100)
+                                                    styleMask: NSTitledWindowMask | NSClosableWindowMask
+                                                               | NSResizableWindowMask | NSMiniaturizableWindowMask
+                                                      backing: NSBackingStoreBuffered
+                                                        defer: NO]);
+  [fixed setReleasedWhenClosed: NO];
+  [sizable setReleasedWhenClosed: NO];
+  [fixed orderFront: nil];
+  [sizable orderFront: nil];
+  QuirkProbeDispatchEvents(0.2);
+  style = GetWindowLongPtrW((HWND)[fixed windowHandle], GWL_STYLE);
+  if (style & (WS_MAXIMIZEBOX | WS_MINIMIZEBOX))
+    {
+      [problems addObject: [NSString stringWithFormat: @"a fixed dialog has%@%@",
+                                      (style & WS_MINIMIZEBOX) ? @" minimize" : @"",
+                                      (style & WS_MAXIMIZEBOX) ? @" maximize" : @""]];
+    }
+  style = GetWindowLongPtrW((HWND)[sizable windowHandle], GWL_STYLE);
+  if ((style & WS_MAXIMIZEBOX) == 0 || (style & WS_MINIMIZEBOX) == 0)
+    {
+      [problems addObject: @"a resizable window lacks minimize or maximize"];
+    }
+  [sizable setMaxSize: NSMakeSize(600, 400)];
+  style = GetWindowLongPtrW((HWND)[sizable windowHandle], GWL_STYLE);
+  if ((style & WS_MAXIMIZEBOX) || (style & WS_MINIMIZEBOX) == 0)
+    {
+      [problems addObject: @"with a maximum size, a resizable window keeps maximize or loses minimize"];
+    }
+  [sizable setMaxSize: NSMakeSize(10000, 10000)];
+  style = GetWindowLongPtrW((HWND)[sizable windowHandle], GWL_STYLE);
+  if ((style & WS_MAXIMIZEBOX) == 0)
+    {
+      [problems addObject: @"without a maximum size again, maximize doesn't come back"];
+    }
+  [fixed orderOut: nil];
+  [sizable orderOut: nil];
+  if ([problems count] == 0)
+    {
+      [self pass: @"dialog-caption-boxes" detail: @"minimize and maximize follow the style mask and maximum size"];
+    }
+  else
+    {
+      [self fail: @"dialog-caption-boxes" detail: [problems componentsJoinedByString: @"; "]];
     }
   [main orderOut: nil];
 }

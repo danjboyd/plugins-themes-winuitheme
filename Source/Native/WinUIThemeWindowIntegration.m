@@ -1422,3 +1422,44 @@ WinUIThemeWindowIntegrationOwnDialog(NSWindow *window)
 #endif
 }
 
+void
+WinUIThemeWindowIntegrationFixCaptionBoxes(NSWindow *window)
+{
+#ifdef _WIN32
+  HWND hwnd = WinUIThemeWindowHandle(window);
+  NSUInteger mask = [window styleMask];
+  NSSize maximum = [window maxSize];
+  LONG_PTR style = 0;
+  LONG_PTR wanted = 0;
+
+  if (hwnd == NULL || (mask & NSTitledWindowMask) == 0)
+    {
+      return;
+    }
+  style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+  /* Only a window with a caption: libs-back draws none without. */
+  if ((style & WS_CAPTION) != WS_CAPTION)
+    {
+      return;
+    }
+  wanted = style & ~(WS_MAXIMIZEBOX | WS_MINIMIZEBOX);
+  /* As libs-back means it: a resizable window can maximize unless it has
+     a maximum size. */
+  if ((mask & NSResizableWindowMask) && maximum.width >= 10000 && maximum.height >= 10000)
+    {
+      wanted |= WS_MAXIMIZEBOX;
+    }
+  if (mask & NSMiniaturizableWindowMask)
+    {
+      wanted |= WS_MINIMIZEBOX;
+    }
+  if (wanted != style)
+    {
+      SetWindowLongPtrW(hwnd, GWL_STYLE, wanted);
+      SetWindowPos(hwnd, NULL, 0, 0, 0, 0,
+                   SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+    }
+#else
+  (void)window;
+#endif
+}
