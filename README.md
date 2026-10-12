@@ -160,7 +160,9 @@ custom one), apps take that theme's colours, as WinUI apps do through their
 `SystemColor*` resources: Window and WindowText for surfaces and text,
 Hilight and HilightText for selection and the accent, GrayText for disabled
 text, and ButtonFace and ButtonText for buttons. They follow a change of
-theme while running, and the title bar is left to Windows.
+theme while running, and so does the theme's title bar (Window, WindowText,
+GrayText, and Hilight under the pointer); Windows' own caption, where the
+backend draws it, follows them itself.
 
 To check an app under a contrast theme without changing the desktop, name
 one: `--contrast-theme dusk` on the command line, or the
@@ -208,6 +210,25 @@ load its panel on Windows with gui 0.32, so the theme runs Page Setup from
 `-[NSApplication runPageLayout:]` and `NSDocument`'s, and an app that asks
 `NSPageLayout` for the panel itself gets an error.
 
+## Title Bar
+
+A WinUI app draws its own title bar: the app's icon and the window's title
+on the window's background, and WinUI's 46x32 caption buttons (the close
+button red under the pointer). With the libs-back that our MSIs ship
+(`danjboyd/libs-back`'s `carry` branch, which has
+`GSBackClientDrawsCaptions`), the theme does the same. The backend keeps
+Windows' frame (the border, shadow, Snap and the system menu) and leaves
+the caption row to the gui; the theme draws it at the top of the client
+area, above the menu bar, and tells the backend which parts drag the
+window and which are the buttons. Windows then moves the window, maximizes
+it on a double click, shows the system menu on a right click and shows
+Snap Layouts over the maximize button, as with its own caption.
+
+A window without a close button has no caption buttons and no icon, as
+Windows draws it. With a stock libs-back, or with
+`defaults write NSGlobalDomain GSBackClientDrawsCaptions NO`, Windows
+keeps its own caption, coloured to match (#83).
+
 ## Window Tabs
 
 Apps get Apple's `NSWindow` tabbing API (`-addTabbedWindow:ordered:`,
@@ -248,9 +269,9 @@ does; a "+" right after the last tab when something answers
 `-newWindowForTab:`. High contrast uses ButtonFace, Window, WindowText,
 Hilight and HilightText as WinUI's TabView does.
 
-Windows 11 apps put their tabs in the title bar. libs-back's Windows
-server leaves the title bar to Windows, so here the bar has its own row
-above the content, under the menu bar and the toolbar.
+Windows 11 apps put their tabs in the title bar. Here the bar has its own
+row above the content, under the menu bar and the toolbar; with the theme's
+title bar (above) it can move into the caption row (#83).
 
 An app that compiles the shared code in itself, as its `Examples/TabDemo`
 does, brings a second copy of `NSWindowTabGroup` and the other classes.

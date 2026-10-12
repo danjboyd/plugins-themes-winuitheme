@@ -15,6 +15,7 @@
   GSThemeDrawsPopoverPanels = YES;
   GSThemeDomain = {
     GSBackHandlesWindowDecorations = YES;
+    GSBackClientDrawsCaptions = YES;
     NSInterfaceStyleDefault = NSWindows95InterfaceStyle;
     NSMenuInterfaceStyle = NSWindows95InterfaceStyle;
     NSScrollViewInterfaceStyle = NSWindows95InterfaceStyle;

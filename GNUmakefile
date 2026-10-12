@@ -49,6 +49,7 @@ WinUITheme_OBJC_FILES = \
 	Source/Rendering/WinUIThemeFocus.m \
 	Source/Native/WinUIThemeShellDialogs.m \
 	Source/Native/WinUIThemeWindowIntegration.m \
+	Source/Native/WinUIThemeCaption.m \
 	Source/Rendering/WinUIThemeWindowTabs.m
 
 # Window tabs (#72): Apple's NSWindow tabbing API from the shared
