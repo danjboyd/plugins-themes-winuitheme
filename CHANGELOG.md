@@ -5,7 +5,35 @@ Releases of the WinUI theme for GNUstep. Versions are semver pre-releases
 `GSThemeVersion` in `WinUIThemeInfo.plist`, and an annotated tag on `main`.
 Apps that bundle the theme should pin a tag, not `main`.
 
-## Unreleased
+## 0.1.0-alpha2 (2026-10-12)
+
+Menu bar keyboard access, Windows' print and page setup dialogs, popover
+flyouts, Windows-style window and alert captions, the theme's own title
+bar, and the first motion. Requires gnustep-gui 0.32 or later; the title
+bar also needs the carried libs-back below.
+
+**Menus and keyboard**
+- **Menu bar from the keyboard:** Alt alone or F10 selects the first
+  title and underlines the access keys; arrows, Enter, access keys and Esc
+  work as in Win32 menus, and Alt+letter opens a menu unless an item has
+  it as its shortcut (#78).
+- **Overflow:** a bar too narrow for its titles folds the rest into a
+  "..." button whose menu holds them, reachable from the keyboard too
+  (#77).
+
+**Dialogs**
+- **Print:** Windows' print dialog is seeded from the operation's
+  `NSPrintInfo`, and the printer, copies, collation, page range, paper and
+  orientation chosen go back into it; Cancel cancels (#69).
+- **Page setup:** Windows' page setup dialog, from
+  `-[NSApplication runPageLayout:]` and `NSDocument`'s.
+- **Fallbacks:** GNUstep's panels stay where Windows' can't do what the
+  app asked: an accessory view, or a delegate that filters or checks names
+  (#20). `WinUIThemeNativeFileDialogs NO` and `WinUIThemeNativePrintDialogs
+  NO` keep them always.
+- **File types:** an Open dialog shows every allowed type at once, under
+  "All supported files", with a filter per type named from the registry
+  (#76).
 
 **Windows**
 - **Title bar:** with a libs-back that leaves the caption to the gui
@@ -24,6 +52,13 @@ Apps that bundle the theme should pin a tag, not `main`.
 - **Alerts:** an alert libs-gui left as "Alert", "Critical",
   "Information" or blank is captioned with the app's name (#79). QuirkProbe
   `alert-caption-app-name`.
+- **Popover panels:** a panel whose class adopts `GSThemePopoverPanel` is
+  drawn as a WinUI flyout, owned by the main window and kept out of the
+  taskbar and Alt+Tab (#101, part of #30). The theme declares
+  `GSThemeDrawsPopoverPanels`.
+- **Window tabs:** redone on the reviewed shared gnustep-window-tabbing
+  code (`4cb1b63`) with its three Windows fixes; still off by default
+  (`WinUIThemeWindowTabs`, #72).
 
 **Motion**
 - **Hover fades:** buttons, pop-ups, combo boxes, checkboxes, radios, text
@@ -34,6 +69,50 @@ Apps that bundle the theme should pin a tag, not `main`.
 - Both follow Windows' "Animation effects" setting; the
   `WinUIThemeAnimations` default overrides it. QuirkProbe
   `motion-hover-fades`, `motion-opens-fade-in`.
+
+**Fixes**
+- The font panel's browser titles are upright WinUI section labels (#74).
+- Split view dividers are WinUI's hairline, without NeXT's dimple (#75).
+- Checkboxes with the box after the title draw it there (#80); a small
+  checked radio keeps its accent ring (#81).
+- Segmented controls, sliders and text fields report a push button's
+  height from `-cellSize` (#86).
+- Toolbar icons draw at 20pt without resizing the app's images (#89).
+- `toolTipColor` and `toolTipTextColor` are the flyout's, as the theme's
+  tips (#95).
+- An autoresizing table fits beside a scroll bar that keeps its strip (high
+  contrast, classic scroll bars) instead of running under it (#103).
+
+**Testing**
+- QuirkProbe runs in a home directory of its own, so it neither reads nor
+  writes the user's GNUstep defaults; the checks that move the real
+  pointer run only with `-Pointer` (#98).
+- `Tests/Scripts/Invoke-DialogCheck.ps1` drives the native dialogs.
+- `Tests/Scripts/Compare-Reference.ps1` measures a specimens page in the
+  WinUI 3 reference app and ThemeDemo, light and dark (#105).
+
+**Known issues**
+- **Measured against WinUI** (`Compare-Reference.ps1`): button titles sit
+  2px low; button, combo box and text box strokes are lighter in light and
+  brighter in dark than WinUI's; the slider thumb is 2px short. The light
+  window background is #F9F9F9 where WinUI's page is #F3F3F3.
+- **Motion** covers hover fills and opening fades only: no pressed fades,
+  switch knob, checkbox tick, flyout slide or dialog entrance yet (#105).
+- **Printing:** GNUstep's Windows printing sends PostScript, which most
+  printers can't read. `+[NSPageLayout pageLayout]` can't load its panel on
+  Windows with gui 0.32.
+- **Windows:**
+  - The title bar needs `danjboyd/libs-back`'s `carry` build
+    (`carry-0.32.0.1`); a stock libs-back keeps Windows' caption.
+  - Dialogs and panels get a maximize button, from libs-back (#67).
+  - Menus and tool tips still lack an owner and WS_EX_TOOLWINDOW (#30).
+  - Window tabs are off by default (#72), and not in the title bar (#83).
+- **Fidelity:**
+  - In high contrast an open pop-up doesn't mark its selected item (#82).
+  - A focused text field hides its placeholder (#102).
+  - Redo is Ctrl+Shift+Z, not Ctrl+Y (#92).
+- Menu and tool-tip rounding and shadows, and Snap, are unchecked on real
+  Windows 11 hardware with a GPU.
 
 ## 0.1.0-alpha1 (2026-10-08)
 
