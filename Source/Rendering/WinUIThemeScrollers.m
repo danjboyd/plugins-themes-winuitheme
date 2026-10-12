@@ -385,7 +385,79 @@ WinUIThemeUpdateOverlayTracking(NSScrollView *scrollView, WinUIThemeOverlayState
 
 @end
 
+/* A table whose columns autoresize, made as wide as its scroll view (the
+   usual way, ScreenshotTool's font picker): when the vertical scroller
+   keeps a strip (high contrast, scroll bars always shown) the clip view is
+   narrower, but libs-gui only refits tables using the older
+   -setAutoresizesAllColumnsToFit:, so the rows' trailing content ran under
+   the strip. Cocoa fits them; so does the theme, when there's no
+   horizontal scroller to reach what's past the edge. gui 0.32 doesn't
+   keep a table's column autoresizing style (its accessors are stubs), so
+   the theme keeps it (below). */
+static void
+WinUIThemeFitTableToClipView(NSScrollView *scrollView)
+{
+  id documentView = [scrollView documentView];
+  NSTableView *table = nil;
+  NSTableViewColumnAutoresizingStyle style;
+  NSInteger columns;
+  CGFloat width;
+  CGFloat visible;
+
+  if ([documentView isKindOfClass: [NSTableView class]] == NO
+      || ([scrollView hasHorizontalScroller] && [[scrollView horizontalScroller] isHidden] == NO))
+    {
+      return;
+    }
+  table = (NSTableView *)documentView;
+  style = [table columnAutoresizingStyle];
+  columns = [table numberOfColumns];
+  if (style == NSTableViewNoColumnAutoresizing || columns == 0)
+    {
+      return;
+    }
+  width = NSMaxX([table rectOfColumn: columns - 1]);
+  visible = NSWidth([[scrollView contentView] bounds]);
+  if (width <= visible + 0.5)
+    {
+      return;
+    }
+  if (style == NSTableViewLastColumnOnlyAutoresizingStyle)
+    {
+      [table sizeLastColumnToFit];
+    }
+  else
+    {
+      [table sizeToFit];
+    }
+}
+
+static char WinUIThemeColumnAutoresizingStyleKey;
+
 @implementation WinUITheme (ScrollerOverrides)
+
+/* The style the app asked for, kept for WinUIThemeFitTableToClipView;
+   none until it asks, as libs-gui answers. */
+- (void) _overrideNSTableViewMethod_setColumnAutoresizingStyle: (NSTableViewColumnAutoresizingStyle)style
+{
+  typedef void (*SetIMP)(id, SEL, NSTableViewColumnAutoresizingStyle);
+  SetIMP originalIMP = (SetIMP)WinUIThemeOriginalMethod(_cmd, self, [NSTableView class]);
+
+  objc_setAssociatedObject(self, &WinUIThemeColumnAutoresizingStyleKey,
+                           [NSNumber numberWithInteger: style], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+  if (originalIMP != NULL)
+    {
+      originalIMP(self, _cmd, style);
+    }
+}
+
+- (NSTableViewColumnAutoresizingStyle) _overrideNSTableViewMethod_columnAutoresizingStyle
+{
+  NSNumber *style = objc_getAssociatedObject(self, &WinUIThemeColumnAutoresizingStyleKey);
+
+  return (style != nil) ? (NSTableViewColumnAutoresizingStyle)[style integerValue]
+                        : NSTableViewNoColumnAutoresizing;
+}
 
 - (void) _overrideNSScrollViewMethod_tile
 {
@@ -410,6 +482,7 @@ WinUIThemeUpdateOverlayTracking(NSScrollView *scrollView, WinUIThemeOverlayState
     }
   if (WinUIThemeUsesOverlayScrollers() == NO)
     {
+      WinUIThemeFitTableToClipView(scrollView);
       return;
     }
   state = WinUIThemeOverlayStateFor(scrollView, YES);
@@ -486,6 +559,7 @@ WinUIThemeUpdateOverlayTracking(NSScrollView *scrollView, WinUIThemeOverlayState
           RELEASE(horizontal);
         }
     }
+  WinUIThemeFitTableToClipView(scrollView);
   state->adjusting = NO;
   WinUIThemeUpdateOverlayTracking(scrollView, state);
 }
