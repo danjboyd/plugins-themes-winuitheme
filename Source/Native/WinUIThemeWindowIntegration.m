@@ -1278,6 +1278,10 @@ WinUIThemeWindowIntegrationRoundPopupWindow(NSWindow *window,
       return;
     }
 
+  /* A shadow, as Windows' menus, tool tips and flyouts have (#39). The
+     carried libs-back gives a borderless window a frame for DWM's shadow,
+     which DWM also rounds; a stock libs-back ignores it. */
+  [window setHasShadow: YES];
   WinUIThemeSetDwmAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, &preference, sizeof(preference));
   WinUIThemeSetDwmAttribute(hwnd, DWMWA_BORDER_COLOR, &border, sizeof(border));
   objc_setAssociatedObject(window, &WinUIThemePopupCornerKey, request, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -1398,12 +1402,14 @@ WinUIThemeOwnWindow(NSWindow *window, LONG_PTR addStyle, LONG_PTR removeStyle)
    fall behind the app's window, and activatable. Windows' own menus and
    tool tips are owned and never activated: the window you were typing
    in keeps the focus. GNUstep's menus track the keyboard through the key
-   window, so they don't need it. */
+   window, so they don't need it. They also have Windows' shadow (#39),
+   where the backend can give a borderless window one. */
 void
 WinUIThemeWindowIntegrationMakePopup(NSWindow *window)
 {
 #ifdef _WIN32
   WinUIThemeOwnWindow(window, WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, WS_EX_APPWINDOW);
+  [window setHasShadow: YES];
 #else
   (void)window;
 #endif

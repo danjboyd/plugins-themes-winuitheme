@@ -535,6 +535,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkMotion;
 - (void) checkPopoverFlyout;
 - (void) checkPopupWindows;
+- (void) checkPopupShadow: (NSWindow *)menuWindow;
 - (void) checkMenuBarKeyboard: (NSWindow *)window;
 - (void) checkMenuBarOverflow: (NSWindow *)window;
 - (void) checkThemeSwitchRestoresMethods;
@@ -7736,6 +7737,54 @@ QuirkProbeInkIn(NSBitmapImageRep *rep, NSRect area, NSInteger fill, NSInteger th
   [defaults removeObjectForKey: @"WinUIThemeOverlayScrollbars"];
 }
 
+/* A menu's shadow (#39): the theme asks for one, and the carried
+   libs-back gives the borderless window a frame for DWM's shadow (which
+   DWM also rounds) while its client area stays the whole window. A stock
+   libs-back has no shadows for borderless windows. */
+- (void) checkPopupShadow: (NSWindow *)menuWindow
+{
+  GSDisplayServer *server = GSCurrentServer();
+  HWND handle = (HWND)[menuWindow windowHandle];
+  LONG_PTR style = GetWindowLongPtrW(handle, GWL_STYLE);
+  RECT windowRect;
+  RECT client;
+  NSMutableArray *problems = [NSMutableArray array];
+
+  if ([server methodForSelector: @selector(setShadow::)]
+      == [GSDisplayServer instanceMethodForSelector: @selector(setShadow::)])
+    {
+      [self skip: @"menu-popup-shadow" detail: @"the backend has no window shadows (stock libs-back)"];
+      return;
+    }
+  if ([menuWindow hasShadow] == NO)
+    {
+      [problems addObject: @"the theme didn't ask for a shadow"];
+    }
+  if ((style & WS_THICKFRAME) == 0 || (style & WS_CAPTION) != WS_CAPTION)
+    {
+      [problems addObject: [NSString stringWithFormat: @"style %lx has no frame for DWM's shadow",
+                                                       (unsigned long)style]];
+    }
+  GetWindowRect(handle, &windowRect);
+  GetClientRect(handle, &client);
+  if (client.right != windowRect.right - windowRect.left
+      || client.bottom != windowRect.bottom - windowRect.top)
+    {
+      [problems addObject: [NSString stringWithFormat: @"client %ldx%ld in a window %ldx%ld",
+                                                       client.right, client.bottom,
+                                                       windowRect.right - windowRect.left,
+                                                       windowRect.bottom - windowRect.top]];
+    }
+  if ([problems count] == 0)
+    {
+      [self pass: @"menu-popup-shadow" detail: @"framed for DWM's shadow, client area the whole window"];
+    }
+  else
+    {
+      [self fail: @"menu-popup-shadow" detail: [problems componentsJoinedByString: @"; "]];
+    }
+}
+
 /* Menus, alerts and dialogs as Windows has its own (#30, #67): a menu is
    a tool window owned by the main window that never takes activation;
    an alert is owned by the main window and has no taskbar button; and a
@@ -7794,6 +7843,7 @@ QuirkProbeInkIn(NSBitmapImageRep *rep, NSRect area, NSInteger fill, NSInteger th
           [problems addObject: [NSString stringWithFormat: @"the active window went from %p to %p",
                                                            activeBefore, activeAfter]];
         }
+      [self checkPopupShadow: menuWindow];
       [menuWindow orderOut: nil];
       if ([problems count] == 0)
         {
