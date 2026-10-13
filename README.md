@@ -35,6 +35,7 @@ is WinUI 3 client-area parity with GNUstep structure intact.
   | --- | --- |
   | WinUI's title bar, drawn by the theme | Windows' caption, coloured to match |
   | Shadows on menus, tool tips and flyouts (and, on Windows 11 with a GPU, DWM's rounded corners on them) | No shadow; DWM may not round them |
+  | Sharp at 125%, 150% and other display scales, and rescaled when moved to a monitor with another scale (per-monitor DPI awareness, `GSBackDPIAware`) | Windows stretches the app's windows on a scaled display, so text and lines are blurred |
 
   Everything else in the theme works with a stock libs-back. Each change
   is also sent to GNUstep, and leaves `carry` once GNUstep releases it.

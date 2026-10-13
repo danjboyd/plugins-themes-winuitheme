@@ -14,6 +14,18 @@ Apps that bundle the theme should pin a tag, not `main`.
   asks for one (`-setHasShadow:`); DWM also rounds them on Windows 11 with
   a GPU. A stock libs-back ignores the request (#39). QuirkProbe
   `menu-popup-shadow`.
+- **Display scaling:** with the carried libs-back (`carry-0.32.0.3`) the
+  theme makes apps per-monitor DPI aware (`GSBackDPIAware` in its
+  `GSThemeDomain`): on a 125% or 150% display gnustep-gui draws each
+  window sharp at its monitor's scale, where Windows stretched it
+  blurred, and a window moved to a monitor with another scale takes the
+  size Windows suggests. The theme draws in points then, letting the gui
+  scale. A stock libs-back stays DPI-unaware (#105). QuirkProbe
+  `dpi-per-monitor-aware`.
+- **Tool tips on a scaled display** hold their text: libs-gui gives the
+  tip's size in points as its frame, in pixels, so the padded tip was
+  too small by the scale and clipped its text. QuirkProbe
+  `tooltip-scaled`.
 
 **Testing**
 - `Invoke-QuirkProbe.ps1 -Backend DIR` and `Invoke-ThemeDemoScript.ps1

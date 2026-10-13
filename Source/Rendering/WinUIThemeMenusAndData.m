@@ -1973,13 +1973,17 @@ static CGFloat WinUIThemeToolTipDrop = 0.0;
 
       if (fabs(NSWidth(frame) - asked.width) <= 1.0 && fabs(NSHeight(frame) - asked.height) <= 1.0)
         {
-          /* A new tip: pad it. */
-          CGFloat width = NSWidth(frame) - WinUIThemeToolTipGNUstepMargin
-            + WinUIThemeToolTipPaddingLeft + WinUIThemeToolTipPaddingRight;
-          CGFloat height = NSHeight(frame) - WinUIThemeToolTipGNUstepMargin
-            + WinUIThemeToolTipPaddingTop + WinUIThemeToolTipPaddingBottom;
+          /* A new tip: pad it. libs-gui gives the size in points as the
+             window's frame, which is in pixels; on a scaled display the
+             window draws its text at the screen's scale, so the padded
+             size is scaled too. */
+          CGFloat scale = MAX(1.0, [window userSpaceScaleFactor]);
+          CGFloat width = (NSWidth(frame) - WinUIThemeToolTipGNUstepMargin
+            + WinUIThemeToolTipPaddingLeft + WinUIThemeToolTipPaddingRight) * scale;
+          CGFloat height = (NSHeight(frame) - WinUIThemeToolTipGNUstepMargin
+            + WinUIThemeToolTipPaddingTop + WinUIThemeToolTipPaddingBottom) * scale;
 
-          WinUIThemeToolTipDrop = height - NSHeight(frame);
+          WinUIThemeToolTipDrop = ceil(height) - NSHeight(frame);
           frame.size = NSMakeSize(ceil(width), ceil(height));
           frame.origin.y -= WinUIThemeToolTipDrop;
         }

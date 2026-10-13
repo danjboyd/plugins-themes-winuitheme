@@ -16,6 +16,9 @@
   GSThemeDomain = {
     GSBackHandlesWindowDecorations = YES;
     GSBackClientDrawsCaptions = YES;
+    /* The carried libs-back: per-monitor DPI aware, so a scaled display
+       draws the app sharp at its scale rather than stretched. */
+    GSBackDPIAware = YES;
     NSInterfaceStyleDefault = NSWindows95InterfaceStyle;
     NSMenuInterfaceStyle = NSWindows95InterfaceStyle;
     NSScrollViewInterfaceStyle = NSWindows95InterfaceStyle;
