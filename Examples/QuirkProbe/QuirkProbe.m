@@ -6046,8 +6046,12 @@ QuirkProbeHitTest(HWND hwnd, int x, int y)
                                        row ? NSStringFromRect([row frame]) : @"missing",
                                        NSMaxY([[window contentView] frame]),
                                        NSHeight([window frame])];
-  /* 32pt at 100%, more at a larger desktop scale */
-  scale = (row != nil) ? NSHeight([row frame]) / 32.0 : 1.0;
+  /* 32pt at 100%, more at a larger desktop scale; 40pt, TabView's strip,
+     when captions hold window tabs (#83) */
+  scale = (row != nil)
+    ? NSHeight([row frame])
+      / ([NSWindow instancesRespondToSelector: @selector(addTabbedWindow:ordered:)] ? 40.0 : 32.0)
+    : 1.0;
   if (row != nil && scale >= 0.99 && scale <= 2.6
       && fabs(NSMaxY([row frame]) - NSHeight([[row superview] bounds])) <= 1.0
       && NSMaxY([[window contentView] frame]) <= NSMinY([row frame]) + 0.5)
@@ -6157,8 +6161,10 @@ QuirkProbeHitTest(HWND hwnd, int x, int y)
     }
   [self pass: @"window-tabs-api" detail: @"NSWindow has -addTabbedWindow:ordered:"];
 
-  first = [self windowWithFrame: NSMakeRect(120, 220, 480, 220) title: @"QuirkProbe Tab One"];
-  second = [self windowWithFrame: NSMakeRect(120, 220, 480, 220) title: @"QuirkProbe Tab Two"];
+  /* Wide enough for two tabs beside the caption buttons at 150%, when
+     they're in the title bar (#83). */
+  first = [self windowWithFrame: NSMakeRect(120, 220, 640, 220) title: @"QuirkProbe Tab One"];
+  second = [self windowWithFrame: NSMakeRect(120, 220, 640, 220) title: @"QuirkProbe Tab Two"];
   [first orderFront: nil];
   [first addTabbedWindow: second ordered: NSWindowAbove];
   [second display];
@@ -6185,20 +6191,81 @@ QuirkProbeHitTest(HWND hwnd, int x, int y)
       return;
     }
 
-  /* A strip of 40pt (scaled with the desktop), right above the content. */
-  barFrame = [bar frame];
-  if (fabs(NSHeight(barFrame) - round(40.0 * desktop)) < 0.5
-      && fabs(NSMinY(barFrame) - NSMaxY([content frame])) < 0.5
-      && fabs(NSWidth(barFrame) - NSWidth([content frame])) < 0.5)
+  /* A strip of 40pt (scaled with the desktop), right above the content;
+     in the title bar when the theme draws the caption (#83): the caption
+     row, beside the caption buttons, with room left to drag by. */
+  barFrame = [decoration convertRect: [bar bounds] fromView: bar];
+  if ([[bar superview] isKindOfClass: NSClassFromString(@"WinUIThemeCaptionView")])
     {
-      [self pass: @"window-tab-bar" detail:
-        [NSString stringWithFormat: @"%.0fpt bar above the content", NSHeight(barFrame)]];
+      NSView *row = [bar superview];
+      NSRect rowFrame = [row frame];
+      HWND hwnd = (HWND)[second windowHandle];
+      POINT origin = {0, 0};
+      CGFloat rowTop = NSHeight([decoration bounds]) - NSMaxY(rowFrame);
+      LRESULT onTab, beside;
+      NSRect firstTab = [decoration convertRect: [bar rectForTabAtIndex: 0] fromView: bar];
+
+      if (fabs(NSHeight(barFrame) - round(40.0 * desktop)) < 0.5
+          && fabs(NSMaxY(barFrame) - NSMaxY(rowFrame)) < 0.5
+          && NSMaxY([content frame]) <= NSMinY(rowFrame) + 0.5
+          && NSMaxX(barFrame) <= NSMaxX(rowFrame) - 3.0 * 46.0 * desktop - 40.0 * desktop)
+        {
+          [self pass: @"window-tab-bar" detail:
+            [NSString stringWithFormat: @"%.0fpt bar in the title bar, %@ of %@",
+                      NSHeight(barFrame), NSStringFromRect(barFrame), NSStringFromRect(rowFrame)]];
+        }
+      else
+        {
+          [self fail: @"window-tab-bar" detail:
+            [NSString stringWithFormat: @"bar %@ in the title bar %@, content %@ (want %.0fpt, room to drag)",
+                      NSStringFromRect(barFrame), NSStringFromRect(rowFrame),
+                      NSStringFromRect([content frame]), round(40.0 * desktop)]];
+        }
+      /* Windows: a tab is the gui's, the row beside the tabs drags. */
+      ClientToScreen(hwnd, &origin);
+      onTab = QuirkProbeHitTest(hwnd, origin.x + (LONG)NSMidX(firstTab),
+                                origin.y + (LONG)(rowTop + NSHeight(rowFrame) - 12.0 * desktop));
+      beside = QuirkProbeHitTest(hwnd, origin.x + (LONG)(NSMaxX(barFrame) + 20.0 * desktop),
+                                 origin.y + (LONG)(rowTop + NSHeight(rowFrame) / 2.0));
+      if (onTab == HTCLIENT && beside == HTCAPTION)
+        {
+          [self pass: @"window-tab-title-bar-hit-test" detail:
+            [NSString stringWithFormat: @"a tab %ld, beside the tabs %ld", (long)onTab, (long)beside]];
+        }
+      else
+        {
+          [self fail: @"window-tab-title-bar-hit-test" detail:
+            [NSString stringWithFormat: @"a tab %ld, beside the tabs %ld (expected %d, %d)",
+                      (long)onTab, (long)beside, HTCLIENT, HTCAPTION]];
+        }
     }
   else
     {
-      [self fail: @"window-tab-bar" detail:
-        [NSString stringWithFormat: @"bar %@, content %@ (want a %.0fpt bar right above the content)",
-                  NSStringFromRect(barFrame), NSStringFromRect([content frame]), round(40.0 * desktop)]];
+      GSDisplayServer *server = GSCurrentServer();
+
+      if ([server respondsToSelector: @selector(clientDrawsCaptions)] && [server clientDrawsCaptions])
+        {
+          [self fail: @"window-tab-title-bar-hit-test" detail:
+            @"the theme draws the caption, but the tabs aren't in it"];
+        }
+      else
+        {
+          [self skip: @"window-tab-title-bar-hit-test" detail: @"Windows draws the caption (stock libs-back)"];
+        }
+      barFrame = [bar frame];
+      if (fabs(NSHeight(barFrame) - round(40.0 * desktop)) < 0.5
+          && fabs(NSMinY(barFrame) - NSMaxY([content frame])) < 0.5
+          && fabs(NSWidth(barFrame) - NSWidth([content frame])) < 0.5)
+        {
+          [self pass: @"window-tab-bar" detail:
+            [NSString stringWithFormat: @"%.0fpt bar above the content", NSHeight(barFrame)]];
+        }
+      else
+        {
+          [self fail: @"window-tab-bar" detail:
+            [NSString stringWithFormat: @"bar %@, content %@ (want a %.0fpt bar right above the content)",
+                      NSStringFromRect(barFrame), NSStringFromRect([content frame]), round(40.0 * desktop)]];
+        }
     }
 
   /* The selected tab (the second) is the content's colour down to the

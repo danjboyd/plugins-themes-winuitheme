@@ -22,6 +22,13 @@ Apps that bundle the theme should pin a tag, not `main`.
   size Windows suggests. The theme draws in points then, letting the gui
   scale. A stock libs-back stays DPI-unaware (#105). QuirkProbe
   `dpi-per-monitor-aware`.
+- **Window tabs in the title bar:** with the carried libs-back, window
+  tabs (`WinUIThemeWindowTabs`) sit in the theme's title bar after the
+  app's icon, as Notepad's do, with the row beside them left to drag the
+  window by; the row takes the strip's colour, and the tabs narrow to fit
+  rather than run under the caption buttons. Captions are 40px while tabs
+  are on. A stock libs-back keeps the bar above the content (#83).
+  QuirkProbe `window-tab-bar`, `window-tab-title-bar-hit-test`.
 - **Mica:** on Windows 11 22H2 and later, main and document windows show
   Windows' Mica backdrop through the title bar, menu bar and toolbar,
   which leave their background transparent, with the content solid, as

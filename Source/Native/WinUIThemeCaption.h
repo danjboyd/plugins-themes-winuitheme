@@ -48,4 +48,9 @@ void WinUIThemeCaptionLayout(GSWindowDecorationView *decoration, NSWindow *windo
 /* Redraws the caption (the window's title or key state changed). */
 void WinUIThemeCaptionSetNeedsDisplay(GSWindowDecorationView *decoration);
 
+/* The tab strip's colour and its foot line, for a caption holding the
+   window's tabs (#83; WinUIThemeWindowTabs.m). */
+NSColor *WinUIThemeWindowTabStripColor(void);
+NSColor *WinUIThemeWindowTabFootColor(void);
+
 #endif
