@@ -58,6 +58,40 @@ WinUIThemeWindowIsFlyout(NSWindow *window)
   NSColor *border = nil;
   NSBezierPath *path = nil;
 
+  if (WinUIThemeWindowShowsMica(window))
+    {
+      /* Mica (#47) shows through the title bar, menu bar and toolbar,
+         which leave their background transparent; the window's content
+         has its background, under the lowest of them. */
+      NSArray *subviews = [view subviews];
+      CGFloat chromeBottom = NSMaxY(frame);
+      BOOL grew = YES;
+
+      /* The chrome stacks down from the top, each piece meeting the one
+         above it. */
+      while (grew)
+        {
+          NSEnumerator *enumerator = [subviews objectEnumerator];
+          NSView *subview;
+
+          grew = NO;
+          while ((subview = [enumerator nextObject]) != nil)
+            {
+              NSRect piece = [subview frame];
+
+              if (subview != [window contentView] && [subview isHidden] == NO
+                  && NSMaxY(piece) >= chromeBottom - 1.0 && NSMinY(piece) < chromeBottom)
+                {
+                  chromeBottom = NSMinY(piece);
+                  grew = YES;
+                }
+            }
+        }
+      [[window backgroundColor] set];
+      NSRectFill(NSMakeRect(NSMinX(frame), NSMinY(frame), NSWidth(frame),
+                            MAX(0.0, chromeBottom - NSMinY(frame))));
+      return;
+    }
   if (WinUIThemeWindowIsFlyout(window) == NO)
     {
       [super drawWindowBackground: frame view: view];

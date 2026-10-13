@@ -22,6 +22,13 @@ Apps that bundle the theme should pin a tag, not `main`.
   size Windows suggests. The theme draws in points then, letting the gui
   scale. A stock libs-back stays DPI-unaware (#105). QuirkProbe
   `dpi-per-monitor-aware`.
+- **Mica:** on Windows 11 22H2 and later, main and document windows show
+  Windows' Mica backdrop through the title bar, menu bar and toolbar,
+  which leave their background transparent, with the content solid, as
+  Windows 11's apps do; caption, menu bar and toolbar hover fills are
+  WinUI's translucent ones over it. Not panels, dialogs or alerts, high
+  contrast or with transparency effects off; `WinUIThemeMica NO` turns it
+  off. Works with a stock libs-back (#47). QuirkProbe `mica-chrome`.
 - **Tool tips on a scaled display** hold their text: libs-gui gives the
   tip's size in points as its frame, in pixels, so the padded tip was
   too small by the scale and clipped its text. QuirkProbe

@@ -60,4 +60,8 @@ void WinUIThemeWindowIntegrationOwnDialog(NSWindow *window);
    so a fixed-size dialog got one. */
 void WinUIThemeWindowIntegrationFixCaptionBoxes(NSWindow *window);
 
+/* Whether the window shows Windows' Mica backdrop (#47): its title bar,
+   menu bar and toolbar leave their background transparent for it. */
+BOOL WinUIThemeWindowShowsMica(NSWindow *window);
+
 #endif

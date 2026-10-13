@@ -933,8 +933,16 @@ WinUIThemeEndRow(BOOL began)
 
   if (horizontal && NSIsEmptyRect(NSIntersectionRect(bounds, dirtyRect)) == NO)
     {
-      [background set];
-      NSRectFill(NSIntersectionRect(bounds, dirtyRect));
+      if (WinUIThemeWindowShowsMica([menuView window]))
+        {
+          /* Mica shows through the menu bar (#47) */
+          NSRectFillUsingOperation(NSIntersectionRect(bounds, dirtyRect), NSCompositeClear);
+        }
+      else
+        {
+          [background set];
+          NSRectFill(NSIntersectionRect(bounds, dirtyRect));
+        }
     }
 
   if (horizontal)

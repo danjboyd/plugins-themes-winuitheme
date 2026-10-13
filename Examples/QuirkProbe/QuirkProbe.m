@@ -527,6 +527,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkWindowTabs;
 - (void) checkClientCaption;
 - (void) checkDPIAwareness;
+- (void) checkMica;
 - (void) checkToolTipScaled;
 - (void) checkFileDialogFilters;
 - (void) createLateWindow: (NSTimer *)timer;
@@ -5827,6 +5828,108 @@ QuirkProbeHitTest(HWND hwnd, int x, int y)
   return SendMessageW(hwnd, WM_NCHITTEST, 0, MAKELPARAM(x, y));
 }
 
+/* Mica (#47): a main window shows Windows' Mica backdrop (from 11 22H2)
+   through its title bar, menu bar and toolbar, which leave their pixels
+   transparent; its content stays opaque. Panels don't. */
+- (void) checkMica
+{
+  typedef HRESULT (WINAPI *GetAttributeFunc)(HWND, DWORD, void *, DWORD);
+  HMODULE dwm = LoadLibraryW(L"dwmapi.dll");
+  GetAttributeFunc getAttribute = (dwm != NULL)
+    ? (GetAttributeFunc)GetProcAddress(dwm, "DwmGetWindowAttribute") : NULL;
+  NSWindow *window = nil;
+  NSMenu *menu = AUTORELEASE([[NSMenu alloc] initWithTitle: @"Mica"]);
+  NSPanel *panel = nil;
+  NSView *frameView;
+  NSMenuView *bar;
+  NSBitmapImageRep *rep;
+  int type = 0;
+  int panelType = 0;
+  NSMutableArray *problems = [NSMutableArray array];
+  DWORD transparency = 1;
+  DWORD size = sizeof(transparency);
+
+  RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+               L"EnableTransparency", RRF_RT_REG_DWORD, NULL, &transparency, &size);
+  if (getAttribute == NULL || QuirkProbeHasArgument(@"--high-contrast", nil) || transparency == 0)
+    {
+      [self skip: @"mica-chrome" detail: @"high contrast, transparency effects off, or no DWM"];
+      return;
+    }
+  /* Before the windows are made: the theme gives a window Mica as it
+     first shows it. */
+  [[NSUserDefaults standardUserDefaults] setBool: YES forKey: @"WinUIThemeMica"];
+  window = [self windowWithFrame: NSMakeRect(240, 260, 320, 200) title: @"QuirkProbe Mica"];
+  panel = AUTORELEASE([[NSPanel alloc] initWithContentRect: NSMakeRect(600, 260, 200, 100)
+                                                 styleMask: NSTitledWindowMask
+                                                   backing: NSBackingStoreBuffered
+                                                     defer: NO]);
+  [menu addItemWithTitle: @"File" action: NULL keyEquivalent: @""];
+  [window setMenu: menu];
+  [window orderFront: nil];
+  [panel orderFront: nil];
+  QuirkProbeDispatchEvents(0.3);
+  /* DWMWA_SYSTEMBACKDROP_TYPE fails before Windows 11 22H2 */
+  if (FAILED(getAttribute((HWND)[window windowHandle], 38, &type, sizeof(type))))
+    {
+      [self skip: @"mica-chrome" detail: @"Windows has no system backdrop (before 11 22H2)"];
+      [window orderOut: nil];
+      [panel orderOut: nil];
+      [[NSUserDefaults standardUserDefaults] setBool: NO forKey: @"WinUIThemeMica"];
+      return;
+    }
+  getAttribute((HWND)[panel windowHandle], 38, &panelType, sizeof(panelType));
+  if (type != 2)
+    {
+      [problems addObject: [NSString stringWithFormat: @"the window's backdrop is %d, not Mica (2)", type]];
+    }
+  if (panelType == 2)
+    {
+      [problems addObject: @"a panel has Mica"];
+    }
+  frameView = [[window contentView] superview];
+  bar = (NSMenuView *)QuirkProbeFindViewOfClass(frameView, [NSMenuView class]);
+  [frameView display];
+  rep = QuirkProbeRender(frameView);
+  if (bar == nil)
+    {
+      [problems addObject: @"no menu bar"];
+    }
+  else
+    {
+      CGFloat scale = QuirkProbeScale(rep, frameView);
+      NSRect barRect = [frameView convertRect: [bar bounds] fromView: bar];
+      NSInteger x = (NSInteger)((NSMaxX(barRect) - 20.0) * scale);
+      NSInteger barY = (NSInteger)((NSHeight([frameView bounds]) - NSMidY(barRect)) * scale);
+      NSInteger contentY = [rep pixelsHigh] - (NSInteger)(20.0 * scale);
+      NSColor *chrome = [rep colorAtX: x y: barY];
+      NSColor *content = [rep colorAtX: x y: contentY];
+
+      if ([chrome alphaComponent] > 0.01)
+        {
+          [problems addObject: [NSString stringWithFormat: @"the menu bar's background is opaque (%.2f)",
+                                                           [chrome alphaComponent]]];
+        }
+      if ([content alphaComponent] < 0.99)
+        {
+          [problems addObject: [NSString stringWithFormat: @"the content's background is transparent (%.2f)",
+                                                           [content alphaComponent]]];
+        }
+    }
+  [window setMenu: nil];
+  [window orderOut: nil];
+  [panel orderOut: nil];
+  [[NSUserDefaults standardUserDefaults] setBool: NO forKey: @"WinUIThemeMica"];
+  if ([problems count] == 0)
+    {
+      [self pass: @"mica-chrome" detail: @"Mica behind a transparent menu bar, opaque content; none on a panel"];
+    }
+  else
+    {
+      [self fail: @"mica-chrome" detail: [problems componentsJoinedByString: @"; "]];
+    }
+}
+
 /* Per-monitor DPI (#105): with the carried libs-back the theme makes the
    process per-monitor DPI aware (GSBackDPIAware), so Windows doesn't
    stretch it on a scaled display; the gui draws each window at its
@@ -9475,6 +9578,9 @@ QuirkProbeFilterPatterns(NSArray *filters)
   /* The checks render each state as it's set, so without motion (#105);
      checkMotion turns it on for its own checks. */
   [[NSUserDefaults standardUserDefaults] setBool: NO forKey: @"WinUIThemeAnimations"];
+  /* The checks measure ink against the chrome's background, which Mica
+     (#47) leaves transparent; checkMica turns it on for its own. */
+  [[NSUserDefaults standardUserDefaults] setBool: NO forKey: @"WinUIThemeMica"];
 
   /* The native dialogs at run time, alone: Tests/Scripts/Invoke-DialogCheck.ps1
      runs them, with a driver for Windows 11's print dialog. They show real
@@ -9547,6 +9653,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkWindowTabs];
   [self checkClientCaption];
   [self checkDPIAwareness];
+  [self checkMica];
   [self checkPopUpClick];
   [self checkFileDialogFilters];
   [self checkScrollerStripNarrowsContent];
