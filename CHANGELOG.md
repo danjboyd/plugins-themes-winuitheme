@@ -43,6 +43,9 @@ Apps that bundle the theme should pin a tag, not `main`.
 - In high contrast an open pop-up marks its selected item in Highlight,
   with its title and pill in HighlightText, as WinUI's ComboBox does
   (#82).
+- A focused, empty text field keeps its placeholder behind the caret until
+  the first character, and shows it again when the text is deleted, as
+  WinUI's TextBox does (#102).
 
 **Fixes**
 - A disabled toolbar item's icon stays dimmed when its button redraws on

@@ -515,6 +515,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkOverlayAutohide;
 - (void) checkFocusVisual;
 - (void) checkTextBox;
+- (void) checkFocusedPlaceholder;
 - (void) checkContrastPopUpSelection;
 - (void) checkComboBoxes;
 - (void) checkListSelection;
@@ -776,6 +777,95 @@ static NSUInteger QuirkProbeRedoCount = 0;
 - (void) redo: (id)sender
 {
   QuirkProbeRedoCount++;
+}
+
+/* Pixels in `rep` whose brightness is more than 60 (of 765) from
+   `background`. */
+static NSUInteger
+QuirkProbeContrastingPixels(NSBitmapImageRep *rep, NSInteger background, NSRect area)
+{
+  NSInteger x, y;
+  NSUInteger count = 0;
+
+  for (y = (NSInteger)NSMinY(area); y < (NSInteger)NSMaxY(area); y++)
+    {
+      for (x = (NSInteger)NSMinX(area); x < (NSInteger)NSMaxX(area); x++)
+        {
+          NSUInteger red, green, blue;
+
+          if (QuirkProbePixel(rep, x, y, &red, &green, &blue)
+              && llabs((long long)(red + green + blue) - background) > 60)
+            {
+              count++;
+            }
+        }
+    }
+  return count;
+}
+
+/* A focused, empty TextBox keeps its placeholder behind the caret, as
+   WinUI's does, until the first character, and shows it again when the
+   text is deleted (#102). GNUstep stopped drawing it once the field
+   editor was up. */
+- (void) checkFocusedPlaceholder
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(420, 300, 300, 80)
+                                     title: @"QuirkProbe Placeholder"];
+  NSTextField *field = AUTORELEASE([[NSTextField alloc] initWithFrame: NSMakeRect(20, 24, 240, 32)]);
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale;
+  NSInteger background;
+  NSRect area;
+  NSUInteger empty, typed, deleted;
+  NSUInteger red, green, blue;
+
+  [field setPlaceholderString: @"Search placeholder"];
+  [[window contentView] addSubview: field];
+  [window makeKeyAndOrderFront: nil];
+  [window makeFirstResponder: field];
+  [window display];
+  QuirkProbeDispatchEvents(0.2);
+  if ([field currentEditor] == nil)
+    {
+      [self skip: @"placeholder-while-focused" detail: @"the field didn't take the focus"];
+      [window orderOut: nil];
+      return;
+    }
+
+  rep = QuirkProbeRender(field);
+  scale = QuirkProbeScale(rep, field);
+  /* The fill at the field's far end, clear of the placeholder. */
+  QuirkProbePixel(rep, [rep pixelsWide] - (NSInteger)(12 * scale), [rep pixelsHigh] / 2, &red, &green, &blue);
+  background = red + green + blue;
+  area = NSMakeRect(8 * scale, 6 * scale, 110 * scale, [rep pixelsHigh] - 12 * scale);
+  empty = QuirkProbeContrastingPixels(rep, background, area);
+  [self saveView: field named: @"placeholder-focused"];
+
+  [[field currentEditor] insertText: @"x"];
+  [window display];
+  QuirkProbeDispatchEvents(0.1);
+  typed = QuirkProbeContrastingPixels(QuirkProbeRender(field), background, area);
+
+  [[field currentEditor] selectAll: nil];
+  [[field currentEditor] deleteBackward: nil];
+  [window display];
+  QuirkProbeDispatchEvents(0.1);
+  deleted = QuirkProbeContrastingPixels(QuirkProbeRender(field), background, area);
+  [window makeFirstResponder: window];
+  [window orderOut: nil];
+
+  if (empty >= 40 && typed < empty / 2 && deleted >= 40)
+    {
+      [self pass: @"placeholder-while-focused" detail: [NSString stringWithFormat:
+        @"%lu px of placeholder focused and empty, %lu with a character, %lu deleted again",
+        (unsigned long)empty, (unsigned long)typed, (unsigned long)deleted]];
+    }
+  else
+    {
+      [self fail: @"placeholder-while-focused" detail: [NSString stringWithFormat:
+        @"%lu px of placeholder focused and empty (expected 40 or more), %lu with a character, %lu deleted again",
+        (unsigned long)empty, (unsigned long)typed, (unsigned long)deleted]];
+    }
 }
 
 /* The open list of the pop-up in a timer's userInfo, drawn during its
@@ -9246,6 +9336,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkOverlayAutohide];
   [self checkFocusVisual];
   [self checkTextBox];
+  [self checkFocusedPlaceholder];
   [self checkContrastPopUpSelection];
   [self checkComboBoxes];
   [self checkListSelection];

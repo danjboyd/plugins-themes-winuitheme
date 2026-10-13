@@ -1605,6 +1605,27 @@ WinUIThemeSwitchOnAmount(NSControlStateValue value)
   return titleRect;
 }
 
+/* An edited field with a placeholder is drawn again as its text changes,
+   so the placeholder under the editor goes with the first character and
+   comes back when the text is deleted (#102). */
+- (void) _overrideNSTextFieldMethod_textDidChange: (NSNotification *)notification
+{
+  typedef void (*TextDidChangeIMP)(id, SEL, NSNotification *);
+  TextDidChangeIMP originalIMP = (TextDidChangeIMP)WinUIThemeOriginalMethod(_cmd, self, [NSTextField class]);
+  NSTextField *field = (NSTextField *)self;
+  id cell = [field cell];
+
+  if (originalIMP != NULL)
+    {
+      originalIMP(self, _cmd, notification);
+    }
+  if (WinUIThemeActiveTheme() != nil && [cell isKindOfClass: [NSTextFieldCell class]]
+      && ([cell placeholderString] != nil || [cell placeholderAttributedString] != nil))
+    {
+      [field setNeedsDisplay: YES];
+    }
+}
+
 - (NSText *) _overrideNSTextFieldCellMethod_setUpFieldEditorAttributes: (NSText *)textObject
 {
   typedef NSText *(*SetUpFieldEditorAttributesIMP)(id, SEL, NSText *);
@@ -1625,6 +1646,12 @@ WinUIThemeSwitchOnAmount(NSControlStateValue value)
       if (WinUIThemeTextFieldUsesChromeFill(cell))
         {
           [editor setBackgroundColor: WinUIThemeTextBoxFillColor(theme, YES, NO, YES)];
+          /* The chrome's focused fill shows through, and the placeholder
+             the cell draws under an empty editor (#102). */
+          if ([cell placeholderString] != nil || [cell placeholderAttributedString] != nil)
+            {
+              [editor setDrawsBackground: NO];
+            }
         }
     }
   return editor;
@@ -1656,6 +1683,38 @@ WinUIThemeSwitchOnAmount(NSControlStateValue value)
 
   if ([cell _inEditing])
     {
+      /* WinUI's TextBox keeps its placeholder behind the caret until the
+         first character (#102); GNUstep drew none while editing. */
+      NSText *editor = [controlView isKindOfClass: [NSControl class]]
+        ? [(NSControl *)controlView currentEditor] : nil;
+      NSAttributedString *placeholder = [cell placeholderAttributedString];
+
+      if ([placeholder length] == 0 && [[cell placeholderString] length] > 0)
+        {
+          NSMutableDictionary *attributes = [NSMutableDictionary dictionary];
+
+          if ([cell font] != nil)
+            {
+              [attributes setObject: [cell font] forKey: NSFontAttributeName];
+            }
+          [attributes setObject: [NSColor disabledControlTextColor] forKey: NSForegroundColorAttributeName];
+          placeholder = AUTORELEASE([[NSAttributedString alloc] initWithString: [cell placeholderString]
+                                                                    attributes: attributes]);
+        }
+      if (editor != nil && [[editor string] length] == 0 && [placeholder length] > 0
+          && WinUIThemeActiveTheme() != nil && WinUIThemeTextFieldUsesChromeFill(cell))
+        {
+          /* libs-gui wraps a scrolling field's editor in a clip view,
+             which would cover it too. */
+          if ([[editor superview] isKindOfClass: [NSClipView class]]
+              && [(NSClipView *)[editor superview] drawsBackground])
+            {
+              [(NSClipView *)[editor superview] setDrawsBackground: NO];
+            }
+          WinUIThemeDrawAttributedStringWithEditorLayout(cell, placeholder,
+                                                         [cell titleRectForBounds: cellFrame],
+                                                         controlView);
+        }
       [cell _drawEditorWithFrame: cellFrame inView: controlView];
       return;
     }
