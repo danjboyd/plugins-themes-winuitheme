@@ -1053,6 +1053,23 @@ WinUIThemeEndRow(BOOL began)
   return bounds;
 }
 
+/* Whether `cell` is the item its pop-up button has selected. */
+static BOOL
+WinUIThemePopupMenuItemIsSelected(NSMenuItemCell *cell, NSView *controlView)
+{
+  id owner = nil;
+  NSInteger index;
+
+  if ([controlView isKindOfClass: [NSMenuView class]] == NO)
+    {
+      return NO;
+    }
+  owner = WinUIThemePopupOwningCellForMenuView((NSMenuView *)controlView);
+  index = WinUIThemePopupMenuItemIndex(cell, controlView);
+  return index >= 0 && [owner respondsToSelector: @selector(indexOfSelectedItem)]
+    && [owner indexOfSelectedItem] == index;
+}
+
 - (void) drawBorderAndBackgroundForMenuItemCell: (NSMenuItemCell *)cell
                                       withFrame: (NSRect)cellFrame
                                          inView: (NSView *)controlView
@@ -1087,10 +1104,7 @@ WinUIThemeEndRow(BOOL began)
      3x16pt accent pill at its leading edge. */
   if (popupOwned && [[self settings] highContrastEnabled] == NO)
     {
-      id owner = WinUIThemePopupOwningCellForMenuView((NSMenuView *)controlView);
-      NSInteger index = WinUIThemePopupMenuItemIndex(cell, controlView);
-      BOOL selectedItem = (index >= 0 && [owner respondsToSelector: @selector(indexOfSelectedItem)]
-                           && [owner indexOfSelectedItem] == index);
+      BOOL selectedItem = WinUIThemePopupMenuItemIsSelected(cell, controlView);
 
       if (popupHovered || selectedItem)
         {
@@ -1104,6 +1118,19 @@ WinUIThemeEndRow(BOOL began)
           [WinUIThemeColorFromTheme(self, @"accentColor", [NSColor selectedControlColor]) set];
           [WinUIThemeRoundedPath(pill, 1.5) fill];
         }
+      return;
+    }
+  /* High contrast (#82): the selected item in Highlight, its pill in
+     HighlightText, as WinUI's ComboBox draws it in a contrast theme; the
+     others keep the hover treatment. */
+  if (popupOwned && WinUIThemePopupMenuItemIsSelected(cell, controlView))
+    {
+      NSRect pill = NSMakeRect(NSMinX(drawRect) + 2.0, floor(NSMidY(drawRect) - 8.0), 3.0, 16.0);
+
+      [selection set];
+      [WinUIThemeRoundedPath(drawRect, WinUIThemeControlCornerRadius(self)) fill];
+      [WinUIThemeColorFromTheme(self, @"selectedMenuItemTextColor", [NSColor selectedMenuItemTextColor]) set];
+      [WinUIThemeRoundedPath(pill, 1.5) fill];
       return;
     }
   if (popupOwned)
@@ -1204,6 +1231,13 @@ WinUIThemeEndRow(BOOL began)
       textColor = WinUIThemeColorFromTheme(self,
                                            @"disabledControlTextColor",
                                            [NSColor disabledControlTextColor]);
+    }
+  else if (popupOwned && [[self settings] highContrastEnabled]
+           && WinUIThemePopupMenuItemIsSelected(cell, controlView))
+    {
+      /* On the selected item's Highlight (#82). */
+      textColor = WinUIThemeColorFromTheme(self, @"selectedMenuItemTextColor",
+                                           [NSColor selectedMenuItemTextColor]);
     }
   else if (highlighted)
     {

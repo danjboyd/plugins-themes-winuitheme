@@ -515,6 +515,8 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkOverlayAutohide;
 - (void) checkFocusVisual;
 - (void) checkTextBox;
+- (void) checkFocusedPlaceholder;
+- (void) checkContrastPopUpSelection;
 - (void) checkComboBoxes;
 - (void) checkListSelection;
 - (void) checkSelectedRowText;
@@ -768,7 +770,223 @@ QuirkProbeLoadAccent(void)
   QuirkProbeAccentRGB[2] = (NSUInteger)lrint([accent blueComponent] * 255.0);
 }
 
+static NSUInteger QuirkProbeRedoCount = 0;
+
 @implementation QuirkProbe
+
+- (void) redo: (id)sender
+{
+  QuirkProbeRedoCount++;
+}
+
+/* Pixels in `rep` whose brightness is more than 60 (of 765) from
+   `background`. */
+static NSUInteger
+QuirkProbeContrastingPixels(NSBitmapImageRep *rep, NSInteger background, NSRect area)
+{
+  NSInteger x, y;
+  NSUInteger count = 0;
+
+  for (y = (NSInteger)NSMinY(area); y < (NSInteger)NSMaxY(area); y++)
+    {
+      for (x = (NSInteger)NSMinX(area); x < (NSInteger)NSMaxX(area); x++)
+        {
+          NSUInteger red, green, blue;
+
+          if (QuirkProbePixel(rep, x, y, &red, &green, &blue)
+              && llabs((long long)(red + green + blue) - background) > 60)
+            {
+              count++;
+            }
+        }
+    }
+  return count;
+}
+
+/* A focused, empty TextBox keeps its placeholder behind the caret, as
+   WinUI's does, until the first character, and shows it again when the
+   text is deleted (#102). GNUstep stopped drawing it once the field
+   editor was up. */
+- (void) checkFocusedPlaceholder
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(420, 300, 300, 80)
+                                     title: @"QuirkProbe Placeholder"];
+  NSTextField *field = AUTORELEASE([[NSTextField alloc] initWithFrame: NSMakeRect(20, 24, 240, 32)]);
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale;
+  NSInteger background;
+  NSRect area;
+  NSUInteger empty, typed, deleted;
+  NSUInteger red, green, blue;
+
+  [field setPlaceholderString: @"Search placeholder"];
+  [[window contentView] addSubview: field];
+  [window makeKeyAndOrderFront: nil];
+  [window makeFirstResponder: field];
+  [window display];
+  QuirkProbeDispatchEvents(0.2);
+  if ([field currentEditor] == nil)
+    {
+      [self skip: @"placeholder-while-focused" detail: @"the field didn't take the focus"];
+      [window orderOut: nil];
+      return;
+    }
+
+  rep = QuirkProbeRender(field);
+  scale = QuirkProbeScale(rep, field);
+  /* The fill at the field's far end, clear of the placeholder. */
+  QuirkProbePixel(rep, [rep pixelsWide] - (NSInteger)(12 * scale), [rep pixelsHigh] / 2, &red, &green, &blue);
+  background = red + green + blue;
+  area = NSMakeRect(8 * scale, 6 * scale, 110 * scale, [rep pixelsHigh] - 12 * scale);
+  empty = QuirkProbeContrastingPixels(rep, background, area);
+  [self saveView: field named: @"placeholder-focused"];
+
+  [[field currentEditor] insertText: @"x"];
+  [window display];
+  QuirkProbeDispatchEvents(0.1);
+  typed = QuirkProbeContrastingPixels(QuirkProbeRender(field), background, area);
+
+  [[field currentEditor] selectAll: nil];
+  [[field currentEditor] deleteBackward: nil];
+  [window display];
+  QuirkProbeDispatchEvents(0.1);
+  deleted = QuirkProbeContrastingPixels(QuirkProbeRender(field), background, area);
+  [window makeFirstResponder: window];
+  [window orderOut: nil];
+
+  if (empty >= 40 && typed < empty / 2 && deleted >= 40)
+    {
+      [self pass: @"placeholder-while-focused" detail: [NSString stringWithFormat:
+        @"%lu px of placeholder focused and empty, %lu with a character, %lu deleted again",
+        (unsigned long)empty, (unsigned long)typed, (unsigned long)deleted]];
+    }
+  else
+    {
+      [self fail: @"placeholder-while-focused" detail: [NSString stringWithFormat:
+        @"%lu px of placeholder focused and empty (expected 40 or more), %lu with a character, %lu deleted again",
+        (unsigned long)empty, (unsigned long)typed, (unsigned long)deleted]];
+    }
+}
+
+/* The open list of the pop-up in a timer's userInfo, drawn during its
+   menu tracking with nothing under the pointer; then a click away from it
+   ends the tracking. */
+static NSBitmapImageRep *QuirkProbeOpenListRep = nil;
+static NSRect QuirkProbeOpenListRow;
+
+- (void) renderOpenPopUpList: (NSTimer *)timer
+{
+  NSPopUpButton *popUp = [timer userInfo];
+  NSWindow *window = [popUp window];
+  NSMenuView *menuView = (NSMenuView *)[[popUp menu] menuRepresentation];
+  NSPoint away = NSMakePoint(NSWidth([window frame]) - 20, 20);
+  NSEvent *down = [NSEvent mouseEventWithType: NSLeftMouseDown location: away modifierFlags: 0
+                                    timestamp: 0 windowNumber: [window windowNumber] context: nil
+                                  eventNumber: 0 clickCount: 1 pressure: 1];
+  NSEvent *up = [NSEvent mouseEventWithType: NSLeftMouseUp location: away modifierFlags: 0
+                                  timestamp: 0 windowNumber: [window windowNumber] context: nil
+                                eventNumber: 0 clickCount: 1 pressure: 0];
+
+  if ([[menuView window] isVisible])
+    {
+      [menuView setHighlightedItemIndex: -1];
+      [menuView display];
+      ASSIGN(QuirkProbeOpenListRep, QuirkProbeRender(menuView));
+      QuirkProbeOpenListRow = QuirkProbePixelRect(menuView, [menuView rectOfItemAtIndex: 1],
+                                                  QuirkProbeScale(QuirkProbeOpenListRep, menuView));
+      [self saveView: menuView named: @"contrast-popup-selection"];
+    }
+  [NSApp postEvent: down atStart: NO];
+  [NSApp postEvent: up atStart: NO];
+}
+
+/* In high contrast an open pop-up's list marks its selected item in
+   Highlight, as WinUI's ComboBox does (#82); it was left unmarked. The
+   list is opened by a click, as an app's is, and closed by one: opened
+   outside menu tracking, a later check could be left waiting. */
+- (void) checkContrastPopUpSelection
+{
+  NSWindow *window = nil;
+  NSPopUpButton *popUp = nil;
+  NSColor *highlight = nil;
+  NSInteger rgb[3];
+  NSUInteger matching = 0;
+  NSInteger x, y;
+  NSRect frame;
+  NSPoint point;
+  NSEvent *down = nil;
+  NSEvent *up = nil;
+  NSTimer *timer = nil;
+
+  if (QuirkProbeHasArgument(@"--high-contrast", nil) == NO)
+    {
+      [self skip: @"contrast-popup-selection" detail: @"high contrast only"];
+      return;
+    }
+  window = [self windowWithFrame: NSMakeRect(420, 300, 300, 160) title: @"QuirkProbe Contrast Pop-up"];
+  popUp = AUTORELEASE([[NSPopUpButton alloc] initWithFrame: NSMakeRect(20, 100, 200, 32) pullsDown: NO]);
+  [popUp addItemsWithTitles: [NSArray arrayWithObjects: @"First", @"Second", @"Third", nil]];
+  [popUp selectItemAtIndex: 1];
+  [[window contentView] addSubview: popUp];
+  [window makeKeyAndOrderFront: nil];
+  [window display];
+
+  frame = [popUp convertRect: [popUp bounds] toView: nil];
+  point = NSMakePoint(NSMidX(frame), NSMidY(frame));
+  down = [NSEvent mouseEventWithType: NSLeftMouseDown location: point modifierFlags: 0
+                           timestamp: 0 windowNumber: [window windowNumber] context: nil
+                         eventNumber: 0 clickCount: 1 pressure: 1];
+  up = [NSEvent mouseEventWithType: NSLeftMouseUp location: point modifierFlags: 0
+                         timestamp: 0 windowNumber: [window windowNumber] context: nil
+                       eventNumber: 0 clickCount: 1 pressure: 0];
+  timer = [NSTimer timerWithTimeInterval: 0.3 target: self selector: @selector(renderOpenPopUpList:)
+                                userInfo: popUp repeats: NO];
+  DESTROY(QuirkProbeOpenListRep);
+  [[NSRunLoop currentRunLoop] addTimer: timer forMode: NSEventTrackingRunLoopMode];
+  [NSApp postEvent: up atStart: NO];
+  [popUp mouseDown: down];
+  [timer invalidate];
+  if ([[[[popUp menu] menuRepresentation] window] isVisible])
+    {
+      [[popUp cell] dismissPopUp];
+    }
+  QuirkProbeDispatchEvents(0.1);
+  [window orderOut: nil];
+
+  if (QuirkProbeOpenListRep == nil)
+    {
+      [self fail: @"contrast-popup-selection" detail: @"the list didn't open on a click"];
+      return;
+    }
+  highlight = [[GSTheme theme] colorNamed: @"selectedMenuItemColor" state: GSThemeNormalState];
+  if (highlight == nil)
+    {
+      highlight = [NSColor selectedMenuItemColor];
+    }
+  QuirkProbeRGB(highlight, rgb);
+  for (y = (NSInteger)NSMinY(QuirkProbeOpenListRow); y < (NSInteger)NSMaxY(QuirkProbeOpenListRow); y++)
+    {
+      for (x = (NSInteger)NSMinX(QuirkProbeOpenListRow); x < (NSInteger)NSMaxX(QuirkProbeOpenListRow); x++)
+        {
+          if (QuirkProbeChannelDistance(QuirkProbeOpenListRep, x, y, rgb) <= 8)
+            {
+              matching++;
+            }
+        }
+    }
+  DESTROY(QuirkProbeOpenListRep);
+
+  if (matching >= 200)
+    {
+      [self pass: @"contrast-popup-selection" detail: [NSString stringWithFormat:
+        @"the selected item has %lu px of Highlight", (unsigned long)matching]];
+    }
+  else
+    {
+      [self fail: @"contrast-popup-selection" detail: [NSString stringWithFormat:
+        @"the selected item has %lu px of Highlight (%@)", (unsigned long)matching, QuirkProbeHex(highlight)]];
+    }
+}
 
 - (id) init
 {
@@ -8709,6 +8927,55 @@ QuirkProbeLastItemOfMenu(NSString *title)
       [self fail: @"shortcut-text" detail:
         [NSString stringWithFormat: @"Command-Q shows as \"%@\", Command-Shift-Z as \"%@\"", quit, redo]];
     }
+
+  /* Redo as Windows has it (#92): an Edit menu Redo with Command-Shift-Z
+     shows Ctrl+Y and answers Ctrl+Y and Ctrl+Shift+Z. */
+  {
+    NSMenu *edit = [[mainMenu itemWithTitle: @"Edit"] submenu];
+    NSMenuItem *redoItem = nil;
+    NSMenuItemCell *cell = nil;
+    NSString *shown = nil;
+    NSUInteger byY, byZ;
+    NSEvent *ctrlY = [NSEvent keyEventWithType: NSKeyDown location: NSZeroPoint
+                                 modifierFlags: NSCommandKeyMask timestamp: 0 windowNumber: 0
+                                       context: nil characters: @"y" charactersIgnoringModifiers: @"y"
+                                     isARepeat: NO keyCode: 0];
+    NSEvent *ctrlShiftZ = [NSEvent keyEventWithType: NSKeyDown location: NSZeroPoint
+                                      modifierFlags: NSCommandKeyMask | NSShiftKeyMask timestamp: 0
+                                       windowNumber: 0 context: nil characters: @"Z"
+                                charactersIgnoringModifiers: @"Z" isARepeat: NO keyCode: 0];
+
+    if (edit == nil)
+      {
+        [self skip: @"redo-ctrl-y" detail: @"no Edit menu"];
+        return;
+      }
+    redoItem = AUTORELEASE([[NSMenuItem alloc] initWithTitle: @"Redo" action: @selector(redo:)
+                                                keyEquivalent: @"Z"]);
+    [redoItem setKeyEquivalentModifierMask: NSCommandKeyMask];
+    [redoItem setTarget: self];
+    [edit insertItem: redoItem atIndex: 0];
+    cell = [(NSMenuView *)[edit menuRepresentation] menuItemCellForItemAtIndex: 0];
+    shown = [cell performSelector: @selector(_keyEquivalentString)];
+    QuirkProbeRedoCount = 0;
+    [mainMenu performKeyEquivalent: ctrlY];
+    byY = QuirkProbeRedoCount;
+    QuirkProbeRedoCount = 0;
+    [mainMenu performKeyEquivalent: ctrlShiftZ];
+    byZ = QuirkProbeRedoCount;
+    [edit removeItem: redoItem];
+
+    if ([shown isEqualToString: @"Ctrl+Y"] && byY == 1 && byZ == 1)
+      {
+        [self pass: @"redo-ctrl-y" detail: @"Redo shows Ctrl+Y; Ctrl+Y and Ctrl+Shift+Z both redo"];
+      }
+    else
+      {
+        [self fail: @"redo-ctrl-y" detail: [NSString stringWithFormat:
+          @"Redo shows \"%@\"; Ctrl+Y redid %lu times, Ctrl+Shift+Z %lu", shown,
+          (unsigned long)byY, (unsigned long)byZ]];
+      }
+  }
 }
 
 /* Switching to another theme at run time leaves no WinUITheme code in
@@ -9069,6 +9336,8 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkOverlayAutohide];
   [self checkFocusVisual];
   [self checkTextBox];
+  [self checkFocusedPlaceholder];
+  [self checkContrastPopUpSelection];
   [self checkComboBoxes];
   [self checkListSelection];
   [self checkSelectedRowText];

@@ -36,6 +36,17 @@ Apps that bundle the theme should pin a tag, not `main`.
   back's `setmaxsize` toggled it on. Minimize and maximize follow the
   window's style mask and maximum size (#67).
 
+**Menus**
+- Redo shows Ctrl+Y, as on Windows, and Ctrl+Y redoes; the app's
+  Ctrl+Shift+Z still does. Left alone when something else has Ctrl+Y
+  (#92).
+- In high contrast an open pop-up marks its selected item in Highlight,
+  with its title and pill in HighlightText, as WinUI's ComboBox does
+  (#82).
+- A focused, empty text field keeps its placeholder behind the caret until
+  the first character, and shows it again when the text is deleted, as
+  WinUI's TextBox does (#102).
+
 **Fixes**
 - A disabled toolbar item's icon stays dimmed when its button redraws on
   its own; it darkened until it looked enabled (#110).
