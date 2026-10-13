@@ -29,6 +29,8 @@
 {
   NSString *_outputDirectory;
   NSMutableArray *_windows;
+  NSBitmapImageRep *_heldRest;      /* motion-switch-knob-stretches */
+  NSBitmapImageRep *_heldPressed;
   NSWindow *_firstWindow;
   NSWindow *_lateWindow;
   NSUInteger _passed;

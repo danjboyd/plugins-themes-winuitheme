@@ -265,10 +265,12 @@ WinUIThemeDrawScrollArrow(NSRect rect, BOOL horizontal, BOOL increment, BOOL fli
 }
 
 /* A scroll bar at `alpha`: the 2px indicator, or expanded, the track,
-   thumb and arrows. `background` is the track's colour expanded, or nil
-   for none (always-shown bars sit on the scroll view's rail). */
+   thumb and arrows; `expansion` runs between them, 0 to 1, as the bar
+   eases open and shut (#105). `background` is the track's colour
+   expanded, or nil for none (always-shown bars sit on the scroll view's
+   rail). */
 static void
-WinUIThemeDrawScrollBar(WinUITheme *theme, NSScroller *scroller, CGFloat alpha, BOOL expanded,
+WinUIThemeDrawScrollBar(WinUITheme *theme, NSScroller *scroller, CGFloat alpha, CGFloat expansion,
                         NSColor *background)
 {
   NSRect bounds = [scroller bounds];
@@ -286,7 +288,8 @@ WinUIThemeDrawScrollBar(WinUITheme *theme, NSScroller *scroller, CGFloat alpha, 
   NSRect decrement = [scroller rectForPart: NSScrollerDecrementLine];
   NSRect increment = [scroller rectForPart: NSScrollerIncrementLine];
   BOOL scrollable = ([scroller isEnabled] && [scroller knobProportion] < 0.999 && NSIsEmptyRect(knob) == NO);
-  CGFloat thickness = expanded ? 6.0 : 2.0;
+  BOOL expanded = (expansion > 0.0);
+  CGFloat thickness = 2.0 + 4.0 * expansion;
   NSRect thumb;
 
   if (alpha <= 0.0)
@@ -298,7 +301,7 @@ WinUIThemeDrawScrollBar(WinUITheme *theme, NSScroller *scroller, CGFloat alpha, 
     {
       CGFloat radius = MIN(6.0, MIN(NSWidth(bounds), NSHeight(bounds)) / 2.0);
 
-      [[background colorWithAlphaComponent: [background alphaComponent] * alpha] set];
+      [[background colorWithAlphaComponent: [background alphaComponent] * alpha * expansion] set];
       [WinUIThemeRoundedPath(NSInsetRect(bounds, 1.0, 1.0), radius) fill];
     }
   if (scrollable == NO)
@@ -308,14 +311,15 @@ WinUIThemeDrawScrollBar(WinUITheme *theme, NSScroller *scroller, CGFloat alpha, 
 
   if (horizontal)
     {
-      CGFloat y = expanded ? floor(NSMidY(bounds) - thickness / 2.0)
-                           : ([scroller isFlipped] ? NSMaxY(bounds) - 3.0 - thickness : NSMinY(bounds) + 3.0);
+      CGFloat edge = [scroller isFlipped] ? NSMaxY(bounds) - 3.0 - thickness : NSMinY(bounds) + 3.0;
+      CGFloat y = round(edge + (floor(NSMidY(bounds) - thickness / 2.0) - edge) * expansion);
 
       thumb = NSMakeRect(NSMinX(knob) + 2.0, y, MAX(thickness, NSWidth(knob) - 4.0), thickness);
     }
   else
     {
-      CGFloat x = expanded ? floor(NSMidX(bounds) - thickness / 2.0) : NSMaxX(bounds) - 3.0 - thickness;
+      CGFloat edge = NSMaxX(bounds) - 3.0 - thickness;
+      CGFloat x = round(edge + (floor(NSMidX(bounds) - thickness / 2.0) - edge) * expansion);
 
       thumb = NSMakeRect(x, NSMinY(knob) + 2.0, thickness, MAX(thickness, NSHeight(knob) - 4.0));
     }
@@ -328,13 +332,13 @@ WinUIThemeDrawScrollBar(WinUITheme *theme, NSScroller *scroller, CGFloat alpha, 
         {
           WinUIThemeDrawScrollArrow(decrement, horizontal, NO, [scroller isFlipped],
                                     [ink colorWithAlphaComponent:
-                                      MIN(1.0, strong * (hit == NSScrollerDecrementLine ? 1.3 : 1.0)) * alpha]);
+                                      MIN(1.0, strong * (hit == NSScrollerDecrementLine ? 1.3 : 1.0)) * alpha * expansion]);
         }
       if (NSIsEmptyRect(increment) == NO)
         {
           WinUIThemeDrawScrollArrow(increment, horizontal, YES, [scroller isFlipped],
                                     [ink colorWithAlphaComponent:
-                                      MIN(1.0, strong * (hit == NSScrollerIncrementLine ? 1.3 : 1.0)) * alpha]);
+                                      MIN(1.0, strong * (hit == NSScrollerIncrementLine ? 1.3 : 1.0)) * alpha * expansion]);
         }
     }
 }
@@ -765,7 +769,7 @@ static char WinUIThemeColumnAutoresizingStyleKey;
      columns to scroll to: the thin bar, on no rail. */
   if (theme != nil && [superview isKindOfClass: [NSBrowser class]])
     {
-      WinUIThemeDrawScrollBar(theme, scroller, 1.0, YES, nil);
+      WinUIThemeDrawScrollBar(theme, scroller, 1.0, 1.0, nil);
       return;
     }
   if (theme == nil || [superview isKindOfClass: [NSScrollView class]] == NO)
@@ -787,7 +791,12 @@ static char WinUIThemeColumnAutoresizingStyleKey;
                                                                          [NSColor controlBackgroundColor]),
                                                 dark ? 0.96 : 0.94);
 
-      WinUIThemeDrawScrollBar(theme, scroller, state != nil ? state->alpha : 0.0, expanded, track);
+      static char expansionKey;
+
+      /* The rail eases open and shut over WinUI's 167ms (#105). */
+      WinUIThemeDrawScrollBar(theme, scroller, state != nil ? state->alpha : 0.0,
+                              WinUIThemeAnimatedValue(scroller, &expansionKey, expanded ? 1.0 : 0.0, 0.167),
+                              track);
       return;
     }
 

@@ -7,6 +7,35 @@ Apps that bundle the theme should pin a tag, not `main`.
 
 ## Unreleased
 
+**Motion** (#105)
+- A radio's dot grows in as it's checked and shrinks away as another
+  takes the check (167ms).
+- A toggle switch's knob is 14px under the pointer and stretches to
+  17x14 while it's held, towards the side it will go; the switch flips
+  on a release over it, as WinUI's does (libs-gui flipped it on the
+  press).
+- List rows' and menu items' pointer-over fills fade in and out over
+  83ms, the old row or item fading as the new one comes up.
+- An overlay scroll bar eases between the 2px indicator and the
+  expanded bar (167ms).
+- Menus, pop-up lists and context menus slide in from the side they
+  open on: down below the pointer or the menu bar, up when they open
+  above it; a submenu slides in from beside its menu; combo box lists
+  fade and slide in too.
+- QuirkProbe `motion-radio-dot-grows`, `motion-row-hover-fades`,
+  `motion-switch-knob-stretches`; menu-item fades checked in ObjcMarkdown
+  (the probe's offscreen menus don't redraw highlighted items through
+  the theme).
+
+**Controls**
+- A combo box's list is WinUI's ComboBox drop-down: a flyout with the
+  menu's fill, border, shadow and rounding, as wide as the combo box,
+  32px items with their text 12px in, against the field's edge (#105).
+- A control that appears under a still pointer shows its pointer-over
+  fill at once; one whose window moved or resized under the pointer (a
+  caption button as the window restores) loses it (#105). QuirkProbe
+  `hover-appears-under-pointer`.
+
 **Windows**
 - **Context menus stay open after a right-click**, as Windows' do, and
   the release picks nothing. They slide into place with their corner

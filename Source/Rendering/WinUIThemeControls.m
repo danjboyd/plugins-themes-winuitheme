@@ -255,6 +255,10 @@ WinUIThemeCellHorizontalMargins(NSCell *cell)
    - disabled: ControlStrongStrokeColorDisabled outlines and
      AccentFillColorDisabled fills.
    High contrast: the highlight for checked, the text colour for borders. */
+/* A radio's dot growing in as it's checked and shrinking away as it's
+   unchecked (#105), over WinUI's ControlFastAnimationDuration. */
+static char WinUIThemeRadioDotKey;
+
 static void
 WinUIThemeDrawCheckboxOrRadioIndicator(WinUITheme *theme,
                                        NSButtonCell *cell,
@@ -267,6 +271,7 @@ WinUIThemeDrawCheckboxOrRadioIndicator(WinUITheme *theme,
   CGFloat hover = 0.0;
   CGFloat press = pressed ? 1.0 : 0.0;
   CGFloat check = ([cell state] == NSOnState) ? 1.0 : 0.0;
+  CGFloat grown = ([cell state] == NSOnState) ? 1.0 : 0.0;
   BOOL dark = [[theme settings] prefersDarkAppearance];
   BOOL highContrast = [[theme settings] highContrastEnabled];
   NSInteger state = [cell state];
@@ -295,6 +300,11 @@ WinUIThemeDrawCheckboxOrRadioIndicator(WinUITheme *theme,
       hover = WinUIThemeHoverAmount(controlView, enabled && WinUIThemeViewIsHovered(controlView));
       press = WinUIThemePressAmount(controlView, pressed);
       check = WinUIThemeCheckAmount(controlView, [cell state] == NSOnState);
+      if (radio)
+        {
+          grown = WinUIThemeAnimatedValue(controlView, &WinUIThemeRadioDotKey,
+                                          [cell state] == NSOnState ? 1.0 : 0.0, 0.167);
+        }
     }
 
   if (highContrast)
@@ -344,16 +354,27 @@ WinUIThemeDrawCheckboxOrRadioIndicator(WinUITheme *theme,
   [path setLineWidth: 1.0];
   [path stroke];
 
-  if (radio && (state == NSOnState || (pressed && state == NSOffState)))
+  if (radio && (state == NSOnState || (pressed && state == NSOffState) || grown > 0.01))
     {
       /* A checked radio's centre; pressed, an unchecked one shows it too,
          in the border's colour. WinUI's is 12 of its 20px (14 under the
          pointer, 10 pressed): a share of the indicator, so the accent ring
          stays at compact metrics' smaller size (#81). */
-      CGFloat dot = round(indicatorSize * (pressed ? 0.5 : 0.6 + 0.1 * hover - 0.1 * press));
+      CGFloat dot = indicatorSize * (pressed ? 0.5 : 0.6 + 0.1 * hover - 0.1 * press);
 
-      WinUIThemeDrawRadioDot(WinUIThemeCenteredRect(indicatorRect, dot, dot),
-                             state == NSOnState ? markColor : borderColor);
+      /* Growing from the pressed size as it's checked; shrinking to
+         nothing as another radio takes the check. */
+      if (pressed == NO || state == NSOnState)
+        {
+          dot = (state == NSOnState) ? indicatorSize * 0.5 + (dot - indicatorSize * 0.5) * grown
+                                     : dot * grown;
+        }
+      dot = round(dot);
+      if (dot >= 1.0)
+        {
+          WinUIThemeDrawRadioDot(WinUIThemeCenteredRect(indicatorRect, dot, dot),
+                                 state == NSOnState ? markColor : borderColor);
+        }
     }
   else if (radio == NO && state == NSOnState)
     {
@@ -1178,6 +1199,16 @@ WinUIThemeSwitchColors(WinUITheme *theme,
     }
 }
 
+/* A switch held down by the mouse (WinUIThemeSwitchTrack): its knob
+   stretches until the release flips it. */
+static char WinUIThemeSwitchPressedKey;
+
+static BOOL
+WinUIThemeSwitchIsPressed(NSView *view)
+{
+  return objc_getAssociatedObject(view, &WinUIThemeSwitchPressedKey) != nil;
+}
+
 /* How far a switch is on, 0 to 1: it eases across as it's flipped
    (WinUIThemeToggleAmount, #105). The switch being drawn is the focus
    view; GSTheme's switch methods aren't given it. */
@@ -1236,8 +1267,11 @@ WinUIThemeSwitchOnAmount(NSControlStateValue value)
   NSRect trackRect = WinUIThemeSwitchTrackRect(frame);
   CGFloat on = WinUIThemeSwitchOnAmount(value);
   CGFloat radius = NSHeight(trackRect) / 2.0;
-  /* A 12px knob in the 20px track. */
-  CGFloat diameter = round(NSHeight(trackRect) * 0.6);
+  NSView *view = [NSView focusView];
+  CGFloat hover = 0.0;
+  CGFloat press = 0.0;
+  CGFloat height;
+  CGFloat width;
   CGFloat offX = NSMinX(trackRect) + radius;
   CGFloat centerX = offX + (NSMaxX(trackRect) - radius - offX) * on;
   NSColor *fillColor = nil;
@@ -1249,15 +1283,26 @@ WinUIThemeSwitchOnAmount(NSControlStateValue value)
     {
       return;
     }
+  /* WinUI's knob: 12px in the 20px track, 14px under the pointer, and
+     17x14 pressed, stretching towards the side it will go (#105), all
+     easing over 83ms. */
+  if (enabled && [view isKindOfClass: [NSControl class]])
+    {
+      WinUIThemeTrackHover(view);
+      hover = WinUIThemeHoverAmount(view, WinUIThemeViewIsHovered(view));
+      press = WinUIThemePressAmount(view, WinUIThemeSwitchIsPressed(view));
+    }
+  height = NSHeight(trackRect) * (0.6 + 0.1 * MAX(hover, press));
+  width = height + NSHeight(trackRect) * 0.15 * press;
+  centerX += (width - height) / 2.0 * (1.0 - 2.0 * on);
 
   WinUIThemeSwitchColors(self, YES, enabled, &fillColor, &strokeColor, &onKnob);
   WinUIThemeSwitchColors(self, NO, enabled, &fillColor, &strokeColor, &offKnob);
   [WinUIThemeBlendColor(offKnob, onKnob, on) set];
-  [[NSBezierPath bezierPathWithOvalInRect:
-     NSMakeRect(centerX - (diameter / 2.0),
-                NSMidY(trackRect) - (diameter / 2.0),
-                diameter,
-                diameter)] fill];
+  [[NSBezierPath bezierPathWithRoundedRect:
+     NSMakeRect(centerX - width / 2.0, NSMidY(trackRect) - height / 2.0, width, height)
+                                  xRadius: height / 2.0
+                                  yRadius: height / 2.0] fill];
 }
 
 - (void) drawSwitchInRect: (NSRect)rect
@@ -1530,6 +1575,50 @@ WinUIThemeSwitchOnAmount(NSControlStateValue value)
 @end
 
 @implementation WinUITheme (Overrides)
+
+/* A press on a switch (#105): libs-gui flips it as the button goes down;
+   WinUI's ToggleSwitch stretches its knob while it's held and flips on a
+   release over it. A release elsewhere leaves it as it was. */
+- (void) _overrideNSSwitchMethod_mouseDown: (NSEvent *)event
+{
+  typedef void (*MouseIMP)(id, SEL, NSEvent *);
+  MouseIMP originalIMP = (MouseIMP)WinUIThemeOriginalMethod(_cmd, self, NSClassFromString(@"NSSwitch"));
+  NSControl *control = (NSControl *)self;
+  NSEvent *next = nil;
+  BOOL inside = YES;
+
+  if ([control isEnabled] == NO || WinUIThemeActiveTheme() == nil)
+    {
+      if (originalIMP != NULL)
+        {
+          originalIMP(self, _cmd, event);
+        }
+      return;
+    }
+  objc_setAssociatedObject(control, &WinUIThemeSwitchPressedKey, @"pressed",
+                           OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+  [control setNeedsDisplay: YES];
+  [[control window] displayIfNeeded];
+  do
+    {
+      next = [NSApp nextEventMatchingMask: NSLeftMouseUpMask | NSLeftMouseDraggedMask
+                                untilDate: [NSDate dateWithTimeIntervalSinceNow: 10.0]
+                                   inMode: NSEventTrackingRunLoopMode
+                                  dequeue: YES];
+      if (next != nil)
+        {
+          inside = NSMouseInRect([control convertPoint: [next locationInWindow] fromView: nil],
+                                 [control bounds], [control isFlipped]);
+        }
+    }
+  while (next != nil && [next type] != NSLeftMouseUp);
+  objc_setAssociatedObject(control, &WinUIThemeSwitchPressedKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+  if (inside && originalIMP != NULL)
+    {
+      originalIMP(self, _cmd, event);
+    }
+  [control setNeedsDisplay: YES];
+}
 
 - (NSRect) _overrideNSTextFieldCellMethod_titleRectForBounds: (NSRect)aRect
 {

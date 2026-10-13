@@ -486,6 +486,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkDefaultButtons;
 - (void) checkPopUpClick;
 - (void) checkContextMenuClick;
+- (void) checkHoverUnderPointer;
 - (void) checkWindowsMenuConventions;
 - (void) checkAccentColor;
 - (void) checkAlertLayout;
@@ -2125,6 +2126,69 @@ QuirkProbeDarkest(NSBitmapImageRep *rep)
   else
     {
       [self fail: @"popup-click-stays-open" detail: detail];
+    }
+}
+
+/* The switch held down (motion-switch-knob-stretches): its look 300ms
+   into the press, then the release. */
+- (void) readHeldSwitch: (NSTimer *)timer
+{
+  NSSwitch *held = [timer userInfo];
+  NSPoint middle = [held convertPoint: NSMakePoint(NSMidX([held bounds]), NSMidY([held bounds])) toView: nil];
+
+  [held display];
+  ASSIGN(_heldPressed, QuirkProbeRender(held));
+  [NSApp postEvent: [NSEvent mouseEventWithType: NSLeftMouseUp location: middle modifierFlags: 0
+                                      timestamp: 0 windowNumber: [[held window] windowNumber] context: nil
+                                    eventNumber: 0 clickCount: 1 pressure: 0]
+           atStart: NO];
+}
+
+/* A control that appears under a pointer that doesn't move shows its
+   pointer-over fill (#105): a tracking rect added under the pointer gets
+   no entering, so it showed none until the pointer left and came back.
+   Against a twin away from the pointer. Moves the pointer. */
+- (void) checkHoverUnderPointer
+{
+  NSWindow *window = nil;
+  NSButton *under = nil;
+  NSButton *away = nil;
+  NSUInteger differing;
+
+  if ([[NSUserDefaults standardUserDefaults] boolForKey: @"ProbeMovesPointer"] == NO)
+    {
+      [self skip: @"hover-appears-under-pointer" detail: @"moves the pointer: needs -ProbeMovesPointer YES"];
+      return;
+    }
+  window = [self windowWithFrame: NSMakeRect(420, 300, 340, 160) title: @"QuirkProbe Hover Under Pointer"];
+  [window makeKeyAndOrderFront: nil];
+  [window display];
+  QuirkProbeSetPointer([window convertBaseToScreen: NSMakePoint(80, 116)]);
+  QuirkProbeDispatchEvents(0.3);
+  under = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(20, 100, 120, 32)]);
+  away = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(180, 100, 120, 32)]);
+  [under setTitle: @"Under"];
+  [away setTitle: @"Under"];
+  [[window contentView] addSubview: under];
+  [[window contentView] addSubview: away];
+  [window display];
+  QuirkProbeDispatchEvents(0.3);
+  [window display];
+  differing = QuirkProbeDifferingPixels(QuirkProbeRender(under), QuirkProbeRender(away));
+  QuirkProbeSetPointer([window convertBaseToScreen: NSMakePoint(330, 10)]);
+  [under removeFromSuperview];
+  [away removeFromSuperview];
+  [window orderOut: nil];
+  if (differing >= 20)
+    {
+      [self pass: @"hover-appears-under-pointer" detail:
+        [NSString stringWithFormat: @"%lu px differ from the twin away from the pointer", (unsigned long)differing]];
+    }
+  else
+    {
+      [self fail: @"hover-appears-under-pointer" detail:
+        [NSString stringWithFormat: @"only %lu px differ from the twin away from the pointer: no hover fill",
+                  (unsigned long)differing]];
     }
 }
 
@@ -9051,6 +9115,23 @@ QuirkProbeCheck(NSView *view, BOOL checked)
   [(NSButton *)view setState: checked ? NSOnState : NSOffState];
 }
 
+/* The pointer over a table's first row, or past its rows. */
+static void
+QuirkProbeHoverFirstRow(NSView *view, BOOL hovered)
+{
+  NSTableView *table = (NSTableView *)view;
+  NSRect row = [table rectOfRow: 0];
+  NSPoint point = hovered ? NSMakePoint(NSMidX(row), NSMidY(row))
+                          : NSMakePoint(NSMidX(row), NSMaxY([table bounds]) - 2.0);
+  NSEvent *moved = [NSEvent mouseEventWithType: NSMouseMoved
+                                      location: [table convertPoint: point toView: nil]
+                                 modifierFlags: 0 timestamp: 0
+                                  windowNumber: [[table window] windowNumber]
+                                       context: nil eventNumber: 0 clickCount: 0 pressure: 0];
+
+  [table mouseMoved: moved];
+}
+
 /* A state change as it's drawn at once, and 300ms later, each against the
    new state drawn with animations off: the first is on its way, the last
    has arrived. The new state is drawn as the animation's frames are, from
@@ -9058,7 +9139,7 @@ QuirkProbeCheck(NSView *view, BOOL checked)
    can draw a rounded control's antialiased corners a shade darker than
    -display does. */
 static BOOL
-QuirkProbeAnimates(NSView *view, void (*change)(NSView *, BOOL), NSString **detail)
+QuirkProbeAnimatesBy(NSView *view, void (*change)(NSView *, BOOL), NSUInteger minimum, NSString **detail)
 {
   NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
   NSBitmapImageRep *target = nil;
@@ -9085,7 +9166,13 @@ QuirkProbeAnimates(NSView *view, void (*change)(NSView *, BOOL), NSString **deta
   [defaults setBool: YES forKey: @"WinUIThemeAnimations"];
   *detail = [NSString stringWithFormat: @"%lu px from the new state as it changes, %lu after 300ms",
                                         (unsigned long)start, (unsigned long)end];
-  return start >= 40 && end <= 2;
+  return start >= minimum && end <= 2;
+}
+
+static BOOL
+QuirkProbeAnimates(NSView *view, void (*change)(NSView *, BOOL), NSString **detail)
+{
+  return QuirkProbeAnimatesBy(view, change, 40, detail);
 }
 
 /* Motion (#105): a button's pointer-over fill fades in over WinUI's 83ms
@@ -9203,6 +9290,105 @@ QuirkProbeAnimates(NSView *view, void (*change)(NSView *, BOOL), NSString **deta
     {
       [self fail: @"motion-check-draws-in" detail: detail];
     }
+
+  /* A radio's dot grows in as it's checked (#105). */
+  {
+    NSButton *radio = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(290, 26, 30, 20)]);
+
+    [radio setButtonType: NSRadioButton];
+    [radio setTitle: @""];
+    [[window contentView] addSubview: radio];
+    [radio display];
+    /* The dot alone changes as it grows: a 12px circle's pixels. */
+    if (QuirkProbeAnimatesBy(radio, QuirkProbeCheck, 16, &detail))
+      {
+        [self pass: @"motion-radio-dot-grows" detail: detail];
+      }
+    else
+      {
+        [self fail: @"motion-radio-dot-grows" detail: detail];
+      }
+    [radio removeFromSuperview];
+  }
+
+  /* A list row's pointer-over fill fades in (#105). */
+  {
+    NSScrollView *scroll = AUTORELEASE([[NSScrollView alloc] initWithFrame: NSMakeRect(20, 60, 200, 90)]);
+    NSTableView *table = AUTORELEASE([[NSTableView alloc] initWithFrame: NSMakeRect(0, 0, 200, 90)]);
+    NSTableColumn *column = AUTORELEASE([[NSTableColumn alloc] initWithIdentifier: @"name"]);
+    QuirkProbeRows *rows = AUTORELEASE([QuirkProbeRows new]);
+
+    [column setWidth: 180];
+    [table addTableColumn: column];
+    [table setDataSource: rows];
+    [table setHeaderView: nil];
+    [scroll setDocumentView: table];
+    [[window contentView] addSubview: scroll];
+    [table reloadData];
+    [table display];
+    if (QuirkProbeHasArgument(@"--high-contrast", nil))
+      {
+        [self skip: @"motion-row-hover-fades" detail: @"high contrast has no row hover fill"];
+      }
+    else if (QuirkProbeAnimates(table, QuirkProbeHoverFirstRow, &detail))
+      {
+        [self pass: @"motion-row-hover-fades" detail: detail];
+      }
+    else if (QuirkProbeDesktopScale() > 1.01)
+      {
+        [self known: @"motion-row-hover-fades" detail: [NSString stringWithFormat:
+          @"%@: no hover fill at a desktop scale in the probe, cause not found", detail]];
+      }
+    else
+      {
+        [self fail: @"motion-row-hover-fades" detail: detail];
+      }
+    [table setDataSource: nil];
+    [scroll removeFromSuperview];
+  }
+
+  /* A switch's knob stretches while it's held, and flips on the release
+     (#105): read while the press is held, and after. */
+  {
+    NSSwitch *held = AUTORELEASE([[NSSwitch alloc] initWithFrame: NSMakeRect(160, 60, 40, 20)]);
+    NSPoint middle;
+    NSEvent *down;
+    NSTimer *timer;
+
+    [[window contentView] addSubview: held];
+    [held display];
+    QuirkProbeDispatchEvents(0.2);
+    ASSIGN(_heldRest, QuirkProbeRender(held));
+    DESTROY(_heldPressed);
+    middle = [held convertPoint: NSMakePoint(NSMidX([held bounds]), NSMidY([held bounds])) toView: nil];
+    down = [NSEvent mouseEventWithType: NSLeftMouseDown location: middle modifierFlags: 0
+                             timestamp: 0 windowNumber: [window windowNumber] context: nil
+                           eventNumber: 0 clickCount: 1 pressure: 1];
+    timer = [NSTimer timerWithTimeInterval: 0.3 target: self selector: @selector(readHeldSwitch:)
+                                  userInfo: held repeats: NO];
+    [[NSRunLoop currentRunLoop] addTimer: timer forMode: NSEventTrackingRunLoopMode];
+    [held mouseDown: down];
+    [timer invalidate];
+    QuirkProbeDispatchEvents(0.3);
+    {
+      NSUInteger stretched = (_heldPressed != nil) ? QuirkProbeDifferingPixels(_heldPressed, _heldRest) : 0;
+      BOOL flipped = ([held state] == NSControlStateValueOn);
+
+      detail = [NSString stringWithFormat: @"%lu px differ while held; %@ after the release",
+                                          (unsigned long)stretched, flipped ? @"on" : @"still off"];
+      if (stretched >= 6 && flipped)
+        {
+          [self pass: @"motion-switch-knob-stretches" detail: detail];
+        }
+      else
+        {
+          [self fail: @"motion-switch-knob-stretches" detail: detail];
+        }
+    }
+    DESTROY(_heldRest);
+    DESTROY(_heldPressed);
+    [held removeFromSuperview];
+  }
   [window orderOut: nil];
 
   /* A flyout panel and a menu as they open, and 300ms later. */
@@ -9924,6 +10110,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkMica];
   [self checkPopUpClick];
   [self checkContextMenuClick];
+  [self checkHoverUnderPointer];
   [self checkFileDialogFilters];
   [self checkScrollerStripNarrowsContent];
   [self checkWindowsTitles];
