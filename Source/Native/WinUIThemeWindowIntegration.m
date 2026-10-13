@@ -764,6 +764,12 @@ WinUIThemeApplyWindowIdentity(NSWindow *window,
                  selector: @selector(screenParametersChanged:)
                      name: NSApplicationDidChangeScreenParametersNotification
                    object: NSApp];
+      /* The shared tabbing code's bar shown, hidden or changed: the
+         caption lays it out when it holds it (#83). */
+      [center addObserver: self
+                 selector: @selector(windowTabBarChanged:)
+                     name: @"GSWindowTabBarDidChangeNotification"
+                   object: nil];
 
 #ifdef _WIN32
       _listener = (void *)WinUIThemeCreateSettingsListener();
@@ -1029,6 +1035,18 @@ WinUIThemeApplyWindowIdentity(NSWindow *window,
 {
   [self _refreshThemeIfSystemStateChanged];
   [self synchronizeWindow: [notification object] forceRedraw: YES];
+}
+
+- (void) windowTabBarChanged: (NSNotification *)notification
+{
+  NSWindow *window = [notification object];
+  NSView *decoration = [[window contentView] superview];
+
+  if ([window isKindOfClass: [NSWindow class]]
+      && [decoration isKindOfClass: [GSWindowDecorationView class]])
+    {
+      WinUIThemeCaptionLayout((GSWindowDecorationView *)decoration, window, [window windowNumber]);
+    }
 }
 
 - (void) windowWillClose: (NSNotification *)notification

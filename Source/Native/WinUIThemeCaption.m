@@ -26,6 +26,7 @@
 
 #import <GNUstepGUI/GSDisplayServer.h>
 #import <GNUstepGUI/GSWindowDecorationView.h>
+#import "GSWindowTabbing.h"
 
 #include <windows.h>
 
@@ -152,12 +153,23 @@ WinUIThemeDrawsCaptionForStyle(NSUInteger style)
   return clientDrawsCaptions;
 }
 
+/* Whether captions hold window tabs (#83): the theme installed window
+   tabbing (WinUIThemeWindowTabs), so a window's tabs go in its title bar. */
+static BOOL
+WinUIThemeCaptionHoldsTabs(void)
+{
+  return [NSWindow instancesRespondToSelector: @selector(addTabbedWindow:ordered:)];
+}
+
 CGFloat
 WinUIThemeCaptionHeight(void)
 {
   /* The height of Windows' caption buttons, which WinUI's title bar keeps
-     (TitleBar's standard height without a search box or tabs). */
-  return round(32.0 * WinUIThemeCaptionDensity());
+     (TitleBar's standard height without a search box or tabs); with tabs,
+     TabView's strip (8px over 32px tabs), as Notepad's title bar is. Every
+     caption is that tall then, so a window keeps its shape as its second
+     tab opens. */
+  return round((WinUIThemeCaptionHoldsTabs() ? 40.0 : 32.0) * WinUIThemeCaptionDensity());
 }
 
 static HWND
@@ -222,8 +234,10 @@ WinUIThemeCaptionHasSystemMenu(NSWindow *window)
   WinUIThemeCaptionButton *_minimize;
   WinUIThemeCaptionButton *_zoom;
   WinUIThemeCaptionButton *_close;
+  NSView *_tabBar;                /* the window's tab bar, when it's here */
 }
 - (void) layoutButtons;
+- (void) layoutTabBar;
 - (void) declareRegions: (int)windowNumber;
 @end
 
@@ -502,11 +516,89 @@ WinUIThemeCaptionHasSystemMenu(NSWindow *window)
     }
 }
 
+/* Where the caption's drawing starts: after the app's icon, or at its
+   edge. */
+- (CGFloat) leadingInset
+{
+  CGFloat density = WinUIThemeCaptionDensity();
+
+  if ([NSApp applicationIconImage] != nil && WinUIThemeCaptionHasSystemMenu([self window]))
+    {
+      return round(40.0 * density);
+    }
+  return round(8.0 * density);
+}
+
+/* The left edge of the caption buttons shown, or the caption's end. */
+- (CGFloat) buttonsStart
+{
+  CGFloat start = NSMaxX([self bounds]);
+  NSEnumerator *e = [[NSArray arrayWithObjects: _minimize, _zoom, _close, nil] objectEnumerator];
+  NSView *button;
+
+  while ((button = [e nextObject]) != nil)
+    {
+      if ([button isHidden] == NO)
+        {
+          start = MIN(start, NSMinX([button frame]));
+        }
+    }
+  return start;
+}
+
+/* The window's tabs in the title bar (#83), as Notepad has them: after
+   the icon, as wide as the tabs and the "+" need (each tab at most its
+   maximum width), leaving the rest of the row, and at least 48px of it,
+   to drag the window by. */
+- (void) layoutTabBar
+{
+  NSWindow *window = [self window];
+  GSTheme *theme = [GSTheme theme];
+  NSView *bar = nil;
+  NSEnumerator *e = [[self subviews] objectEnumerator];
+  NSView *view;
+
+  if (WinUIThemeCaptionHoldsTabs()
+      && [theme windowTabBarPlacementForWindow: window] == GSWindowTabBarInTitleBar)
+    {
+      bar = GSWindowTabBarViewForWindow(window);
+    }
+  while ((view = [e nextObject]) != nil)
+    {
+      if (view != bar && view != _minimize && view != _zoom && view != _close)
+        {
+          [view removeFromSuperview];
+        }
+    }
+  _tabBar = bar;
+  if (bar != nil)
+    {
+      CGFloat density = WinUIThemeCaptionDensity();
+      CGFloat start = [self leadingInset];
+      CGFloat available = [self buttonsStart] - round(48.0 * density) - start;
+      NSUInteger count = MAX(1, [[[window tabGroup] windows] count]);
+      CGFloat newTab = ([NSApp targetForAction: @selector(newWindowForTab:) to: nil from: window] != nil)
+        ? round(40.0 * density) : 0.0;
+      CGFloat needed = 2.0 * [theme windowTabBarMarginForWindow: window]
+        + count * [theme windowTabMaximumWidthForWindow: window] + newTab;
+
+      if ([bar superview] != self)
+        {
+          [bar removeFromSuperview];
+          [self addSubview: bar];
+        }
+      [bar setAutoresizingMask: NSViewNotSizable];
+      [bar setFrame: NSMakeRect(start, 0.0, floor(MAX(0.0, MIN(needed, available))),
+                                NSHeight([self bounds]))];
+      [bar setNeedsDisplay: YES];
+    }
+}
+
 - (void) declareRegions: (int)windowNumber
 {
   GSDisplayServer *server = GSCurrentServer();
-  NSRect rects[4];
-  int kinds[4];
+  NSRect rects[5];
+  int kinds[5];
   unsigned count = 0;
 
   if (windowNumber == 0
@@ -514,8 +606,27 @@ WinUIThemeCaptionHasSystemMenu(NSWindow *window)
     {
       return;
     }
-  rects[count] = [self convertRect: [self bounds] toView: nil];
-  kinds[count++] = WinUIThemeCaptionRegionDrag;
+  if (_tabBar != nil && [_tabBar superview] == self)
+    {
+      /* The row beside the tabs drags the window; the tabs are the
+         gui's. */
+      NSRect bounds = [self bounds];
+      NSRect bar = [_tabBar frame];
+
+      rects[count] = [self convertRect: NSMakeRect(NSMinX(bounds), NSMinY(bounds),
+                                                   NSMinX(bar) - NSMinX(bounds), NSHeight(bounds))
+                                toView: nil];
+      kinds[count++] = WinUIThemeCaptionRegionDrag;
+      rects[count] = [self convertRect: NSMakeRect(NSMaxX(bar), NSMinY(bounds),
+                                                   NSMaxX(bounds) - NSMaxX(bar), NSHeight(bounds))
+                                toView: nil];
+      kinds[count++] = WinUIThemeCaptionRegionDrag;
+    }
+  else
+    {
+      rects[count] = [self convertRect: [self bounds] toView: nil];
+      kinds[count++] = WinUIThemeCaptionRegionDrag;
+    }
   if ([_minimize isHidden] == NO)
     {
       rects[count] = [_minimize convertRect: [_minimize bounds] toView: nil];
@@ -541,14 +652,26 @@ WinUIThemeCaptionHasSystemMenu(NSWindow *window)
   NSImage *icon = [NSApp applicationIconImage];
   NSString *title = WinUIThemeDisplayTitle(window);
 
+  BOOL tabs = (_tabBar != nil && [_tabBar superview] == self);
+
   if (WinUIThemeWindowShowsMica(window))
     {
       NSRectFillUsingOperation([self bounds], NSCompositeClear);
     }
   else
     {
-      [WinUIThemeCaptionBackground() set];
+      /* Holding tabs, the row is the tab strip's colour, a step below the
+         selected tab and the window, as Notepad's title bar is (#83). */
+      [(tabs ? WinUIThemeWindowTabStripColor() : WinUIThemeCaptionBackground()) set];
       NSRectFill([self bounds]);
+    }
+  if (tabs)
+    {
+      /* The strip's foot line, under the whole row; the selected tab
+         covers it. The tabs show the windows' titles. */
+      [WinUIThemeWindowTabFootColor() set];
+      NSRectFill(NSMakeRect(NSMinX([self bounds]), NSMinY([self bounds]), NSWidth([self bounds]), 1.0));
+      title = nil;
     }
 
   if (icon != nil && WinUIThemeCaptionHasSystemMenu(window))
@@ -645,6 +768,7 @@ WinUIThemeCaptionLayout(GSWindowDecorationView *decoration, NSWindow *window, in
       [caption setFrame: frame];
     }
   [caption layoutButtons];
+  [caption layoutTabBar];
   [caption setNeedsDisplay: YES];
   [caption declareRegions: windowNumber];
 }

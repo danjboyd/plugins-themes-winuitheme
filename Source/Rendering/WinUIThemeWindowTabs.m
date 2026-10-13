@@ -25,14 +25,17 @@
 #import <GNUstepGUI/GSTheme.h>
 
 #import "GSWindowTabbing.h"
+#import "../Native/WinUIThemeCaption.h"
+#import "../Native/WinUIThemeWindowIntegration.h"
 
 /* Window tabs (#72) as WinUI's TabView draws them (Notepad, Terminal),
    over the shared gnustep-window-tabbing code, which lays the bar out and
    handles the mouse.
 
-   libs-back's Windows server leaves the title bar to Windows, so the bar
-   takes its own row above the content (GSWindowTabBarAboveContent) rather
-   than sitting in the title bar, as Windows 11's own apps have it.
+   When the theme draws the caption (the carried libs-back), the bar sits
+   in the title bar, as Windows 11's own apps have it (#83,
+   WinUIThemeCaption.m lays it out); otherwise Windows draws the title bar
+   and the bar takes its own row above the content.
 
    From WinUI 3's TabView resources (generic.xaml):
    - the strip: 8px above 32px tabs (TabViewHeaderPadding,
@@ -147,6 +150,24 @@ WinUIThemeTabsBorderColor(WinUITheme *theme)
     }
   return WinUIThemeBlendColor(WinUIThemeTabsStripColor(theme), [NSColor blackColor],
                               WinUIThemeTabsDark(theme) ? 0.10 : 0.06);
+}
+
+NSColor *
+WinUIThemeWindowTabStripColor(void)
+{
+  GSTheme *theme = [GSTheme theme];
+
+  return [theme isKindOfClass: [WinUITheme class]]
+    ? WinUIThemeTabsStripColor((WinUITheme *)theme) : [NSColor controlColor];
+}
+
+NSColor *
+WinUIThemeWindowTabFootColor(void)
+{
+  GSTheme *theme = [GSTheme theme];
+
+  return [theme isKindOfClass: [WinUITheme class]]
+    ? WinUIThemeTabsBorderColor((WinUITheme *)theme) : [NSColor controlShadowColor];
 }
 
 /* DividerStrokeColorDefault between unselected tabs. */
@@ -345,14 +366,39 @@ static BOOL WinUIThemeTabsLastTitleShowsEdited = NO;
   return round(40.0 * WinUIThemeTabsDensity(self));
 }
 
+/* In the title bar (#83), as Windows 11's tabbed apps have it, when the
+   theme draws the window's caption (the carried libs-back); above the
+   content otherwise. */
 - (GSWindowTabBarPlacement) windowTabBarPlacementForWindow: (NSWindow *)window
 {
-  return GSWindowTabBarAboveContent;
+  return WinUIThemeDrawsCaptionForStyle([window styleMask])
+    ? GSWindowTabBarInTitleBar : GSWindowTabBarAboveContent;
 }
 
+/* WinUI's 100px; in the title bar, where the caption buttons and the
+   room to drag by limit the bar, tabs narrow to fit, down to 40px, rather
+   than run past it (#83). */
 - (CGFloat) windowTabMinimumWidthForWindow: (NSWindow *)window
 {
-  return round(100.0 * WinUIThemeTabsDensity(self));
+  CGFloat d = WinUIThemeTabsDensity(self);
+  CGFloat minimum = round(100.0 * d);
+
+  if ([self windowTabBarPlacementForWindow: window] == GSWindowTabBarInTitleBar)
+    {
+      NSView *bar = GSWindowTabBarViewForWindow(window);
+      NSUInteger count = [[[window tabGroup] windows] count];
+      CGFloat newTab = ([NSApp targetForAction: @selector(newWindowForTab:) to: nil from: window] != nil)
+        ? round(40.0 * d) : 0.0;
+
+      if (bar != nil && count > 0)
+        {
+          CGFloat fit = floor((NSWidth([bar bounds]) - 2.0 * [self windowTabBarMarginForWindow: window]
+                               - newTab) / count);
+
+          minimum = MIN(minimum, MAX(round(40.0 * d), fit));
+        }
+    }
+  return minimum;
 }
 
 - (CGFloat) windowTabMaximumWidthForWindow: (NSWindow *)window
@@ -416,8 +462,17 @@ static BOOL WinUIThemeTabsLastTitleShowsEdited = NO;
 - (void) drawWindowTabBarBackgroundInRect: (NSRect)rect
                                    window: (NSWindow *)window
 {
-  [WinUIThemeTabsStripColor(self) set];
-  NSRectFill(rect);
+  if (WinUIThemeWindowShowsMica(window)
+      && [self windowTabBarPlacementForWindow: window] == GSWindowTabBarInTitleBar)
+    {
+      /* The title bar's Mica shows behind the tabs (#47). */
+      NSRectFillUsingOperation(rect, NSCompositeClear);
+    }
+  else
+    {
+      [WinUIThemeTabsStripColor(self) set];
+      NSRectFill(rect);
+    }
   /* The line along the foot; the selected tab covers it. */
   [WinUIThemeTabsBorderColor(self) set];
   NSRectFill(NSMakeRect(NSMinX(rect), NSMinY(rect), NSWidth(rect), 1.0));

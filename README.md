@@ -35,6 +35,7 @@ is WinUI 3 client-area parity with GNUstep structure intact.
   | --- | --- |
   | WinUI's title bar, drawn by the theme | Windows' caption, coloured to match |
   | Shadows on menus, tool tips and flyouts (and, on Windows 11 with a GPU, DWM's rounded corners on them) | No shadow; DWM may not round them |
+  | Window tabs in the title bar (`WinUIThemeWindowTabs`) | The tab bar in its own row above the content |
   | Sharp at 125%, 150% and other display scales, and rescaled when moved to a monitor with another scale (per-monitor DPI awareness, `GSBackDPIAware`) | Windows stretches the app's windows on a scaled display, so text and lines are blurred |
 
   Everything else in the theme works with a stock libs-back. Each change
@@ -329,9 +330,16 @@ does; a "+" right after the last tab when something answers
 `-newWindowForTab:`. High contrast uses ButtonFace, Window, WindowText,
 Hilight and HilightText as WinUI's TabView does.
 
-Windows 11 apps put their tabs in the title bar. Here the bar has its own
-row above the content, under the menu bar and the toolbar; with the theme's
-title bar (above) it can move into the caption row (#83).
+With the theme's title bar (the carried libs-back) the tabs are in the
+title bar, as Windows 11's tabbed apps have them (#83): after the app's
+icon, as wide as the tabs and the "+" need, with at least 48px of the row
+left to drag the window by before the caption buttons; the tabs narrow
+(down to 40px) rather than run past it. The row is the strip's colour
+while tabs show, so the selected tab joins the menu bar below, as in
+Notepad, and the tabs show the windows' titles. Every caption is 40px
+tall while tabs are on, so a window keeps its shape as its second tab
+opens. Windows' caption (a stock libs-back) keeps the bar in its own row
+above the content, under the menu bar and the toolbar.
 
 An app that compiles the shared code in itself, as its `Examples/TabDemo`
 does, brings a second copy of `NSWindowTabGroup` and the other classes.
