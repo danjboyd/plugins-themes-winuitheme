@@ -3,6 +3,9 @@ param(
   [string]$Script,
   [string]$OutputDirectory,
   [string]$Theme,
+  # A libs-back bundle to run on instead of the installed one, such as
+  # danjboyd/libs-back's carry build (GNUstepTestHome.ps1).
+  [string]$Backend,
   [ValidateSet("light", "dark")]
   [string]$Mode = "light",
   # More ThemeDemo arguments, such as "--contrast-theme", "dusk".
@@ -52,7 +55,7 @@ $launchArguments = @("-GSTheme", "`"$Theme`"", "--mode", $Mode) + $Arguments +
   @("--command-script", "`"$commands`"")
 # ThemeDemo gets a home directory of its own, as the probe does, so it
 # neither reads nor writes the owner's GNUstep defaults.
-$testHome = Enter-GNUstepTestHome
+$testHome = Enter-GNUstepTestHome -Backend $Backend
 try {
   $process = Start-Process -FilePath $demoExe `
                            -WorkingDirectory (Split-Path -Parent $demoExe) `

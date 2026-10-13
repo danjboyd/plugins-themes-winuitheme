@@ -1,5 +1,8 @@
 param(
   [string]$Theme,
+  # A libs-back bundle to run on instead of the installed one, such as
+  # danjboyd/libs-back's carry build (GNUstepTestHome.ps1).
+  [string]$Backend,
   [string]$OutputDirectory,
   [string[]]$Configuration = @("light", "dark", "high-contrast", "light-150", "large-text", "compact", "dusk", "desert"),
   [int]$TimeoutSeconds = 60,
@@ -74,7 +77,7 @@ foreach ($name in $Configuration) {
   $stderr = Join-Path $logDirectory "$name.err"
   # A fresh home for each configuration, so one can't leave defaults that
   # change the next.
-  $testHome = Enter-GNUstepTestHome
+  $testHome = Enter-GNUstepTestHome -Backend $Backend
   try {
     $process = Start-Process -FilePath $probeExe `
                              -WorkingDirectory (Split-Path -Parent $probeExe) `
