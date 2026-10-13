@@ -485,6 +485,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkStepper;
 - (void) checkDefaultButtons;
 - (void) checkPopUpClick;
+- (void) checkContextMenuClick;
 - (void) checkWindowsMenuConventions;
 - (void) checkAccentColor;
 - (void) checkAlertLayout;
@@ -2124,6 +2125,124 @@ QuirkProbeDarkest(NSBitmapImageRep *rep)
   else
     {
       [self fail: @"popup-click-stays-open" detail: detail];
+    }
+}
+
+static BOOL QuirkProbeContextItemChosen = NO;
+
+- (void) contextItemChosen: (id)sender
+{
+  QuirkProbeContextItemChosen = YES;
+}
+
+- (void) inspectContextMenu: (NSTimer *)timer
+{
+  NSDictionary *info = [timer userInfo];
+  NSWindow *window = [info objectForKey: @"window"];
+  NSPoint away = NSMakePoint(NSWidth([window frame]) - 20, 20);
+  NSEnumerator *e = [[NSApp windows] objectEnumerator];
+  NSWindow *each;
+  BOOL open = NO;
+
+  /* The view may show a copy of its menu (a text view adds its own
+     items): any menu window showing that isn't the menu bar's. */
+  while ((each = [e nextObject]) != nil)
+    {
+      if ([each isVisible] && [each respondsToSelector: @selector(_menu)]
+          && [[each performSelector: @selector(_menu)] supermenu] == nil
+          && [each performSelector: @selector(_menu)] != [NSApp mainMenu])
+        {
+          open = YES;
+        }
+    }
+  ASSIGN(QuirkProbeMenuSeen, open ? @"open" : @"closed");
+  QuirkProbeSetPointer([window convertBaseToScreen: away]);
+  [NSApp postEvent: [NSEvent mouseEventWithType: NSLeftMouseDown location: away modifierFlags: 0
+                                      timestamp: 0 windowNumber: [window windowNumber] context: nil
+                                    eventNumber: 0 clickCount: 1 pressure: 1]
+           atStart: NO];
+  [NSApp postEvent: [NSEvent mouseEventWithType: NSLeftMouseUp location: away modifierFlags: 0
+                                      timestamp: 0 windowNumber: [window windowNumber] context: nil
+                                    eventNumber: 0 clickCount: 1 pressure: 0]
+           atStart: NO];
+}
+
+/* A right-click opens a context menu that stays open, as Windows' do, and
+   picks nothing: the menu opens with its corner under the pointer and
+   slides into place (#105); Windows sends a drag and the release to the
+   menu's window, and the items moving under a pointer that stayed put, or
+   the release on the first item, ended tracking (ObjcMarkdown: 3 of 5
+   real right-clicks closed the menu). Synthesized events don't reproduce
+   it, so this is a real right-click (SendInput): with -ProbeMovesPointer
+   YES only. */
+- (void) checkContextMenuClick
+{
+  NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+  NSWindow *window = nil;
+  NSView *view = nil;
+  NSMenu *menu = nil;
+  NSMutableArray *seen = [NSMutableArray array];
+  NSPoint point = NSMakePoint(80, 80);
+  BOOL chosen = NO;
+  int i;
+
+  if ([defaults boolForKey: @"ProbeMovesPointer"] == NO)
+    {
+      [self skip: @"context-menu-click-stays-open" detail: @"real clicks: needs -ProbeMovesPointer YES"];
+      return;
+    }
+  window = [self windowWithFrame: NSMakeRect(420, 300, 340, 220) title: @"QuirkProbe Context Menu"];
+  /* A text view, as in ObjcMarkdown, with a menu of the probe's own. */
+  view = AUTORELEASE([[NSTextView alloc] initWithFrame: [[window contentView] bounds]]);
+  [view setAutoresizingMask: NSViewWidthSizable | NSViewHeightSizable];
+  [[window contentView] addSubview: view];
+  menu = AUTORELEASE([[NSMenu alloc] initWithTitle: @"Context"]);
+  [[menu addItemWithTitle: @"Cut" action: @selector(contextItemChosen:) keyEquivalent: @""] setTarget: self];
+  [[menu addItemWithTitle: @"Copy" action: @selector(contextItemChosen:) keyEquivalent: @""] setTarget: self];
+  [view setMenu: menu];
+  [window makeFirstResponder: view];
+  [window makeKeyAndOrderFront: nil];
+  [window display];
+  QuirkProbeDispatchEvents(0.3);
+  [defaults setBool: YES forKey: @"WinUIThemeAnimations"];
+  QuirkProbeContextItemChosen = NO;
+  for (i = 0; i < 5; i++)
+    {
+      NSDictionary *info = [NSDictionary dictionaryWithObjectsAndKeys: window, @"window", menu, @"menu", nil];
+      NSTimer *inspect = [NSTimer timerWithTimeInterval: 0.6 target: self
+                                               selector: @selector(inspectContextMenu:)
+                                               userInfo: info repeats: NO];
+
+      ASSIGN(QuirkProbeMenuSeen, @"never opened");
+      [[NSRunLoop currentRunLoop] addTimer: inspect forMode: NSEventTrackingRunLoopMode];
+      QuirkProbeSetPointer([window convertBaseToScreen: point]);
+      QuirkProbeDispatchEvents(0.1);
+      mouse_event(MOUSEEVENTF_RIGHTDOWN, 0, 0, 0, 0);
+      Sleep(30);
+      mouse_event(MOUSEEVENTF_RIGHTUP, 0, 0, 0, 0);
+      QuirkProbeDispatchEvents(1.2);
+      [inspect invalidate];
+      [seen addObject: QuirkProbeMenuSeen];
+      point.x += 37;
+      point.y += 13;
+    }
+  [defaults setBool: NO forKey: @"WinUIThemeAnimations"];
+  chosen = QuirkProbeContextItemChosen;
+  [view setMenu: nil];
+  [view removeFromSuperview];
+  [window orderOut: nil];
+  if ([seen containsObject: @"closed"] == NO && [seen containsObject: @"never opened"] == NO
+      && chosen == NO)
+    {
+      [self pass: @"context-menu-click-stays-open" detail:
+        [NSString stringWithFormat: @"0.6s after each of 5 real right-clicks: %@; nothing picked",
+                  [seen componentsJoinedByString: @", "]]];
+    }
+  else
+    {
+      [self fail: @"context-menu-click-stays-open" detail:
+        [NSString stringWithFormat: @"0.6s after each of 5 real right-clicks: %@; %@",
+                  [seen componentsJoinedByString: @", "], chosen ? @"an item was picked" : @"nothing picked"]];
     }
 }
 
@@ -9804,6 +9923,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkDPIAwareness];
   [self checkMica];
   [self checkPopUpClick];
+  [self checkContextMenuClick];
   [self checkFileDialogFilters];
   [self checkScrollerStripNarrowsContent];
   [self checkWindowsTitles];

@@ -8,6 +8,14 @@ Apps that bundle the theme should pin a tag, not `main`.
 ## Unreleased
 
 **Windows**
+- **Context menus stay open after a right-click**, as Windows' do, and
+  the release picks nothing. They slide into place with their corner
+  under the pointer, so the items moved under a pointer that hadn't, and
+  Windows sends the release into the menu's window, on its first item;
+  either ended tracking, and a real right-click in ObjcMarkdown's editor
+  closed the menu 3 times in 5. The opening release is now dropped while
+  the pointer stays where it pressed: 10 in 10 stay open. QuirkProbe
+  `context-menu-click-stays-open` (real right-clicks, with `-Pointer`).
 - **Mica with the theme's title bar:** DWM drew its own caption buttons
   over the theme's (doubled glyphs), because the frame reached into the
   client area from the top; it now reaches in from the bottom. Found with
