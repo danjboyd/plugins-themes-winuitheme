@@ -774,6 +774,10 @@ WinUIThemePreparePopupMenuTypography(WinUITheme *theme, NSMenuView *menuView)
 }
 
 static char WinUIThemeHoverRowKey;
+/* The row the pointer left, while its fill fades out (#105). */
+static char WinUIThemeHoverLastRowKey;
+static char WinUIThemeHoverInKey;
+static char WinUIThemeHoverOutKey;
 
 /* The view whose tracking rect says whether the pointer is over a table:
    its scroll view. A tracking rect on the table itself, inside the clip
@@ -819,25 +823,46 @@ WinUIThemeDrawTableHover(WinUITheme *theme, NSTableView *tableView, NSRect clipR
       [[tableView window] setAcceptsMouseMovedEvents: YES];
     }
 
-  row = WinUIThemeTableHoverRow(tableView);
-  if (row < 0 || row >= [tableView numberOfRows] || [tableView isRowSelected: row])
-    {
-      return;
-    }
-  rowRect = [tableView rectOfRow: row];
-  if (NSIntersectsRect(rowRect, clipRect) == NO)
-    {
-      return;
-    }
-  itemRect = NSInsetRect(rowRect, 4.0, NSHeight(rowRect) > 20.0 ? 2.0 : 1.0);
-  [NSGraphicsContext saveGraphicsState];
-  NSRectClip(clipRect);
-  [WinUIThemeBlendColor(WinUIThemeColorFromTheme(theme, @"rowBackgroundColor",
-                                                 [NSColor controlBackgroundColor]),
-                        dark ? [NSColor whiteColor] : [NSColor blackColor],
-                        dark ? 0.06 : 0.037) set];
-  [WinUIThemeRoundedPath(itemRect, WinUIThemeControlCornerRadius(theme)) fill];
-  [NSGraphicsContext restoreGraphicsState];
+  /* The row under the pointer fades in over WinUI's 83ms, and the one it
+     left, or the row as the pointer leaves the table, fades out (#105). */
+  {
+    NSNumber *stored = objc_getAssociatedObject(tableView, &WinUIThemeHoverRowKey);
+    NSNumber *last = objc_getAssociatedObject(tableView, &WinUIThemeHoverLastRowKey);
+    BOOL over = (WinUIThemeTableHoverRow(tableView) >= 0);
+    CGFloat amountIn = WinUIThemeAnimatedValue(tableView, &WinUIThemeHoverInKey, over ? 1.0 : 0.0, 0.083);
+    CGFloat amountOut = WinUIThemeAnimatedValue(tableView, &WinUIThemeHoverOutKey, 0.0, 0.083);
+    NSInteger rows[2];
+    CGFloat amounts[2];
+    int i;
+
+    rows[0] = (stored != nil) ? [stored integerValue] : -1;
+    amounts[0] = amountIn;
+    rows[1] = (last != nil) ? [last integerValue] : -1;
+    amounts[1] = amountOut;
+    for (i = 0; i < 2; i++)
+      {
+        row = rows[i];
+        if (amounts[i] <= 0.0 || row < 0 || row >= [tableView numberOfRows]
+            || [tableView isRowSelected: row] || (i == 1 && row == rows[0] && amounts[0] > 0.0))
+          {
+            continue;
+          }
+        rowRect = [tableView rectOfRow: row];
+        if (NSIntersectsRect(rowRect, clipRect) == NO)
+          {
+            continue;
+          }
+        itemRect = NSInsetRect(rowRect, 4.0, NSHeight(rowRect) > 20.0 ? 2.0 : 1.0);
+        [NSGraphicsContext saveGraphicsState];
+        NSRectClip(clipRect);
+        [WinUIThemeBlendColor(WinUIThemeColorFromTheme(theme, @"rowBackgroundColor",
+                                                       [NSColor controlBackgroundColor]),
+                              dark ? [NSColor whiteColor] : [NSColor blackColor],
+                              (dark ? 0.06 : 0.037) * amounts[i]) set];
+        [WinUIThemeRoundedPath(itemRect, WinUIThemeControlCornerRadius(theme)) fill];
+        [NSGraphicsContext restoreGraphicsState];
+      }
+  }
 }
 
 /* The selected row being drawn, in high contrast: its table, and the colour
@@ -1078,6 +1103,36 @@ WinUIThemePopupMenuItemIsSelected(NSMenuItemCell *cell, NSView *controlView)
     && [owner indexOfSelectedItem] == index;
 }
 
+/* A menu item's pointer-over fill fading in as the highlight reaches it,
+   and out as it leaves (#105), over WinUI's 83ms: the menu view keeps the
+   item it left (-setHighlightedItemIndex:) and the two amounts. */
+static char WinUIThemeMenuFadeInKey;
+static char WinUIThemeMenuFadeOutKey;
+static char WinUIThemeMenuFadeLastKey;
+
+static CGFloat
+WinUIThemeMenuItemFade(NSMenuItemCell *cell, NSView *controlView, BOOL highlighted)
+{
+  NSNumber *last = nil;
+  NSInteger index;
+
+  if ([controlView isKindOfClass: [NSMenuView class]] == NO)
+    {
+      return highlighted ? 1.0 : 0.0;
+    }
+  if (highlighted)
+    {
+      return WinUIThemeAnimatedValue(controlView, &WinUIThemeMenuFadeInKey, 1.0, 0.083);
+    }
+  last = objc_getAssociatedObject(controlView, &WinUIThemeMenuFadeLastKey);
+  index = [[(NSMenuView *)controlView menu] indexOfItem: [cell menuItem]];
+  if (last == nil || [last integerValue] != index || index < 0)
+    {
+      return 0.0;
+    }
+  return WinUIThemeAnimatedValue(controlView, &WinUIThemeMenuFadeOutKey, 0.0, 0.083);
+}
+
 - (void) drawBorderAndBackgroundForMenuItemCell: (NSMenuItemCell *)cell
                                       withFrame: (NSRect)cellFrame
                                          inView: (NSView *)controlView
@@ -1113,10 +1168,11 @@ WinUIThemePopupMenuItemIsSelected(NSMenuItemCell *cell, NSView *controlView)
   if (popupOwned && [[self settings] highContrastEnabled] == NO)
     {
       BOOL selectedItem = WinUIThemePopupMenuItemIsSelected(cell, controlView);
+      CGFloat amount = selectedItem ? 1.0 : WinUIThemeMenuItemFade(cell, controlView, popupHovered);
 
-      if (popupHovered || selectedItem)
+      if (amount > 0.0)
         {
-          [WinUIThemeMenuItemHoverColor(self, NO) set];
+          [WinUIThemeBlendColor(background, WinUIThemeMenuItemHoverColor(self, NO), amount) set];
           [WinUIThemeRoundedPath(drawRect, WinUIThemeControlCornerRadius(self)) fill];
         }
       if (selectedItem)
@@ -1147,7 +1203,8 @@ WinUIThemePopupMenuItemIsSelected(NSMenuItemCell *cell, NSView *controlView)
       selection = WinUIThemePopupMenuSelectionFillColor(self, enabled);
     }
 
-  if (highlighted == NO)
+  if (highlighted == NO && (isHorizontal || popupOwned || [[self settings] highContrastEnabled]
+                            || WinUIThemeMenuItemFade(cell, controlView, NO) <= 0.0))
     {
       return;
     }
@@ -1169,7 +1226,8 @@ WinUIThemePopupMenuItemIsSelected(NSMenuItemCell *cell, NSView *controlView)
                                    MAX(0.0, NSWidth(cellFrame) - 6.0),
                                    MAX(0.0, NSHeight(cellFrame) - 4.0));
 
-      [WinUIThemeMenuItemHoverColor(self, NO) set];
+      [WinUIThemeBlendColor(background, WinUIThemeMenuItemHoverColor(self, NO),
+                            WinUIThemeMenuItemFade(cell, controlView, highlighted)) set];
       [WinUIThemeRoundedPath(itemRect, WinUIThemeControlCornerRadius(self)) fill];
       return;
     }
@@ -2296,6 +2354,40 @@ static CGFloat WinUIThemeToolTipDrop = 0.0;
   return tableView;
 }
 
+/* The item the highlight leaves fades out and the one it reaches fades
+   in (#105, WinUIThemeMenuItemFade). */
+- (void) _overrideNSMenuViewMethod_setHighlightedItemIndex: (NSInteger)index
+{
+  typedef void (*SetIMP)(id, SEL, NSInteger);
+  SetIMP originalIMP = (SetIMP)WinUIThemeOriginalMethod(_cmd, self, [NSMenuView class]);
+  NSMenuView *menuView = (NSMenuView *)self;
+  NSInteger old = [menuView highlightedItemIndex];
+
+  if (originalIMP != NULL)
+    {
+      originalIMP(self, _cmd, index);
+    }
+  if (old == index || [menuView isHorizontal]
+      || [[GSTheme theme] isKindOfClass: [WinUITheme class]] == NO)
+    {
+      return;
+    }
+  if (old >= 0)
+    {
+      CGFloat current = WinUIThemeAnimatedValue(menuView, &WinUIThemeMenuFadeInKey, 1.0, 0.083);
+
+      objc_setAssociatedObject(menuView, &WinUIThemeMenuFadeLastKey, [NSNumber numberWithInteger: old],
+                               OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+      WinUIThemeAnimatedValue(menuView, &WinUIThemeMenuFadeOutKey, current, 0.0);
+      WinUIThemeAnimatedValue(menuView, &WinUIThemeMenuFadeOutKey, 0.0, 0.083);
+    }
+  if (index >= 0)
+    {
+      WinUIThemeAnimatedValue(menuView, &WinUIThemeMenuFadeInKey, 0.0, 0.0);
+      WinUIThemeAnimatedValue(menuView, &WinUIThemeMenuFadeInKey, 1.0, 0.083);
+    }
+}
+
 /* The row under the pointer, for the hover fill. */
 - (void) _overrideNSTableViewMethod_mouseMoved: (NSEvent *)event
 {
@@ -2321,6 +2413,19 @@ static CGFloat WinUIThemeToolTipDrop = 0.0;
             {
               [tableView setNeedsDisplayInRect: [tableView rectOfRow: row]];
             }
+          /* The old row's fill fades out from where it is; the new one's
+             fades in from nothing. */
+          if (old != nil && [old integerValue] >= 0)
+            {
+              CGFloat current = WinUIThemeAnimatedValue(tableView, &WinUIThemeHoverInKey, 1.0, 0.083);
+
+              objc_setAssociatedObject(tableView, &WinUIThemeHoverLastRowKey, old,
+                                       OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+              WinUIThemeAnimatedValue(tableView, &WinUIThemeHoverOutKey, current, 0.0);
+              WinUIThemeAnimatedValue(tableView, &WinUIThemeHoverOutKey, 0.0, 0.083);
+            }
+          WinUIThemeAnimatedValue(tableView, &WinUIThemeHoverInKey, 0.0, 0.0);
+          WinUIThemeAnimatedValue(tableView, &WinUIThemeHoverInKey, 1.0, 0.083);
           objc_setAssociatedObject(tableView, &WinUIThemeHoverRowKey,
                                    [NSNumber numberWithInteger: row],
                                    OBJC_ASSOCIATION_RETAIN_NONATOMIC);

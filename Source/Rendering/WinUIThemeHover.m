@@ -23,6 +23,11 @@
 #import <AppKit/AppKit.h>
 #import <objc/runtime.h>
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
+
 /* Pointer-over state for controls, for WinUI's PointerOver visual states.
    libs-gui registers no tracking rects for buttons, so the theme adds one
    the first time a control is drawn (and again when its size changes; the
@@ -33,6 +38,51 @@
 static char WinUIThemeHoverTagKey;
 static char WinUIThemeHoverSizeKey;
 static char WinUIThemeHoverKey;
+/* The window's frame when the pointer entered: a window that moved or
+   resized under a still pointer sends no exit (#105). */
+static char WinUIThemeHoverFrameKey;
+
+/* Whether the real pointer is over the view, on top: Windows' own window
+   under it is the view's. */
+static BOOL
+WinUIThemePointerIsOver(NSView *view)
+{
+#ifdef _WIN32
+  NSWindow *window = [view window];
+  POINT cursor;
+  HWND under;
+  NSPoint point;
+
+  if (window == nil || [window isVisible] == NO
+      || [window respondsToSelector: @selector(windowHandle)] == NO
+      || GetCursorPos(&cursor) == FALSE)
+    {
+      return NO;
+    }
+  under = WindowFromPoint(cursor);
+  if (under == NULL || GetAncestor(under, GA_ROOT) != (HWND)[window windowHandle])
+    {
+      return NO;
+    }
+  point = NSMakePoint(cursor.x, NSHeight([[NSScreen mainScreen] frame]) - cursor.y);
+  point = [view convertPoint: [window convertScreenToBase: point] fromView: nil];
+  return NSMouseInRect(point, [view visibleRect], [view isFlipped]);
+#else
+  (void)view;
+  return NO;
+#endif
+}
+
+static void
+WinUIThemeRecordHover(NSView *view, BOOL hover)
+{
+  objc_setAssociatedObject(view, &WinUIThemeHoverKey,
+                           hover ? [NSNumber numberWithBool: YES] : nil,
+                           OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+  objc_setAssociatedObject(view, &WinUIThemeHoverFrameKey,
+                           hover ? [NSValue valueWithRect: [[view window] frame]] : nil,
+                           OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
 
 @interface WinUIThemeHoverTracker : NSObject
 + (WinUIThemeHoverTracker *) sharedTracker;
@@ -59,9 +109,7 @@ static char WinUIThemeHoverKey;
     {
       return;
     }
-  objc_setAssociatedObject(view, &WinUIThemeHoverKey,
-                           hover ? [NSNumber numberWithBool: YES] : nil,
-                           OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+  WinUIThemeRecordHover(view, hover);
   [view setNeedsDisplay: YES];
 }
 
@@ -106,6 +154,13 @@ WinUIThemeTrackHover(NSView *view)
   objc_setAssociatedObject(view, &WinUIThemeHoverTagKey, tag, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
   objc_setAssociatedObject(view, &WinUIThemeHoverSizeKey, [NSValue valueWithSize: bounds],
                            OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+  /* A rect added under the pointer gets no entering, only the exit:
+     a control that appears under the pointer is hovered from the start
+     (#105). */
+  if (WinUIThemeViewIsHovered(view) == NO && WinUIThemePointerIsOver(view))
+    {
+      WinUIThemeRecordHover(view, YES);
+    }
 }
 
 /* For a view that learns of the pointer otherwise, as a table does from
@@ -118,13 +173,29 @@ WinUIThemeSetViewHovered(NSView *view, BOOL hovered)
     {
       return;
     }
-  objc_setAssociatedObject(view, &WinUIThemeHoverKey,
-                           hovered ? [NSNumber numberWithBool: YES] : nil,
-                           OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+  WinUIThemeRecordHover(view, hovered);
 }
 
 BOOL
 WinUIThemeViewIsHovered(NSView *view)
 {
-  return view != nil && objc_getAssociatedObject(view, &WinUIThemeHoverKey) != nil;
+  NSValue *frame = nil;
+
+  if (view == nil || objc_getAssociatedObject(view, &WinUIThemeHoverKey) == nil)
+    {
+      return NO;
+    }
+  /* The window moved or resized since the pointer came in (the caption's
+     maximize button as the window restores): over it still, or not. */
+  frame = objc_getAssociatedObject(view, &WinUIThemeHoverFrameKey);
+  if (frame != nil && NSEqualRects([frame rectValue], [[view window] frame]) == NO)
+    {
+      if (WinUIThemePointerIsOver(view) == NO)
+        {
+          WinUIThemeRecordHover(view, NO);
+          return NO;
+        }
+      WinUIThemeRecordHover(view, YES);
+    }
+  return YES;
 }

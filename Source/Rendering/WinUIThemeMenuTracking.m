@@ -45,6 +45,8 @@
 static NSMenuView *WinUIThemeTrackingMenuView = nil;
 static NSInteger WinUIThemeTrackingFirstIndex = -1;
 static BOOL WinUIThemeTrackingIgnoresRelease = NO;
+/* Where the pointer was as tracking began, on the screen. */
+static NSPoint WinUIThemeTrackingStartPoint;
 
 /* The outermost menu view tracking, and whether the release of a press
    that closed the menus is still to come. */
@@ -251,15 +253,30 @@ WinUIThemeMenuIsOwnedByPopUp(NSMenu *menu)
       else if (type == NSPeriodic || type == NSLeftMouseDragged || type == NSRightMouseDragged
                || type == NSOtherMouseDragged || type == NSMouseMoved)
         {
-          if (WinUIThemeTrackingIndexForEvent(event) != WinUIThemeTrackingFirstIndex)
+          NSPoint point = [NSEvent mouseLocation];
+
+          /* The pointer onto another item. Only if the pointer moved: a
+             menu that slides into place as it opens (#105) moves its items
+             under a pointer that stays where it pressed, and a context
+             menu opens with its corner there. */
+          if (WinUIThemeTrackingIndexForEvent(event) != WinUIThemeTrackingFirstIndex
+              && (fabs(point.x - WinUIThemeTrackingStartPoint.x) > 2.0
+                  || fabs(point.y - WinUIThemeTrackingStartPoint.y) > 2.0))
             {
               WinUIThemeTrackingIgnoresRelease = NO;
             }
         }
       else if (type == NSLeftMouseUp || type == NSRightMouseUp || type == NSOtherMouseUp)
         {
+          NSPoint point = [NSEvent mouseLocation];
+
+          /* Released on the first item, or where it was pressed: a menu
+             that opened under the pointer has an item there now, and
+             Windows picks nothing on that release. */
           WinUIThemeTrackingIgnoresRelease = NO;
-          if (WinUIThemeTrackingIndexForEvent(event) == WinUIThemeTrackingFirstIndex)
+          if (WinUIThemeTrackingIndexForEvent(event) == WinUIThemeTrackingFirstIndex
+              || (fabs(point.x - WinUIThemeTrackingStartPoint.x) <= 2.0
+                  && fabs(point.y - WinUIThemeTrackingStartPoint.y) <= 2.0))
             {
               event = originalIMP(self, _cmd, mask, expiration, mode, flag);
               continue;
@@ -289,6 +306,7 @@ WinUIThemeMenuIsOwnedByPopUp(NSMenu *menu)
   NSMenuView *outerRoot = WinUIThemeTrackingRootView;
   NSInteger outerIndex = WinUIThemeTrackingFirstIndex;
   BOOL outerIgnores = WinUIThemeTrackingIgnoresRelease;
+  NSPoint outerStart = WinUIThemeTrackingStartPoint;
   NSTimer *escape = nil;
   BOOL result = NO;
 
@@ -320,6 +338,7 @@ WinUIThemeMenuIsOwnedByPopUp(NSMenu *menu)
     {
       WinUIThemeTrackingMenuView = menuView;
       WinUIThemeTrackingFirstIndex = WinUIThemeTrackingIndexForEvent(event);
+      WinUIThemeTrackingStartPoint = [NSEvent mouseLocation];
       WinUIThemeTrackingIgnoresRelease = YES;
     }
 
@@ -334,6 +353,7 @@ WinUIThemeMenuIsOwnedByPopUp(NSMenu *menu)
       WinUIThemeTrackingMenuView = outerView;
       WinUIThemeTrackingFirstIndex = outerIndex;
       WinUIThemeTrackingIgnoresRelease = outerIgnores;
+      WinUIThemeTrackingStartPoint = outerStart;
       [localException raise];
     }
   NS_ENDHANDLER
@@ -350,6 +370,7 @@ WinUIThemeMenuIsOwnedByPopUp(NSMenu *menu)
   WinUIThemeTrackingMenuView = outerView;
   WinUIThemeTrackingFirstIndex = outerIndex;
   WinUIThemeTrackingIgnoresRelease = outerIgnores;
+  WinUIThemeTrackingStartPoint = outerStart;
   return result;
 }
 

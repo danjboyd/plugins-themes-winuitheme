@@ -22,6 +22,8 @@ QuirkProbe_HEADER_FILES = \
 	QuirkProbe.h
 
 ADDITIONAL_LDFLAGS += -L/clang64/lib
+# GDI, for the checks that read the screen (mica-chrome)
+ADDITIONAL_GUI_LIBS += -lgdi32
 ADDITIONAL_OBJCFLAGS += -Wno-import
 
 include $(GNUSTEP_MAKEFILES)/application.make
