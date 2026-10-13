@@ -526,6 +526,8 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkHorizontalOnlyScroller;
 - (void) checkWindowTabs;
 - (void) checkClientCaption;
+- (void) checkDPIAwareness;
+- (void) checkToolTipScaled;
 - (void) checkFileDialogFilters;
 - (void) createLateWindow: (NSTimer *)timer;
 - (void) checkLateWindow: (NSTimer *)timer;
@@ -5825,6 +5827,78 @@ QuirkProbeHitTest(HWND hwnd, int x, int y)
   return SendMessageW(hwnd, WM_NCHITTEST, 0, MAKELPARAM(x, y));
 }
 
+/* Per-monitor DPI (#105): with the carried libs-back the theme makes the
+   process per-monitor DPI aware (GSBackDPIAware), so Windows doesn't
+   stretch it on a scaled display; the gui draws each window at its
+   screen's scale, as Windows gives it, and the theme draws in points. A
+   stock libs-back leaves the process DPI-unaware. */
+- (void) checkDPIAwareness
+{
+  GSDisplayServer *server = GSCurrentServer();
+  HMODULE user32 = GetModuleHandleW(L"user32.dll");
+  HMODULE shcore = LoadLibraryW(L"shcore.dll");
+  typedef HANDLE (WINAPI *ContextFunc)(void);
+  typedef int (WINAPI *AwarenessFunc)(HANDLE);
+  typedef HRESULT (WINAPI *MonitorDpiFunc)(HMONITOR, int, UINT *, UINT *);
+  ContextFunc threadContext = NULL;
+  AwarenessFunc awarenessOf = NULL;
+  MonitorDpiFunc monitorDpi = NULL;
+  NSWindow *window = [self windowWithFrame: NSMakeRect(220, 240, 200, 100)
+                                     title: @"QuirkProbe DPI"];
+  HMONITOR monitor;
+  UINT dpiX = 0, dpiY = 0;
+  int awareness = -1;
+  CGFloat expected, scale;
+  NSMutableArray *problems = [NSMutableArray array];
+
+  if ([server respondsToSelector: @selector(isPerMonitorDPIAware)] == NO)
+    {
+      [self skip: @"dpi-per-monitor-aware" detail: @"the backend is DPI-unaware (stock libs-back)"];
+      return;
+    }
+  if (user32 != NULL)
+    {
+      threadContext = (ContextFunc)GetProcAddress(user32, "GetThreadDpiAwarenessContext");
+      awarenessOf = (AwarenessFunc)GetProcAddress(user32, "GetAwarenessFromDpiAwarenessContext");
+    }
+  if (shcore != NULL)
+    {
+      monitorDpi = (MonitorDpiFunc)GetProcAddress(shcore, "GetDpiForMonitor");
+    }
+  if (threadContext == NULL || awarenessOf == NULL || monitorDpi == NULL)
+    {
+      [self skip: @"dpi-per-monitor-aware" detail: @"Windows before 10 1607"];
+      return;
+    }
+  [window orderFront: nil];
+  QuirkProbeDispatchEvents(0.2);
+  awareness = awarenessOf(threadContext());
+  /* DPI_AWARENESS_PER_MONITOR_AWARE */
+  if ([(id)server isPerMonitorDPIAware] == NO || awareness != 2)
+    {
+      [problems addObject: [NSString stringWithFormat: @"awareness %d, not per-monitor (2)", awareness]];
+    }
+  monitor = MonitorFromWindow((HWND)[window windowHandle], MONITOR_DEFAULTTONEAREST);
+  monitorDpi(monitor, 0, &dpiX, &dpiY);
+  expected = dpiY / 96.0;
+  scale = [window userSpaceScaleFactor];
+  if (dpiY == 0 || fabs(scale - expected) > 0.01)
+    {
+      [problems addObject: [NSString stringWithFormat: @"the window draws at %.2f, its monitor is at %.2f",
+                                                       scale, expected]];
+    }
+  [window orderOut: nil];
+  if ([problems count] == 0)
+    {
+      [self pass: @"dpi-per-monitor-aware"
+            detail: [NSString stringWithFormat: @"per-monitor aware, drawn at the monitor's %.2f", scale]];
+    }
+  else
+    {
+      [self fail: @"dpi-per-monitor-aware" detail: [problems componentsJoinedByString: @"; "]];
+    }
+}
+
 - (void) checkClientCaption
 {
   GSDisplayServer *server = GSCurrentServer();
@@ -7257,6 +7331,80 @@ QuirkProbeInkIn(NSBitmapImageRep *rep, NSRect area, NSInteger fill, NSInteger th
   [table setDataSource: nil];
   [outline setDataSource: nil];
   [outline setDelegate: nil];
+  [window orderOut: nil];
+}
+
+/* A tool tip on a scaled display (#105): the gui draws windows at the
+   screen's scale (GSScaleFactor here, the monitor's with a DPI-aware
+   backend), and libs-gui gives the tip's size in points as its frame,
+   which is in pixels. The padded tip still holds its text: its content,
+   in points, is the text and WinUI's padding. */
+- (void) checkToolTipScaled
+{
+  NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+  NSWindow *window = [self windowWithFrame: NSMakeRect(300, 400, 240, 100)
+                                     title: @"QuirkProbe Scaled Tip"];
+  NSView *anchor = [window contentView];
+  NSString *tip = @"Zoom: Fit to Window";
+  NSTimer *fake = [NSTimer timerWithTimeInterval: 1000 target: self selector: @selector(description)
+                                        userInfo: tip repeats: NO];
+  id tips = nil;
+  NSWindow *panel = nil;
+  NSEnumerator *enumerator;
+  NSWindow *each;
+
+  [window orderFront: nil];
+  [anchor setToolTip: tip];
+  tips = [NSClassFromString(@"GSToolTips") performSelector: @selector(tipsForView:) withObject: anchor];
+  if (tips == nil || [tips respondsToSelector: @selector(_timedOut:)] == NO)
+    {
+      [self skip: @"tooltip-scaled" detail: @"libs-gui's GSToolTips has no _timedOut:"];
+      [window orderOut: nil];
+      return;
+    }
+  [defaults setObject: @"1.25" forKey: @"GSScaleFactor"];
+  [tips performSelector: @selector(_timedOut:) withObject: fake];
+  enumerator = [[NSApp windows] objectEnumerator];
+  while ((each = [enumerator nextObject]) != nil)
+    {
+      if ([each isKindOfClass: NSClassFromString(@"GSTTPanel")] && [each isVisible])
+        {
+          panel = each;
+        }
+    }
+  if (panel == nil)
+    {
+      [self fail: @"tooltip-scaled" detail: @"no tool tip window appeared"];
+    }
+  else
+    {
+      NSAttributedString *text = [[panel contentView] valueForKey: @"text"];
+      NSSize textSize = [text size];
+      NSRect bounds = [[panel contentView] bounds];
+      CGFloat wantWidth = textSize.width + 18.0;
+      CGFloat wantHeight = textSize.height + 14.0;
+
+      if (NSWidth(bounds) >= wantWidth - 0.5 && NSHeight(bounds) >= wantHeight - 0.5
+          && NSWidth(bounds) <= wantWidth + 3.0)
+        {
+          [self pass: @"tooltip-scaled" detail: [NSString stringWithFormat:
+            @"a %.0fx%.0fpt tip (%.0fx%.0f px) round %.0fx%.0fpt of text at 1.25",
+            NSWidth(bounds), NSHeight(bounds), NSWidth([panel frame]), NSHeight([panel frame]),
+            textSize.width, textSize.height]];
+        }
+      else
+        {
+          [self fail: @"tooltip-scaled" detail: [NSString stringWithFormat:
+            @"a %.0fx%.0fpt tip at 1.25 for %.0fx%.0fpt of text and its padding: the text doesn't fit",
+            NSWidth(bounds), NSHeight(bounds), wantWidth, wantHeight]];
+        }
+    }
+  if ([tips respondsToSelector: @selector(_endDisplay)])
+    {
+      [tips performSelector: @selector(_endDisplay)];
+    }
+  [defaults removeObjectForKey: @"GSScaleFactor"];
+  [anchor setToolTip: nil];
   [window orderOut: nil];
 }
 
@@ -9392,11 +9540,13 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkListSelection];
   [self checkSelectedRowText];
   [self checkToolTip];
+  [self checkToolTipScaled];
   [self checkInspectorIndicators];
   [self checkSearchField];
   [self checkHorizontalOnlyScroller];
   [self checkWindowTabs];
   [self checkClientCaption];
+  [self checkDPIAwareness];
   [self checkPopUpClick];
   [self checkFileDialogFilters];
   [self checkScrollerStripNarrowsContent];

@@ -326,12 +326,34 @@ WinUIThemeReadRegistryDWORD(NSString *subkey,
   return (status == ERROR_SUCCESS && type == REG_DWORD);
 }
 
+/* The scale the theme draws at itself, as a DPI. In a DPI-aware process
+   (the carried libs-back with GSBackDPIAware, or an app's manifest)
+   gnustep-gui draws each window at its screen's scale, so the theme
+   draws in points: 96. A DPI-unaware process is told 96 by Windows, and
+   stretched. */
 static CGFloat
 WinUIThemeSystemDpi(void)
 {
   HMODULE user32 = LoadLibraryW(L"user32.dll");
   CGFloat dpi = 96.0;
 
+  if (user32 != NULL)
+    {
+      typedef HANDLE (WINAPI *WinUIThemeGetThreadContextFunc)(void);
+      typedef int (WINAPI *WinUIThemeGetAwarenessFunc)(HANDLE);
+      WinUIThemeGetThreadContextFunc getThreadContext = (WinUIThemeGetThreadContextFunc)
+        GetProcAddress(user32, "GetThreadDpiAwarenessContext");
+      WinUIThemeGetAwarenessFunc getAwareness = (WinUIThemeGetAwarenessFunc)
+        GetProcAddress(user32, "GetAwarenessFromDpiAwarenessContext");
+
+      /* DPI_AWARENESS_UNAWARE is 0 */
+      if (getThreadContext != NULL && getAwareness != NULL
+          && getAwareness(getThreadContext()) > 0)
+        {
+          FreeLibrary(user32);
+          return 96.0;
+        }
+    }
   if (user32 != NULL)
     {
       typedef UINT (WINAPI *WinUIThemeGetDpiForSystemFunc)(void);
