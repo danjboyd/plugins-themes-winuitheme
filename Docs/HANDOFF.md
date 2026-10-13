@@ -1,6 +1,6 @@
 # Handoff: Adwaita parity work
 
-State as of 2026-10-13 (morning), for picking the work up in a fresh session. The goal
+State as of 2026-10-13 (evening), for picking the work up in a fresh session. The goal
 (tracking issue #50): unmodified GNUstep apps look like first-rate WinUI 3
 apps under this theme, at parity with what the Adwaita theme
 (`C:\Users\Support\git\plugins-themes-Adwaita`) does for GNOME. The audit
@@ -13,6 +13,14 @@ in `Docs/IMPROVEMENTS.md`.
   (`AGENTS.md`).
 - **GitHub account:** `gh` as `danjboyd`. If several accounts are logged in,
   run `gh auth switch -u danjboyd` and check with `gh auth status`.
+- **libs-back changes are carried** (the owner's decision, 2026-10-13):
+  what the theme needs from libs-back goes on `danjboyd/libs-back`'s
+  `carry` branch now, released as an MSYS2 package (`carry-0.32.0.N`),
+  without waiting for GNUstep. Apps that use the theme ship it too
+  (README's "Requirements"). Each change is a topic branch on upstream
+  master first, cherry-picked (or hand-ported) onto `carry`; the theme
+  must still work on a stock libs-back. `packaging/README.md` on `carry`
+  lists what it carries.
 - **Upstream GNUstep patches** follow a formal process:
   1. Review GNUstep's official AI-contributed patch policy and follow it.
   2. Confirm the patch works with GCC, not just clang.
@@ -78,6 +86,11 @@ Phases A to J and these fixes are merged into `main`:
 | #110 | `toolbar-disabled-icon` | a disabled toolbar icon darkening when redrawn alone (ScreenshotTool's Redo at 1.5) |
 | #111 | `reference-fidelity` | measured against WinUI, more motion, the Win32 BOOL stack fix, #30, #67 |
 | #112 | `fidelity-bugs` | #92, #82, #102 |
+| #114 | `version-0.1.0-alpha3` | the third release, README's Requirements |
+| #115 | `popup-shadows` | #39 (menu, tool tip and flyout shadows), probe `-Backend` |
+| #116 | `per-monitor-dpi` | per-monitor DPI, tool tips at a scale (part of #105) |
+| #117 | `mica` | Mica through the chrome (part of #47) |
+| #118 | `title-bar-tabs` | #83 (window tabs in the title bar) |
 
 **Releases.** The owner approved the release process on 2026-10-08:
 - semver pre-release tags (`0.1.0-alphaN`);
@@ -87,12 +100,40 @@ Phases A to J and these fixes are merged into `main`:
 - a GitHub pre-release with the notes and the bundle zip built in CLANG64;
 - apps pin a tag, not `main`.
 
-**0.1.0-alpha2** is tag `0.1.0-alpha2` on `104b12e`, a GitHub pre-release
-with `WinUITheme-0.1.0-alpha2-msys2-clang64.zip`. **It has a stack overrun**
-(fixed in #111, `c2124c5`): reading Windows' "Animation effects" setting
-can stop an app with "stack smashing detected" once hover fades run.
-ThemeDemo built with alpha2 quit during real clicks. Cut 0.1.0-alpha3 soon,
-and move ObjcMarkdown's pin off alpha2.
+**0.1.0-alpha3** is tag `0.1.0-alpha3` on `f2aaa60` (the merge of #114),
+a GitHub pre-release with `WinUITheme-0.1.0-alpha3-msys2-clang64.zip`,
+tested with `carry-0.32.0.1`. It has alpha2's stack-overrun fix. #115-#118
+came after it: shadows, DPI, Mica and title-bar tabs are on `main` but in
+no release yet. ScreenshotTool's v0.1.1 MSI pins alpha3 with
+`carry-0.32.0.1` (checked by the ScreenshotTool session: upgrade from
+v0.1.0, launch, popover). ObjcMarkdown is still pinned to alpha1; move it
+to alpha3.
+
+**0.1.0-alpha2** is tag `0.1.0-alpha2` on `104b12e`. It has a stack overrun
+(reading Windows' "Animation effects" can stop an app once hover fades
+run); nothing should stay on it.
+
+**Carried libs-back releases** (`danjboyd/libs-back`, packages built by
+each tag's GitHub Actions run):
+
+| Tag | Adds | Topic branch |
+| --- | --- | --- |
+| `carry-0.32.0.1` | client-drawn captions (`GSBackClientDrawsCaptions`); clipboard images | `win32-client-caption`, `win32pbs-images` |
+| `carry-0.32.0.2` | `-setShadow::` for borderless windows (DWM shadow, Windows 11 rounding); `setmaxsize` no longer toggles the maximize box (#67) | `win32-popup-shadows`, `win32-setmaxsize` |
+| `carry-0.32.0.3` | per-monitor DPI awareness (`GSBackDPIAware`), each monitor's resolution, `WM_DPICHANGED` | `win32-per-monitor-dpi` |
+
+The three new topic branches were hand-ported to upstream master (it has
+moved on from 0.32 in `WIN32Server.m`) and **haven't been built there or
+with GCC**; only `carry` was built and tested. None is sent upstream.
+
+**Testing on the carried backend:** `Invoke-QuirkProbe.ps1 -Backend
+<bundle>` and `Invoke-ThemeDemoScript.ps1 -Backend <bundle>` copy a
+libs-back bundle (`C:\Users\Support\git\gnustep\libs-back-carry\Source\libgnustep-back-032.bundle`)
+into the test home's `GNUstep/Library/Bundles`, where gnustep-gui finds it
+before MSYS2's. MSYS2 itself still has the stock `gnustep-back 0.32.0`.
+Run every change on both backends. Worktrees beside `libs-back`:
+`libs-back-carry` (`carry`), `libs-back-setmaxsize`, `libs-back-shadows`,
+`libs-back-dpi`.
 
 **0.1.0-alpha1** is tag `0.1.0-alpha1` on `eb9f8b8`. ObjcMarkdown's MSI is
 pinned to it (its `packaging/manifests/windows-msi.manifest.json`); it was
@@ -138,7 +179,11 @@ It's off under Windows' "Animation effects", or the
   - snap with Win+arrow;
   - a real click on a new tab's close button (a posted one was ignored
     twice in six runs).
-- **Title-bar tabs** are #83, which needs libs-back work first.
+- **Title-bar tabs (#83, #118):** with the theme's caption the bar sits
+  in the caption row (`GSWindowTabBarInTitleBar`) after the icon, sized to
+  its tabs, with at least 48px left to drag by; the rows beside it are
+  drag regions. Every caption is 40px while tabs are on. A stock
+  libs-back keeps the bar above the content.
 
 **Upstream:** gnustep/libs-back#246 (posted 2026-10-08 after the owner's
 review; branch `win32pbs-images` on danjboyd/libs-back, rebased onto
@@ -184,31 +229,78 @@ app closes.
 
 | Area | Issues |
 | --- | --- |
-| Tracking | #105 remaining WinUI gaps (its checklist hasn't been ticked: motion, measured checks and #30/#67/#82/#92/#102 are done; see below); #50 Adwaita parity |
-| Windows | #72 tabs on by default (draft PR #97, phase 2 of the shared code, awaits the owner's review); #83 title-bar tabs |
+| Tracking | #105 remaining WinUI gaps (its checklist hasn't been ticked; done since it was written: hover and pressed fades, the switch knob, the checkbox tick, the menu slide, the alert fade, measured reference checks, per-monitor DPI); #50 Adwaita parity |
+| Windows | #72 tabs on by default (draft PR #97, phase 2 of the shared code, awaits the owner's review) |
 | Fidelity | #91 single-row chrome (`GSThemeToolbarInMenuBar`) |
-| System | #47 Mica (investigate, upstream) |
+| System | #47 Mica: implemented (#117), the blurred backdrop unchecked on a GPU |
 | Testing | #19 real-app backlog |
 
-**Suggested next five** (the owner decides):
+### WinUI 3 parity: what's left
 
-1. **0.1.0-alpha3**, for the stack-overrun fix and everything since
-   alpha2. Then repin ObjcMarkdown and tell the ScreenshotTool session.
-2. **Real clicks on menus.** Menus are now `WS_EX_NOACTIVATE` (#30). Check
-   with real input (owner's permission) that clicking a menu item, a pop-up's
-   item and a context menu item still chooses it, in ThemeDemo and ObjcMarkdown.
-3. **The rest of #105's motion:** list-row and menu-item hover fades, the
-   radio dot, the switch knob stretching while pressed, flyouts sliding from
-   the side they open on, the overlay scroll bar's rail, the indeterminate
-   ProgressBar and ProgressRing. Then tick #105's checklist.
-4. **Upstream libs-back:** `setmaxsize`'s XOR (#67; the theme works round
-   it) and, with the ScreenshotTool session, per-monitor DPI. Upstream
-   patches follow the formal process above.
-5. **#19 real-app pass** with real input: ObjcMarkdown, ScreenshotTool, Gorm,
-   TinyRetroPad. Also #72's hand checks, and #91 after ObjcMarkdown 0.2.2.
+The static look measures 0 out of tolerance against the WinUI 3
+reference app. What still separates an app from a first-rate WinUI app:
+
+1. **Unchecked on real hardware** (this VM has no GPU and one 100%
+   monitor): Mica's blur, DWM rounding and the new shadows, Snap, a
+   window moving between monitors at different scales, and 125%/150%
+   for real (only `GSScaleFactor` was used here).
+2. **Unchecked with real input:** clicks on menu items now that menus
+   are `WS_EX_NOACTIVATE` (#30), clicks and drags on title-bar tabs and
+   the drag strip beside them, the real-app pass (#19).
+3. **Motion still missing** (#105): list-row and menu-item hover fades,
+   the radio dot, the switch knob stretching while pressed, flyouts
+   sliding from their side, submenus, the scroll bar rail's transition,
+   the indeterminate ProgressBar and the ProgressRing, ContentDialog's
+   scale.
+4. **Controls still libs-gui's or unfinished:** the combo box list,
+   hover when the pointer is already inside, browser row hover, box
+   titles' size, the date picker's gaps, paused and error progress and
+   slider ticks (these need an API decision), text-size changes reaching
+   existing windows.
+5. **Chrome:** single-row chrome (#91); tabs on by default (#72).
+6. **Shipping:** an alpha with #115-#118, paired with `carry-0.32.0.3`;
+   upstreaming the carried changes.
+
+### Suggested next five (the owner decides)
+
+1. **A GPU and two-monitor check**, on real Windows 11 hardware or a GPU
+   VM: Mica, rounding and shadows, a window dragged between a 100% and a
+   150% monitor, ThemeDemo and ObjcMarkdown at 150%. Then cut
+   **0.1.0-alpha4** with `carry-0.32.0.3`, and close #47.
+2. **Real input** (owner's permission): menu items, pop-up and context
+   menus (#30), title-bar tabs and their drag strip, in ThemeDemo and
+   ObjcMarkdown.
+3. **The rest of #105's motion**, then tick #105's checklist.
+4. **The combo box's list** as WinUI's ComboBox dropdown, and hover for a
+   control that appears under the pointer.
+5. **Upstream:** build the three new topic branches on upstream master
+   with clang and GCC, then the owner's review before anything is posted.
+   Also move ObjcMarkdown's pin to alpha3.
 
 ### Known gaps in finished work
 
+- **Shadows (#39):** the carried backend gives a borderless window a
+  thick frame and a caption with `WM_NCCALCSIZE` returning 0, and extends
+  DWM's frame one pixel; on this VM the shadow shows, the rounding can't.
+  `CS_DROPSHADOW` draws nothing here. The theme asks from
+  `WinUIThemeWindowIntegrationMakePopup` and `...RoundPopupWindow`.
+- **DPI:** gnustep-gui scales through the decoration view's bounds;
+  window base coordinates are device pixels, so what a theme gives the
+  backend in base coordinates (caption regions) is already in pixels. At
+  `GSScaleFactor` 1.5 about 11 probe checks fail, nearly all because the
+  probe measures pixels 1:1; the real bug found that way (tool tips) is
+  fixed. `AdjustWindowRectEx` in `styleoffsets` uses the system DPI, so
+  frame offsets on a monitor at another scale may be a pixel off.
+  ThemeDemo's window is taller than this screen at 1.5x.
+- **Mica:** the probe turns it off (`WinUIThemeMica NO`) for every check
+  but `mica-chrome`, because the others measure ink against the chrome's
+  background, which is transparent under Mica. The theme's opaque blended
+  fills on the menu bar and toolbar (other than hover) are tuned for the
+  solid window colour.
+- **Title-bar tabs:** the drag regions are the rows either side of the
+  bar; the "+" sits right after the tabs because the bar is sized to them.
+  Tabs narrow to 40px, then run past the bar. Only `WM_NCHITTEST` was
+  checked, not real clicks or drags.
 - **Menus never take activation (#30), not checked with real clicks.**
   Windows delivers clicks to `WS_EX_NOACTIVATE` windows, and the probe's
   synthesized and pointer-moving checks pass. A real click on a menu item
@@ -233,21 +325,19 @@ app closes.
   (`-attachPopUpWithFrame:inView:`) and handling events left a later check
   waiting, in 2 of 3 full runs. Open lists with a click and a timer during
   tracking (`checkContrastPopUpSelection`).
-- **Menu and tool tip rounding and shadow (#39) are untested.** The theme
-  sets `DWMWA_WINDOW_CORNER_PREFERENCE`, but this machine is a VM with a
-  QXL display adapter and no GPU. Windows 11 rounds no windows here, the WinUI
-  reference app's included. libs-back creates every window `WS_EX_LAYERED`,
-  and its cairo build turns borderless windows into captionless
-  `WS_OVERLAPPED` windows rather than `WS_POPUP`. Either may stop DWM
-  rounding menus on real hardware. Check on Windows 11 with a GPU.
+- **Menu and tool tip rounding (#39) is untested on a GPU.** This VM
+  (QXL adapter) rounds no windows, the WinUI reference app's included.
+  The carried backend now frames them for DWM; check on Windows 11 with a
+  GPU.
 - **Combo box list:** the list that opens from a combo box is still
   libs-gui's.
 - **Live settings (#46):** checked by sending the theme's listener window
   ImmersiveColorSet with an accent override, not by changing Windows'
   settings, which would disturb the desktop. Toggle light/dark, the accent
   and a contrast theme by hand once. libs-back's windows are DPI-unaware, so
-  Windows sends no `WM_DPICHANGED`. After a text-size change only controls
-  made afterwards get the new fonts.
+  Windows sent them no `WM_DPICHANGED` (the carried backend is DPI aware
+  now). After a text-size change only controls made afterwards get the new
+  fonts.
 - **Hover when the pointer is already inside:** a tracking rect added under
   the pointer gets no entering, only the exit. Tables work round it from
   `-mouseMoved:`; buttons and scroll bars show their hover once the pointer
@@ -373,14 +463,17 @@ app closes.
   `GNUSTEP_CONFIG_FILE`, so Adwaita's private `GNUstep.conf` doesn't work
   here.
 - **Options:**
+  - `-Backend <bundle>` runs on another libs-back bundle (the carry build);
   - `-Pointer` runs the four checks that move the real pointer, which
     skip by default (`-NoPointer` is still accepted);
   - `-Configuration light,dark` picks configurations;
   - `-Theme <path>` checks another build;
   - `-OutputDirectory <dir>` saves renders.
-- **Coverage:** 137 checks in light, dark and the 150% configurations (139 in
-  the compact one), 4 of them moving the pointer. In high contrast and the
-  contrast themes some checks skip with a reason.
+- **Coverage:** about 185 checks a configuration: in light, 176 pass on
+  the carried backend (9 skip) and 170 on stock (15 skip: the caption,
+  shadow, DPI and title-bar tab checks need carry), 4 of them moving the
+  pointer. In high contrast and the contrast themes some checks skip
+  with a reason.
 - **ThemeDemo scripts:** `Tests/Scripts/Invoke-ThemeDemoScript.ps1 -Script
   FILE -OutputDirectory DIR` drives ThemeDemo with commands (#17, listed in
   `Examples/ThemeDemo/README.md`) for states the probe can't render: open
