@@ -5,7 +5,14 @@ Releases of the WinUI theme for GNUstep. Versions are semver pre-releases
 `GSThemeVersion` in `WinUIThemeInfo.plist`, and an annotated tag on `main`.
 Apps that bundle the theme should pin a tag, not `main`.
 
-## Unreleased
+## 0.1.0-alpha3 (2026-10-13)
+
+The fix for alpha2's stack overrun, measured agreement with WinUI 3's
+controls, more motion, and menus that never take the focus. Every app
+built with alpha2 should move to it. Requires gnustep-gui 0.32 or later.
+Tested with the carried libs-back `carry-0.32.0.1`
+(`danjboyd/libs-back`), which the title bar needs; see "Requirements" in
+`README.md`.
 
 **Measured against WinUI**
 - `Compare-Reference.ps1` finds no measurement out of tolerance in light
@@ -55,6 +62,31 @@ Apps that bundle the theme should pin a tag, not `main`.
   hover faded.
 - A push button no longer sets its title again each time it's drawn,
   which asked for another redraw every time.
+
+**Documentation**
+- `README.md` has a "Requirements" section: gnustep-gui 0.32, and the
+  carried libs-back, what needs it and what a stock libs-back does
+  instead.
+
+**Known issues**
+- **Motion:** no list-row or menu-item hover fades, radio dot, pressed
+  switch stretch, side-opening flyouts, scroll bar rail transition,
+  indeterminate ProgressBar or ProgressRing yet; alerts fade but don't
+  scale (#105).
+- **Menus** never take activation (#30); a real click on a menu item is
+  unchecked here, as only synthesized and pointer-moving checks ran.
+- **Windows:**
+  - The title bar needs the carried libs-back; a stock libs-back keeps
+    Windows' caption.
+  - libs-back's windows are DPI-unaware, so a window doesn't rescale on a
+    monitor with a different scale.
+  - No Mica backdrop (#47).
+  - Window tabs are off by default (#72), and not in the title bar (#83).
+- **Printing:** GNUstep's Windows printing sends PostScript, which most
+  printers can't read. `+[NSPageLayout pageLayout]` can't load its panel on
+  Windows with gui 0.32.
+- Menu and tool-tip rounding and shadows, and Snap, are unchecked on real
+  Windows 11 hardware with a GPU.
 
 ## 0.1.0-alpha2 (2026-10-12)
 

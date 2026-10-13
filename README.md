@@ -11,6 +11,33 @@ This repository is intentionally not trying to recreate the Windows Settings
 app shell or turn GNUstep into a XAML application framework. The visual target
 is WinUI 3 client-area parity with GNUstep structure intact.
 
+## Requirements
+
+- **gnustep-gui 0.32 or later.** 0.31 misreads the theme's override
+  names.
+- **The carried libs-back, for the full WinUI look.** Some of what a WinUI
+  app does on Windows needs changes in libs-back, GNUstep's Windows
+  backend, that GNUstep hasn't released yet. Until it has, they're carried
+  on [`danjboyd/libs-back`'s `carry` branch](https://github.com/danjboyd/libs-back/tree/carry)
+  and released as an MSYS2 package that replaces `gnustep-back`. Apps that
+  use this theme should build against it and ship it:
+
+  ```sh
+  # in a CLANG64 shell, from the carry release's assets
+  pacman -U mingw-w64-clang-x86_64-gnustep-back-0.32.0.N-1-any.pkg.tar.zst
+  ```
+
+  gnustep-packager's MSI workflow installs it from the release. Each theme
+  release names the `carry` release it was tested with in `CHANGELOG.md`.
+  What needs it, and what a stock libs-back does instead:
+
+  | Feature | With a stock libs-back |
+  | --- | --- |
+  | WinUI's title bar, drawn by the theme | Windows' caption, coloured to match |
+
+  Everything else in the theme works with a stock libs-back. Each change
+  is also sent to GNUstep, and leaves `carry` once GNUstep releases it.
+
 ## Current Status
 
 The repository now has the full phase 1-12 implementation scaffold in place:
