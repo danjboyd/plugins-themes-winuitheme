@@ -1,6 +1,6 @@
 # Handoff: Adwaita parity work
 
-State as of 2026-10-13 (evening), for picking the work up in a fresh session. The goal
+State as of 2026-10-13 (late evening), for picking the work up in a fresh session. The goal
 (tracking issue #50): unmodified GNUstep apps look like first-rate WinUI 3
 apps under this theme, at parity with what the Adwaita theme
 (`C:\Users\Support\git\plugins-themes-Adwaita`) does for GNOME. The audit
@@ -91,6 +91,8 @@ Phases A to J and these fixes are merged into `main`:
 | #116 | `per-monitor-dpi` | per-monitor DPI, tool tips at a scale (part of #105) |
 | #117 | `mica` | Mica through the chrome (part of #47) |
 | #118 | `title-bar-tabs` | #83 (window tabs in the title bar) |
+| #119 | `handoff-2026-10-13-pm` | this file |
+| #120 | `motion-rest` | real-input fixes (Mica's caption buttons, context menus staying open), the rest of #105's motion, hover under a still pointer, the combo box drop-down |
 
 **Releases.** The owner approved the release process on 2026-10-08:
 - semver pre-release tags (`0.1.0-alphaN`);
@@ -122,9 +124,22 @@ each tag's GitHub Actions run):
 | `carry-0.32.0.2` | `-setShadow::` for borderless windows (DWM shadow, Windows 11 rounding); `setmaxsize` no longer toggles the maximize box (#67) | `win32-popup-shadows`, `win32-setmaxsize` |
 | `carry-0.32.0.3` | per-monitor DPI awareness (`GSBackDPIAware`), each monitor's resolution, `WM_DPICHANGED` | `win32-per-monitor-dpi` |
 
-The three new topic branches were hand-ported to upstream master (it has
-moved on from 0.32 in `WIN32Server.m`) and **haven't been built there or
-with GCC**; only `carry` was built and tested. None is sent upstream.
+The three new topic branches are hand-ported to upstream master (it has
+moved on from 0.32 in `WIN32Server.m`) and **build there with clang and
+with GCC**. The GCC build is MinGW GCC 16 with GCC's own runtime
+(`gnu-gnu-gnu`): tools-make, libs-base and libs-gui master built into
+`C:\gsgcc` (53 MB, kept for later GCC checks; sources and logs in the
+2026-10-13 session's scratchpad, `gccgs`), then libs-back with
+`--enable-server=win32 --enable-graphics=cairo`. MSYS2's own GNUstep
+(clang64 and mingw64) is built on libobjc2, which GCC can't compile
+against, and WSL2 can't run on this VM. GCC found one real issue:
+`-resolutionForScreen:` called `-monitorHandleForScreen:` before any
+declaration, so GCC took it to return `id`. `dcced43` on
+`win32-per-monitor-dpi` (and `285c614` on `carry`) declares it in
+`WIN32Server.h`; **squash it into the DPI commit before posting**. The
+remaining warnings in the changed lines are the file's existing
+`(HWND)winNum` casts; the DPI branch now has master's 95 warnings. None
+is sent upstream; the owner reviews first.
 
 **Testing on the carried backend:** `Invoke-QuirkProbe.ps1 -Backend
 <bundle>` and `Invoke-ThemeDemoScript.ps1 -Backend <bundle>` copy a
@@ -238,44 +253,75 @@ app closes.
 ### WinUI 3 parity: what's left
 
 The static look measures 0 out of tolerance against the WinUI 3
-reference app. What still separates an app from a first-rate WinUI app:
+reference app, and #105's checklist is ticked for what's done (10 of 22).
+What still separates an app from a first-rate WinUI app:
 
 1. **Unchecked on real hardware** (this VM has no GPU and one 100%
    monitor): Mica's blur, DWM rounding and the new shadows, Snap, a
    window moving between monitors at different scales, and 125%/150%
    for real (only `GSScaleFactor` was used here).
-2. **Unchecked with real input:** clicks on menu items now that menus
-   are `WS_EX_NOACTIVATE` (#30), clicks and drags on title-bar tabs and
-   the drag strip beside them, the real-app pass (#19).
-3. **Motion still missing** (#105): list-row and menu-item hover fades,
-   the radio dot, the switch knob stretching while pressed, flyouts
-   sliding from their side, submenus, the scroll bar rail's transition,
-   the indeterminate ProgressBar and the ProgressRing, ContentDialog's
-   scale.
-4. **Controls still libs-gui's or unfinished:** the combo box list,
-   hover when the pointer is already inside, browser row hover, box
-   titles' size, the date picker's gaps, paused and error progress and
-   slider ticks (these need an API decision), text-size changes reaching
-   existing windows.
+2. **Motion still missing** (#105): ContentDialog's scale (a layered
+   window's alpha can't scale it).
+3. **Controls still unfinished:** browser row hover, box titles' size,
+   the date picker's gaps, paused and error progress and slider ticks
+   (these need an API decision), text-size changes reaching existing
+   windows, per-window metrics for nib windows; the combo list's
+   selected pill is grey (its window isn't key).
+4. **Real input not yet tried:** ScreenshotTool and Gorm (#19); context
+   menus flipping at the screen's edges.
 5. **Chrome:** single-row chrome (#91); tabs on by default (#72).
-6. **Shipping:** an alpha with #115-#118, paired with `carry-0.32.0.3`;
+6. **Shipping:** an alpha with #115-#120, paired with `carry-0.32.0.3`
+   (or a `carry-0.32.0.4` with `285c614`, which changes no behaviour);
    upstreaming the carried changes.
+
+### Real input (2026-10-13, owner's permission)
+
+`RealInput.psm1` and `Start-App.ps1` in the session's scratchpad (`real`)
+drive real clicks (SendInput) and start an app in a test home on the
+carried backend. Checked in ObjcMarkdown and ThemeDemo: menu bar items,
+pop-up choices, File > New opening a tab, tab clicks, dragging and
+double-clicking the strip beside the tabs, the restore button, context
+menus (Cut picked with a real click). The window keeps the focus after
+each menu choice (#30). Found and fixed in #120: Mica's doubled caption
+buttons, context menus closing on the opening release, the maximize
+button's stuck hover. A real right-click in ObjcMarkdown's editor shows
+no menu under GNUstep's own theme either (NeXT style closes on release);
+under WinUITheme it stays open.
+
+### OCI (2026-10-13)
+
+The owner allowed a temporary OCI VM, to be spun down after. The tenancy
+(`us-phoenix-1`) runs production VMs; test VMs go in the `OracleTestVMs`
+compartment (`oracletestvms-vcn`, public subnet; `oracletestvms-builder-nsg`
+allows SSH from this machine's IP). Two tries, both torn down the same
+day, with the NSG made for them:
+- An Ubuntu VM for the GCC build, terminated before use: the patches are
+  Windows-only, so the GCC build was done here instead (above).
+- A Windows Server 2025 VM for the DPI checks. The auto-mode classifier
+  blocked downloading a third-party virtual display driver (the only way
+  to a second monitor on an OCI VM) as untrusted code, and then blocked
+  WinRM with `-SkipCACheck` and Basic auth as weakening TLS. Both need the
+  owner's explicit permission (or a permission rule) before trying again.
+  The simpler route, suggested by the ScreenshotTool session: add a
+  second QXL display to this libvirt VM in virt-manager (VM shut down),
+  view it with remote-viewer, and set each monitor's scale from a script
+  in the console session (`DisplayConfigSetDeviceInfo`, type -4). That
+  session wants the same setup.
 
 ### Suggested next five (the owner decides)
 
-1. **A GPU and two-monitor check**, on real Windows 11 hardware or a GPU
-   VM: Mica, rounding and shadows, a window dragged between a 100% and a
-   150% monitor, ThemeDemo and ObjcMarkdown at 150%. Then cut
-   **0.1.0-alpha4** with `carry-0.32.0.3`, and close #47.
-2. **Real input** (owner's permission): menu items, pop-up and context
-   menus (#30), title-bar tabs and their drag strip, in ThemeDemo and
-   ObjcMarkdown.
-3. **The rest of #105's motion**, then tick #105's checklist.
-4. **The combo box's list** as WinUI's ComboBox dropdown, and hover for a
-   control that appears under the pointer.
-5. **Upstream:** build the three new topic branches on upstream master
-   with clang and GCC, then the owner's review before anything is posted.
-   Also move ObjcMarkdown's pin to alpha3.
+1. **Two monitors:** a second QXL display on this VM (owner, in
+   virt-manager), then drag ThemeDemo and ObjcMarkdown between a 100% and
+   a 150% monitor on the carried backend; or an OCI VM with the owner's
+   permission for the display driver and the WinRM settings.
+2. **0.1.0-alpha4** with #115-#120 and `carry-0.32.0.3` (or `.4`), once
+   the two-monitor check passes; tell the ScreenshotTool and Markdown
+   Viewer sessions.
+3. **Upstream:** squash `dcced43`, then the owner's review of the three
+   topic branches (and #246's FSF assignment question) before posting.
+4. **#19 real-app pass** with real input: ScreenshotTool and Gorm.
+5. **The rest of #105's controls:** browser row hover, box title size,
+   the date picker's gaps, text-size changes reaching existing windows.
 
 ### Known gaps in finished work
 
@@ -297,6 +343,20 @@ reference app. What still separates an app from a first-rate WinUI app:
   background, which is transparent under Mica. The theme's opaque blended
   fills on the menu bar and toolbar (other than hover) are tuned for the
   solid window colour.
+- **Context menus (#120):** the opening release is dropped while the
+  pointer stays within 2px of the press. The probe's real-click check
+  passes on the previous build too (its window doesn't put the menu
+  where ObjcMarkdown's did); the ObjcMarkdown runs are the evidence.
+- **Switches (#120):** they flip on a release over them, not on the
+  press; the theme runs its own tracking loop (10s timeout) in
+  `-[NSSwitch mouseDown:]`. Keyboard toggling is libs-gui's.
+- **Menu-item fades (#120):** checked in ObjcMarkdown only; the probe's
+  offscreen menu views don't redraw highlighted items through the theme.
+  `motion-row-hover-fades` is known at 150% (no hover fill in the probe
+  there, cause not found).
+- **Hover (#120):** a hover is dropped when the window's frame changed
+  since the pointer entered and Windows says the pointer isn't over the
+  view (`WindowFromPoint`).
 - **Title-bar tabs:** the drag regions are the rows either side of the
   bar; the "+" sits right after the tabs because the bar is sized to them.
   Tabs narrow to 40px, then run past the bar. Only `WM_NCHITTEST` was
