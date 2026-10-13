@@ -5,6 +5,21 @@ Releases of the WinUI theme for GNUstep. Versions are semver pre-releases
 `GSThemeVersion` in `WinUIThemeInfo.plist`, and an annotated tag on `main`.
 Apps that bundle the theme should pin a tag, not `main`.
 
+## Unreleased
+
+**Windows**
+- Menus, tool tips, pop-up lists, flyouts and the date picker's flyout
+  have Windows' shadow, with the carried libs-back (`carry-0.32.0.2`),
+  which gives a borderless window a frame for DWM's shadow when the gui
+  asks for one (`-setHasShadow:`); DWM also rounds them on Windows 11 with
+  a GPU. A stock libs-back ignores the request (#39). QuirkProbe
+  `menu-popup-shadow`.
+
+**Testing**
+- `Invoke-QuirkProbe.ps1 -Backend DIR` and `Invoke-ThemeDemoScript.ps1
+  -Backend DIR` run on a libs-back bundle of one's choosing, such as the
+  carry build, copied into the test home, without replacing MSYS2's.
+
 ## 0.1.0-alpha3 (2026-10-13)
 
 The fix for alpha2's stack overrun, measured agreement with WinUI 3's

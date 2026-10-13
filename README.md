@@ -34,6 +34,7 @@ is WinUI 3 client-area parity with GNUstep structure intact.
   | Feature | With a stock libs-back |
   | --- | --- |
   | WinUI's title bar, drawn by the theme | Windows' caption, coloured to match |
+  | Shadows on menus, tool tips and flyouts (and, on Windows 11 with a GPU, DWM's rounded corners on them) | No shadow; DWM may not round them |
 
   Everything else in the theme works with a stock libs-back. Each change
   is also sent to GNUstep, and leaves `carry` once GNUstep releases it.

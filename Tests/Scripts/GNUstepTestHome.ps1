@@ -12,6 +12,12 @@
 # is left alone: Windows' shell folders come from it, and with it moved
 # Fontconfig's SHGetFolderPathA calls fail. Processes started while the
 # test home is entered inherit it.
+#
+# Enter-GNUstepTestHome -Backend DIR copies a libs-back bundle (such as
+# danjboyd/libs-back's carry build, Source/libgnustep-back-032.bundle) into
+# the test home's Library/Bundles, where gnustep-gui finds it before the
+# installed one: the apps run on that backend, and the installed one is
+# left alone.
 
 # What the owner's NSGlobalDomain held when the checks were written, and
 # what they assume: no app icon window, Windows-style menus and the
@@ -35,10 +41,18 @@ $GNUstepTestGlobalDomain = @'
 </plist>
 '@
 
-function Enter-GNUstepTestHome {
+function Enter-GNUstepTestHome([string]$Backend) {
   $path = Join-Path ([System.IO.Path]::GetTempPath()) ("gnustep-test-home-" + [guid]::NewGuid())
   $defaults = Join-Path $path "GNUstep\Defaults"
   New-Item -ItemType Directory -Force -Path $defaults | Out-Null
+  if (-not [string]::IsNullOrWhiteSpace($Backend)) {
+    if (-not (Test-Path (Join-Path $Backend "Resources\Info-gnustep.plist"))) {
+      throw "Not a backend bundle: $Backend"
+    }
+    $bundles = Join-Path $path "GNUstep\Library\Bundles"
+    New-Item -ItemType Directory -Force -Path $bundles | Out-Null
+    Copy-Item -Recurse -Path $Backend -Destination (Join-Path $bundles (Split-Path -Leaf $Backend))
+  }
   Set-Content -Encoding UTF8 -Path (Join-Path $defaults "NSGlobalDomain.plist") -Value $GNUstepTestGlobalDomain
 
   $saved = @{ Path = $path; HOMEDRIVE = $env:HOMEDRIVE; HOMEPATH = $env:HOMEPATH; USERPROFILE = $env:USERPROFILE }
