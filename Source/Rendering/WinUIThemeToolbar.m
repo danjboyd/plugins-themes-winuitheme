@@ -19,11 +19,13 @@
 */
 
 #import "WinUIThemeDrawing.h"
+#import "../Native/WinUIThemeWindowIntegration.h"
 #import "../Settings/WinUIThemeSettings.h"
 #import "../Settings/WinUIThemeMetrics.h"
 
 #import <AppKit/AppKit.h>
 #import <GNUstepGUI/GSTheme.h>
+#import <GNUstepGUI/GSToolbarView.h>
 #import <objc/runtime.h>
 
 /* Toolbars as WinUI's CommandBar, after the Adwaita theme's toolbar
@@ -343,6 +345,29 @@ WinUIThemeToolbarApplyImage(NSButton *button, NSToolbarItem *item)
                               [[self settings] highContrastEnabled] ? 1.0 : 0.08);
 }
 
+/* Over Mica (#47) the toolbar leaves its background transparent, as the
+   title bar and menu bar do, keeping its hairline. */
+- (void) drawToolbarRect: (NSRect)aRect
+                   frame: (NSRect)viewFrame
+              borderMask: (unsigned int)borderMask
+{
+  if (WinUIThemeWindowShowsMica([[NSView focusView] window]) == NO)
+    {
+      [super drawToolbarRect: aRect frame: viewFrame borderMask: borderMask];
+      return;
+    }
+  NSRectFillUsingOperation(aRect, NSCompositeClear);
+  [[self toolbarBorderColor] set];
+  if (borderMask & GSToolbarViewBottomBorder)
+    {
+      NSRectFill(NSMakeRect(0.0, 0.0, NSWidth(viewFrame), 1.0));
+    }
+  if (borderMask & GSToolbarViewTopBorder)
+    {
+      NSRectFill(NSMakeRect(0.0, NSHeight(viewFrame) - 1.0, NSWidth(viewFrame), 1.0));
+    }
+}
+
 - (void) _overrideGSToolbarBackViewMethod_layout
 {
   typedef void (*LayoutIMP)(id, SEL);
@@ -591,8 +616,15 @@ WinUIThemeToolbarApplyImage(NSButton *button, NSToolbarItem *item)
   if ([theme isKindOfClass: [WinUITheme class]] && [toolbarItem toolbar] != nil
       && WinUIThemeToolbarItemIsSpace(toolbarItem) == NO)
     {
-      [[theme toolbarBackgroundColor] set];
-      NSRectFill(cellFrame);
+      if (WinUIThemeWindowShowsMica([controlView window]))
+        {
+          NSRectFillUsingOperation(cellFrame, NSCompositeClear);
+        }
+      else
+        {
+          [[theme toolbarBackgroundColor] set];
+          NSRectFill(cellFrame);
+        }
     }
 
   /* The button is the item's content, centred in its slot, and its image
@@ -617,10 +649,14 @@ WinUIThemeToolbarApplyImage(NSButton *button, NSToolbarItem *item)
           NSColor *background = [theme toolbarBackgroundColor];
           NSColor *textColor = WinUIThemeColorFromTheme(theme, @"labelColor", [NSColor controlTextColor]);
 
+          /* Over Mica the fill is WinUI's own, translucent. */
+          NSColor *fill = WinUIThemeWindowShowsMica([controlView window])
+            ? [textColor colorWithAlphaComponent: pressed ? 0.04 : 0.06]
+            : WinUIThemeBlendColor(background, textColor, pressed ? 0.04 : 0.06);
+
           WinUIThemeFillAndStrokeRoundedRect(buttonRect,
                                              [[theme metrics] controlCornerRadius],
-                                             WinUIThemeBlendColor(background, textColor,
-                                                                  pressed ? 0.04 : 0.06),
+                                             fill,
                                              nil,
                                              0.0);
         }

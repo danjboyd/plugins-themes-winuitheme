@@ -258,6 +258,18 @@ Windows draws it. With a stock libs-back, or with
 `defaults write NSGlobalDomain GSBackClientDrawsCaptions NO`, Windows
 keeps its own caption, coloured to match (#83).
 
+## Mica
+
+On Windows 11 (22H2 and later) a main or document window shows Windows'
+Mica backdrop, the desktop's colour blurred, through its title bar, menu
+bar and toolbar, as Windows 11's own apps do; the window's content keeps
+its solid background. The theme sets the window's system backdrop and
+leaves those rows transparent, so it works with a stock libs-back too
+(under Windows' own caption). Panels, dialogs and alerts have none, nor
+does a window in high contrast or with Windows' transparency effects
+off. An inactive window shows Mica's solid colour, as Windows draws it.
+`defaults write NSGlobalDomain WinUIThemeMica NO` turns it off.
+
 ## Motion
 
 WinUI eases between states, and so does the theme:

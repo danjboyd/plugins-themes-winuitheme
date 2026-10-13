@@ -402,7 +402,9 @@ WinUIThemeCaptionHasSystemMenu(NSWindow *window)
       NSColor *red = [NSColor colorWithCalibratedRed: 196.0 / 255.0 green: 43.0 / 255.0
                                                 blue: 28.0 / 255.0 alpha: 1.0];
 
-      fill = WinUIThemeBlendColor(WinUIThemeCaptionBackground(), red, _pressed ? 0.9 : hovered);
+      fill = WinUIThemeWindowShowsMica(window)
+        ? [red colorWithAlphaComponent: _pressed ? 0.9 : hovered]
+        : WinUIThemeBlendColor(WinUIThemeCaptionBackground(), red, _pressed ? 0.9 : hovered);
       glyph = _pressed ? [NSColor colorWithCalibratedWhite: 1.0 alpha: 0.7]
                        : WinUIThemeBlendColor(glyph, [NSColor whiteColor], hovered);
     }
@@ -412,8 +414,12 @@ WinUIThemeCaptionHasSystemMenu(NSWindow *window)
       BOOL dark = WinUIThemeCaptionDark();
       NSColor *ink = dark ? [NSColor whiteColor] : [NSColor blackColor];
 
-      fill = WinUIThemeBlendColor(WinUIThemeCaptionBackground(), ink,
-                                  _pressed ? (dark ? 0.042 : 0.024) : (dark ? 0.061 : 0.037) * hovered);
+      CGFloat amount = _pressed ? (dark ? 0.042 : 0.024) : (dark ? 0.061 : 0.037) * hovered;
+
+      /* Over Mica the fill is WinUI's own, translucent. */
+      fill = WinUIThemeWindowShowsMica(window)
+        ? [ink colorWithAlphaComponent: amount]
+        : WinUIThemeBlendColor(WinUIThemeCaptionBackground(), ink, amount);
       if (_pressed)
         {
           glyph = WinUIThemeBlendColor(WinUIThemeCaptionBackground(), glyph, 0.62);
@@ -535,8 +541,15 @@ WinUIThemeCaptionHasSystemMenu(NSWindow *window)
   NSImage *icon = [NSApp applicationIconImage];
   NSString *title = WinUIThemeDisplayTitle(window);
 
-  [WinUIThemeCaptionBackground() set];
-  NSRectFill([self bounds]);
+  if (WinUIThemeWindowShowsMica(window))
+    {
+      NSRectFillUsingOperation([self bounds], NSCompositeClear);
+    }
+  else
+    {
+      [WinUIThemeCaptionBackground() set];
+      NSRectFill([self bounds]);
+    }
 
   if (icon != nil && WinUIThemeCaptionHasSystemMenu(window))
     {

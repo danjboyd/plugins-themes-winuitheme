@@ -539,6 +539,87 @@ WinUIThemeSetDwmAttribute(HWND hwnd,
   setAttribute(hwnd, attribute, value, valueSize);
 }
 
+#ifndef DWMWA_SYSTEMBACKDROP_TYPE
+#define DWMWA_SYSTEMBACKDROP_TYPE 38
+#endif
+
+static char WinUIThemeMicaKey;
+
+/* Mica (#47): a WinUI app's window shows Windows' Mica backdrop, the
+   desktop's colour, blurred, through its title bar and the chrome below
+   it, as Windows 11's own apps do. Main and document windows only, not
+   panels, dialogs or alerts; not in high contrast or with transparency
+   effects off; WinUIThemeMica NO turns it off. */
+static BOOL
+WinUIThemeWindowWantsMica(NSWindow *window, WinUITheme *theme)
+{
+  NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+  WinUIThemeSettings *settings = [theme settings];
+
+  if ([defaults objectForKey: @"WinUIThemeMica"] != nil
+      && [defaults boolForKey: @"WinUIThemeMica"] == NO)
+    {
+      return NO;
+    }
+  if (settings == nil || [settings highContrastEnabled] || [settings reducedTransparencyEnabled])
+    {
+      return NO;
+    }
+  return (([window styleMask] & NSTitledWindowMask) != 0
+          && [window isKindOfClass: [NSPanel class]] == NO);
+}
+
+BOOL
+WinUIThemeWindowShowsMica(NSWindow *window)
+{
+  return (window != nil && objc_getAssociatedObject(window, &WinUIThemeMicaKey) != nil);
+}
+
+/* Windows draws Mica behind the window's client area where DWM's frame
+   reaches into it, through the pixels the app leaves transparent: the
+   theme leaves the title bar, menu bar and toolbar so, and fills the
+   rest. Windows before 11 22H2 has no system backdrop, and the window
+   stays as it was. */
+static void
+WinUIThemeApplyMica(NSWindow *window, HWND hwnd, BOOL wanted)
+{
+  typedef HRESULT (WINAPI *ExtendFrameFunc)(HWND, const MARGINS *);
+  static ExtendFrameFunc extendFrame = NULL;
+  static int looked = 0;
+  WinUIThemeDwmSetWindowAttributeFunc setAttribute = WinUIThemeDwmSetWindowAttributeProc();
+  MARGINS margins = {0, 0, 0, 0};
+  int type = wanted ? 2 : 1; /* DWMSBT_MAINWINDOW, DWMSBT_NONE */
+
+  if (looked == 0)
+    {
+      HMODULE module = LoadLibraryW(L"dwmapi.dll");
+
+      if (module != NULL)
+        {
+          extendFrame = (ExtendFrameFunc)GetProcAddress(module, "DwmExtendFrameIntoClientArea");
+        }
+      looked = 1;
+    }
+  if (hwnd == NULL || setAttribute == NULL || extendFrame == NULL
+      || wanted == WinUIThemeWindowShowsMica(window))
+    {
+      return;
+    }
+  if (FAILED(setAttribute(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, &type, sizeof(type))) && wanted)
+    {
+      return;
+    }
+  if (wanted)
+    {
+      margins.cxLeftWidth = margins.cxRightWidth = -1;
+      margins.cyTopHeight = margins.cyBottomHeight = -1;
+    }
+  extendFrame(hwnd, &margins);
+  objc_setAssociatedObject(window, &WinUIThemeMicaKey, wanted ? @"Mica" : nil,
+                           OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+  [[[window contentView] superview] setNeedsDisplay: YES];
+}
+
 static void
 WinUIThemeApplyWindowIdentity(NSWindow *window,
                               WinUITheme *theme,
@@ -575,6 +656,9 @@ WinUIThemeApplyWindowIdentity(NSWindow *window,
                             DWMWA_USE_IMMERSIVE_DARK_MODE,
                             &darkModeValue,
                             sizeof(darkModeValue));
+
+  WinUIThemeApplyMica(window, hwnd,
+                      restoreDefaults == NO && WinUIThemeWindowWantsMica(window, theme));
 
   if (restoreDefaults || highContrast)
     {
@@ -616,6 +700,11 @@ WinUIThemeApplyWindowIdentity(NSWindow *window,
                           @"windowFrameTextColor",
                           [NSColor windowFrameTextColor]));
 
+  /* Windows' own caption, with a stock libs-back, shows Mica too. */
+  if (WinUIThemeWindowShowsMica(window))
+    {
+      captionColor = DWMWA_COLOR_DEFAULT;
+    }
   WinUIThemeSetDwmAttribute(hwnd,
                             DWMWA_CAPTION_COLOR,
                             &captionColor,
