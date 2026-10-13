@@ -231,15 +231,22 @@ keeps its own caption, coloured to match (#83).
 
 ## Motion
 
-WinUI eases between states, and so does the theme: the pointer-over fills
-of buttons, pop-ups, combo boxes, checkboxes, radios, text boxes and the
-caption buttons fade in and out over WinUI's 83ms, and menus, tool tips
-and popover flyouts fade in over about 167ms as they open. Windows'
-"Animation effects" setting (Settings, Accessibility, Visual effects)
-turns it off, as it does in WinUI apps; `defaults write NSGlobalDomain
-WinUIThemeAnimations NO` (or `YES`) overrides it for GNUstep apps. Still
-to come: pressed states, the toggle switch, checkbox ticks, flyouts'
-slide and dialogs' entrance (#105).
+WinUI eases between states, and so does the theme:
+- the pointer-over and pressed fills of buttons, pop-ups, combo boxes,
+  checkboxes and radios, and the pointer-over fills of text boxes and the
+  caption buttons, fade in and out over WinUI's 83ms;
+- a toggle switch's knob slides across and its track cross-fades, and a
+  checkbox's tick draws in, over 167ms;
+- menus, tool tips and popover flyouts fade in over about 167ms as they
+  open, a menu bar's menus, context menus, pop-up lists and flyouts
+  sliding 8pt down into place; alerts fade in.
+
+Windows' "Animation effects" setting (Settings, Accessibility, Visual
+effects) turns it off, as it does in WinUI apps; `defaults write
+NSGlobalDomain WinUIThemeAnimations NO` (or `YES`) overrides it for
+GNUstep apps. Not done: a dialog's scale as it opens, which a layered
+window's alpha can't give, and high contrast's pressed buttons, which
+change at once with their titles.
 
 ## Window Tabs
 

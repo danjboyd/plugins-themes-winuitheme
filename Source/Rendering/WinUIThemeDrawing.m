@@ -852,12 +852,21 @@ WinUIThemeApplyButtonTitleAttributes(WinUITheme *theme,
                                nil];
   attributedTitle = [[[NSAttributedString alloc] initWithString: (title != nil ? title : @"")
                                                      attributes: attributes] autorelease];
-  [cell setAttributedTitle: attributedTitle];
+  /* Only when they change: the setters ask for the button to be drawn
+     again, and this runs each time it's drawn (#105's fades draw it every
+     frame). */
+  if ([[cell attributedTitle] isEqual: attributedTitle] == NO)
+    {
+      [cell setAttributedTitle: attributedTitle];
+    }
 
   attributedAlternateTitle = [[[NSAttributedString alloc]
     initWithString: ([alternateTitle length] > 0 ? alternateTitle : (title != nil ? title : @""))
        attributes: attributes] autorelease];
-  [cell setAttributedAlternateTitle: attributedAlternateTitle];
+  if ([[cell alternateTitle] isEqualToString: [attributedAlternateTitle string]] == NO)
+    {
+      [cell setAttributedAlternateTitle: attributedAlternateTitle];
+    }
 }
 
 void
@@ -1058,6 +1067,14 @@ WinUIThemeDrawChevron(NSPoint center, BOOL pointingUp, NSColor *color)
 void
 WinUIThemeDrawCheckmark(NSRect rect, NSColor *color)
 {
+  WinUIThemeDrawCheckmarkDrawnIn(rect, color, 1.0);
+}
+
+/* The tick drawn `amount` (0 to 1) of the way along its two strokes, as
+   WinUI's animated check glyph draws in. */
+void
+WinUIThemeDrawCheckmarkDrawnIn(NSRect rect, NSColor *color, CGFloat amount)
+{
   CGFloat size = MIN(rect.size.width, rect.size.height);
   NSBezierPath *path = [NSBezierPath bezierPath];
   CGFloat left = NSMinX(rect) + (size * 0.22);
@@ -1067,9 +1084,28 @@ WinUIThemeDrawCheckmark(NSRect rect, NSColor *color)
   CGFloat midY = NSMidY(rect) + (size * 0.10);
   CGFloat bottom = NSMaxY(rect) - (size * 0.24);
 
+  CGFloat first = hypot(midX - left, bottom - midY);
+  CGFloat second = hypot(right - midX, top - bottom);
+  CGFloat length = (first + second) * MIN(1.0, amount);
+
+  if (length <= 0.0)
+    {
+      return;
+    }
   [path moveToPoint: NSMakePoint(left, midY)];
-  [path lineToPoint: NSMakePoint(midX, bottom)];
-  [path lineToPoint: NSMakePoint(right, top)];
+  if (length < first)
+    {
+      [path lineToPoint: NSMakePoint(left + (midX - left) * length / first,
+                                     midY + (bottom - midY) * length / first)];
+    }
+  else
+    {
+      CGFloat along = (length - first) / second;
+
+      [path lineToPoint: NSMakePoint(midX, bottom)];
+      [path lineToPoint: NSMakePoint(midX + (right - midX) * along,
+                                     bottom + (top - bottom) * along)];
+    }
   [path setLineWidth: 2.0];
   [path setLineCapStyle: NSRoundLineCapStyle];
   [path setLineJoinStyle: NSRoundLineJoinStyle];
@@ -1306,9 +1342,12 @@ WinUIThemeDrawTextBoxChromeInState(WinUITheme *theme, NSRect frame, BOOL flipped
   else
     {
       NSColor *ink = dark ? [NSColor whiteColor] : [NSColor blackColor];
+      /* Over the window, not the fill (BackgroundSizing InnerBorderEdge). */
+      NSColor *window = WinUIThemeColorFromTheme(theme, @"windowBackgroundColor",
+                                                 [NSColor windowBackgroundColor]);
 
-      stroke = WinUIThemeBlendColor(fill, ink, dark ? 0.07 : 0.058);
-      bottom = enabled ? WinUIThemeBlendColor(fill, ink, dark ? 0.544 : 0.446) : stroke;
+      stroke = WinUIThemeBlendColor(window, ink, dark ? 0.07 : 0.058);
+      bottom = enabled ? WinUIThemeBlendColor(window, ink, dark ? 0.544 : 0.446) : stroke;
       if (focused)
         {
           bottom = accent;

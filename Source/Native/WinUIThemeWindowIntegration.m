@@ -1336,3 +1336,130 @@ WinUIThemeWindowIntegrationMakeFlyout(NSWindow *window, NSColor *borderColor)
   (void)borderColor;
 #endif
 }
+
+#ifdef _WIN32
+/* The window a popup or dialog belongs to: the main window, or the key
+   window, if it's another. */
+static HWND
+WinUIThemeOwnerHandleFor(NSWindow *window)
+{
+  NSWindow *owner = [NSApp mainWindow];
+
+  if (owner == nil || owner == window)
+    {
+      owner = [NSApp keyWindow];
+    }
+  if (owner == nil || owner == window)
+    {
+      return NULL;
+    }
+  return WinUIThemeWindowHandle(owner);
+}
+
+/* Sets `window`'s owner and extended style, once for each owner. */
+static void
+WinUIThemeOwnWindow(NSWindow *window, LONG_PTR addStyle, LONG_PTR removeStyle)
+{
+  static char WinUIThemeOwnedKey;
+  HWND hwnd = WinUIThemeWindowHandle(window);
+  HWND owner = NULL;
+  LONG_PTR exStyle = 0;
+  LONG_PTR wanted = 0;
+  NSString *request = nil;
+
+  if (hwnd == NULL)
+    {
+      return;
+    }
+  owner = WinUIThemeOwnerHandleFor(window);
+  exStyle = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+  wanted = (exStyle | addStyle) & ~removeStyle;
+  request = [NSString stringWithFormat: @"%p-%p-%lx", hwnd, owner, (unsigned long)wanted];
+  if ([request isEqualToString: objc_getAssociatedObject(window, &WinUIThemeOwnedKey)])
+    {
+      return;
+    }
+  if (wanted != exStyle)
+    {
+      SetWindowLongPtrW(hwnd, GWL_EXSTYLE, wanted);
+    }
+  if (owner != NULL && GetWindow(hwnd, GW_OWNER) != owner)
+    {
+      SetWindowLongPtrW(hwnd, GWLP_HWNDPARENT, (LONG_PTR)owner);
+    }
+  SetWindowPos(hwnd, NULL, 0, 0, 0, 0,
+               SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+  objc_setAssociatedObject(window, &WinUIThemeOwnedKey, request, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+#endif
+
+/* Menus and tool tips (#30). libs-back makes a borderless window a tool
+   window, out of the taskbar and Alt+Tab, but with no owner, so it could
+   fall behind the app's window, and activatable. Windows' own menus and
+   tool tips are owned and never activated: the window you were typing
+   in keeps the focus. GNUstep's menus track the keyboard through the key
+   window, so they don't need it. */
+void
+WinUIThemeWindowIntegrationMakePopup(NSWindow *window)
+{
+#ifdef _WIN32
+  WinUIThemeOwnWindow(window, WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, WS_EX_APPWINDOW);
+#else
+  (void)window;
+#endif
+}
+
+/* Alerts: owned by the main window, so they stay above it and minimize
+   with it, and kept out of the taskbar, as a Windows message box is.
+   libs-back gave them a taskbar button of their own. */
+void
+WinUIThemeWindowIntegrationOwnDialog(NSWindow *window)
+{
+#ifdef _WIN32
+  WinUIThemeOwnWindow(window, 0, WS_EX_APPWINDOW);
+#else
+  (void)window;
+#endif
+}
+
+void
+WinUIThemeWindowIntegrationFixCaptionBoxes(NSWindow *window)
+{
+#ifdef _WIN32
+  HWND hwnd = WinUIThemeWindowHandle(window);
+  NSUInteger mask = [window styleMask];
+  NSSize maximum = [window maxSize];
+  LONG_PTR style = 0;
+  LONG_PTR wanted = 0;
+
+  if (hwnd == NULL || (mask & NSTitledWindowMask) == 0)
+    {
+      return;
+    }
+  style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+  /* Only a window with a caption: libs-back draws none without. */
+  if ((style & WS_CAPTION) != WS_CAPTION)
+    {
+      return;
+    }
+  wanted = style & ~(WS_MAXIMIZEBOX | WS_MINIMIZEBOX);
+  /* As libs-back means it: a resizable window can maximize unless it has
+     a maximum size. */
+  if ((mask & NSResizableWindowMask) && maximum.width >= 10000 && maximum.height >= 10000)
+    {
+      wanted |= WS_MAXIMIZEBOX;
+    }
+  if (mask & NSMiniaturizableWindowMask)
+    {
+      wanted |= WS_MINIMIZEBOX;
+    }
+  if (wanted != style)
+    {
+      SetWindowLongPtrW(hwnd, GWL_STYLE, wanted);
+      SetWindowPos(hwnd, NULL, 0, 0, 0, 0,
+                   SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+    }
+#else
+  (void)window;
+#endif
+}

@@ -532,6 +532,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkWindowsTitles;
 - (void) checkMotion;
 - (void) checkPopoverFlyout;
+- (void) checkPopupWindows;
 - (void) checkMenuBarKeyboard: (NSWindow *)window;
 - (void) checkMenuBarOverflow: (NSWindow *)window;
 - (void) checkThemeSwitchRestoresMethods;
@@ -2359,7 +2360,11 @@ QuirkProbeBrightnessAt(NSBitmapImageRep *rep, CGFloat scale, CGFloat x, CGFloat 
 
 /* WinUI's Button (issues #38, #10, #35): a flat fill, without the gloss
    over its top half; 4pt corners; a title that doesn't move when pressed;
-   and a lighter fill under the pointer (only with -ProbeMovesPointer YES). */
+   and a lighter fill under the pointer (only with -ProbeMovesPointer YES).
+   As measured in WinUI 3 (Compare-Reference.ps1): the title centred; the
+   border ControlStrokeColorDefault and ...Secondary over the window, not
+   over the fill, with Secondary along the bottom in light and the top in
+   dark; and the window SolidBackgroundFillColorBase. */
 - (void) checkButtonChrome
 {
   NSWindow *window = [self windowWithFrame: NSMakeRect(420, 460, 300, 80)
@@ -2470,6 +2475,76 @@ QuirkProbeBrightnessAt(NSBitmapImageRep *rep, CGFloat scale, CGFloat x, CGFloat 
         }
     }
 
+  /* The title's ink centred top to bottom, as WinUI's is. "Button" has no
+     descenders, so its ink is its cap height. */
+  if (resting.count >= 20)
+    {
+      CGFloat low = ((resting.minY + resting.height / 2.0) - [rep pixelsHigh] / 2.0) / scale;
+
+      if (fabs(low) <= 1.0)
+        {
+          [self pass: @"button-title-centred" detail: [NSString stringWithFormat:
+            @"the title's ink is %.1f px from the button's centre", low]];
+        }
+      else
+        {
+          [self fail: @"button-title-centred" detail: [NSString stringWithFormat:
+            @"the title's ink is %.1f px below the button's centre", low]];
+        }
+    }
+
+  /* The border, its top and bottom middle, against Fluent's strokes over
+     the window. */
+  if (highContrast)
+    {
+      [self skip: @"button-stroke-over-window" detail: @"high contrast's border is ButtonText"];
+      [self skip: @"window-background-base" detail: @"high contrast's window is Window"];
+    }
+  else
+    {
+      BOOL dark = QuirkProbeHasArgument(@"--mode", @"dark");
+      NSColor *page = [[NSColor windowBackgroundColor] colorUsingColorSpaceName: NSCalibratedRGBColorSpace];
+      CGFloat base = dark ? 0x20 / 255.0 : 0xF3 / 255.0;
+      CGFloat ink = dark ? 1.0 : 0.0;
+      CGFloat topWeight = dark ? 0.094 : 0.058;
+      CGFloat bottomWeight = dark ? 0.07 : 0.16;
+      NSInteger expectTop = (NSInteger)round(255.0 * ([page redComponent] + (ink - [page redComponent]) * topWeight));
+      NSInteger expectBottom = (NSInteger)round(255.0 * ([page redComponent] + (ink - [page redComponent]) * bottomWeight));
+      NSUInteger red, green, blue;
+      NSInteger topRed, bottomRed;
+
+      rep = QuirkProbeRender(button);
+      QuirkProbePixel(rep, [rep pixelsWide] / 2, 0, &red, &green, &blue);
+      topRed = red;
+      QuirkProbePixel(rep, [rep pixelsWide] / 2, [rep pixelsHigh] - 1, &red, &green, &blue);
+      bottomRed = red;
+      if (llabs((long long)(topRed - expectTop)) <= 2 && llabs((long long)(bottomRed - expectBottom)) <= 2)
+        {
+          [self pass: @"button-stroke-over-window" detail: [NSString stringWithFormat:
+            @"the border is %ld at the top, %ld at the bottom", (long)topRed, (long)bottomRed]];
+        }
+      else
+        {
+          [self fail: @"button-stroke-over-window" detail: [NSString stringWithFormat:
+            @"the border is %ld at the top, %ld at the bottom; Fluent's over the window are %ld and %ld",
+            (long)topRed, (long)bottomRed, (long)expectTop, (long)expectBottom]];
+        }
+
+      if (fabs([page redComponent] - base) <= 1.5 / 255.0
+          && fabs([page greenComponent] - base) <= 1.5 / 255.0
+          && fabs([page blueComponent] - base) <= 1.5 / 255.0)
+        {
+          [self pass: @"window-background-base" detail: [NSString stringWithFormat:
+            @"the window is %@, SolidBackgroundFillColorBase", QuirkProbeHex(page)]];
+        }
+      else
+        {
+          [self fail: @"window-background-base" detail: [NSString stringWithFormat:
+            @"the window is %@; WinUI's page is %@", QuirkProbeHex(page),
+            QuirkProbeHex([NSColor colorWithCalibratedWhite: base alpha: 1.0])]];
+        }
+    }
+
   if ([[NSUserDefaults standardUserDefaults] boolForKey: @"ProbeMovesPointer"] == NO)
     {
       [self skip: @"button-hover" detail: @"moves the pointer: needs -ProbeMovesPointer YES"];
@@ -2545,8 +2620,9 @@ QuirkProbeColumnCount(NSBitmapImageRep *rep, QuirkProbePixelTest test,
 }
 
 /* WinUI's Slider (issue #41): a 4px track, the value part in the accent,
-   and a 20px thumb around an accent dot, 12px at rest and 10px pressed.
-   The theme drew a plain circle on a 6px bordered track. */
+   and a 22px thumb centred on it around an accent dot, 10px at rest and
+   8px pressed, as measured in WinUI 3 (Compare-Reference.ps1). The theme
+   drew a plain circle on a 6px bordered track. */
 - (void) checkSlider
 {
   NSWindow *window = [self windowWithFrame: NSMakeRect(420, 300, 280, 80)
@@ -2605,7 +2681,7 @@ QuirkProbeColumnCount(NSBitmapImageRep *rep, QuirkProbePixelTest test,
   [[slider cell] setHighlighted: NO];
   [slider display];
   if (QuirkProbeIsAccentBlue(red, green, blue)
-      && fabs(rest - 12.0 * desktop * scale) <= 2.0 && fabs(pressed - 10.0 * desktop * scale) <= 2.0)
+      && fabs(rest - 10.0 * desktop * scale) <= 1.0 && fabs(pressed - 8.0 * desktop * scale) <= 1.0)
     {
       [self pass: @"slider-thumb-dot" detail: [NSString stringWithFormat:
         @"an accent dot %lu px wide, %lu pressed", (unsigned long)rest, (unsigned long)pressed]];
@@ -2613,10 +2689,56 @@ QuirkProbeColumnCount(NSBitmapImageRep *rep, QuirkProbePixelTest test,
   else
     {
       [self fail: @"slider-thumb-dot" detail: [NSString stringWithFormat:
-        @"the thumb's centre is %lu,%lu,%lu; accent %lu px across, %lu pressed (expected 12 and 10)",
+        @"the thumb's centre is %lu,%lu,%lu; accent %lu px across, %lu pressed (expected 10 and 8)",
         (unsigned long)red, (unsigned long)green, (unsigned long)blue,
         (unsigned long)rest, (unsigned long)pressed]];
     }
+
+  /* The thumb, down its centre column against the window, and the value
+     part's accent band a quarter of the way along: WinUI's thumb is 22px
+     and centred on the track. */
+  {
+    NSInteger background, y, thumbTop = -1, thumbBottom = -1, trackTop = -1, trackBottom = -1;
+    NSInteger column = (NSInteger)(60 * scale);
+    CGFloat expected = round(22.0 * desktop) * scale;
+    CGFloat offset;
+
+    QuirkProbePixel(rep, centreX, 0, &red, &green, &blue);
+    background = red + green + blue;
+    for (y = 0; y < height; y++)
+      {
+        QuirkProbePixel(rep, centreX, y, &red, &green, &blue);
+        if (llabs((long long)(red + green + blue) - background) > 9)
+          {
+            if (thumbTop < 0) thumbTop = y;
+            thumbBottom = y;
+          }
+        QuirkProbePixel(rep, column, y, &red, &green, &blue);
+        if (QuirkProbeIsAccentBlue(red, green, blue))
+          {
+            if (trackTop < 0) trackTop = y;
+            trackBottom = y;
+          }
+      }
+    offset = (thumbTop + thumbBottom) / 2.0 - (trackTop + trackBottom) / 2.0;
+    if (expected + 2.0 > height)
+      {
+        [self skip: @"slider-thumb-size" detail: [NSString stringWithFormat:
+          @"a %.0f px thumb doesn't fit the probe's %ld px slider", expected, (long)height]];
+      }
+    else if (thumbTop >= 0 && trackTop >= 0
+        && fabs((thumbBottom - thumbTop + 1) - expected) <= 1.0 && fabs(offset) <= 0.5)
+      {
+        [self pass: @"slider-thumb-size" detail: [NSString stringWithFormat:
+          @"a %ld px thumb, centred on the track", (long)(thumbBottom - thumbTop + 1)]];
+      }
+    else
+      {
+        [self fail: @"slider-thumb-size" detail: [NSString stringWithFormat:
+          @"the thumb is %ld px (expected %.0f), %.1f px off the track's centre",
+          (long)(thumbBottom - thumbTop + 1), expected, offset]];
+      }
+  }
   [window orderOut: nil];
 }
 
@@ -7396,6 +7518,153 @@ QuirkProbeInkIn(NSBitmapImageRep *rep, NSRect area, NSInteger fill, NSInteger th
   [defaults removeObjectForKey: @"WinUIThemeOverlayScrollbars"];
 }
 
+/* Menus, alerts and dialogs as Windows has its own (#30, #67): a menu is
+   a tool window owned by the main window that never takes activation;
+   an alert is owned by the main window and has no taskbar button; and a
+   window's minimize and maximize boxes follow its style mask, which
+   libs-back's setmaxsize undid for a fixed-size dialog. */
+- (void) checkPopupWindows
+{
+  NSWindow *main = [self windowWithFrame: NSMakeRect(200, 260, 320, 160)
+                                   title: @"QuirkProbe Popups"];
+  NSMenu *parent = AUTORELEASE([[NSMenu alloc] initWithTitle: @"Popup Parent"]);
+  NSMenu *menu = AUTORELEASE([[NSMenu alloc] initWithTitle: @"Popup"]);
+  NSWindow *menuWindow = nil;
+  NSPanel *alert = nil;
+  NSWindow *fixed = nil;
+  NSWindow *sizable = nil;
+  HWND mainHandle = NULL;
+  HWND handle = NULL;
+  HWND activeBefore = NULL;
+  HWND activeAfter = NULL;
+  LONG_PTR exStyle = 0;
+  LONG_PTR style = 0;
+  NSMutableArray *problems = [NSMutableArray array];
+
+  [main makeKeyAndOrderFront: nil];
+  [main makeMainWindow];
+  QuirkProbeDispatchEvents(0.3);
+  mainHandle = (HWND)[main windowHandle];
+
+  [parent setSubmenu: menu forItem: [parent addItemWithTitle: @"Popup" action: NULL keyEquivalent: @""]];
+  [menu addItemWithTitle: @"First" action: NULL keyEquivalent: @""];
+  menuWindow = [[menu menuRepresentation] window];
+  if (menuWindow == nil)
+    {
+      [self skip: @"menu-popup-owned" detail: @"no window for the menu"];
+    }
+  else
+    {
+      activeBefore = GetActiveWindow();
+      [menuWindow setFrameTopLeftPoint: NSMakePoint(560, 420)];
+      [menuWindow orderFrontRegardless];
+      QuirkProbeDispatchEvents(0.3);
+      activeAfter = GetActiveWindow();
+      handle = (HWND)[menuWindow windowHandle];
+      exStyle = GetWindowLongPtrW(handle, GWL_EXSTYLE);
+      if ((exStyle & WS_EX_TOOLWINDOW) == 0 || (exStyle & WS_EX_NOACTIVATE) == 0 || (exStyle & WS_EX_APPWINDOW))
+        {
+          [problems addObject: [NSString stringWithFormat: @"extended style %lx", (unsigned long)exStyle]];
+        }
+      if (GetWindow(handle, GW_OWNER) != mainHandle)
+        {
+          [problems addObject: [NSString stringWithFormat: @"owner %p, not the main window %p",
+                                                           GetWindow(handle, GW_OWNER), mainHandle]];
+        }
+      if (activeAfter != activeBefore)
+        {
+          [problems addObject: [NSString stringWithFormat: @"the active window went from %p to %p",
+                                                           activeBefore, activeAfter]];
+        }
+      [menuWindow orderOut: nil];
+      if ([problems count] == 0)
+        {
+          [self pass: @"menu-popup-owned" detail: @"a tool window owned by the main window, never activated"];
+        }
+      else
+        {
+          [self fail: @"menu-popup-owned" detail: [problems componentsJoinedByString: @"; "]];
+        }
+    }
+
+  [problems removeAllObjects];
+  alert = NSGetAlertPanel(@"QuirkProbe Popups", @"An owned alert.", @"OK", nil, nil);
+  [alert orderFront: nil];
+  QuirkProbeDispatchEvents(0.2);
+  handle = (HWND)[alert windowHandle];
+  exStyle = GetWindowLongPtrW(handle, GWL_EXSTYLE);
+  if (exStyle & WS_EX_APPWINDOW)
+    {
+      [problems addObject: @"it has a taskbar button (WS_EX_APPWINDOW)"];
+    }
+  if (GetWindow(handle, GW_OWNER) != mainHandle)
+    {
+      [problems addObject: [NSString stringWithFormat: @"owner %p, not the main window %p",
+                                                       GetWindow(handle, GW_OWNER), mainHandle]];
+    }
+  [alert orderOut: nil];
+  NSReleaseAlertPanel(alert);
+  if ([problems count] == 0)
+    {
+      [self pass: @"alert-owned" detail: @"owned by the main window, no taskbar button"];
+    }
+  else
+    {
+      [self fail: @"alert-owned" detail: [problems componentsJoinedByString: @"; "]];
+    }
+
+  [problems removeAllObjects];
+  fixed = AUTORELEASE([[NSWindow alloc] initWithContentRect: NSMakeRect(200, 460, 240, 100)
+                                                  styleMask: NSTitledWindowMask | NSClosableWindowMask
+                                                    backing: NSBackingStoreBuffered
+                                                      defer: NO]);
+  sizable = AUTORELEASE([[NSWindow alloc] initWithContentRect: NSMakeRect(460, 460, 240, 100)
+                                                    styleMask: NSTitledWindowMask | NSClosableWindowMask
+                                                               | NSResizableWindowMask | NSMiniaturizableWindowMask
+                                                      backing: NSBackingStoreBuffered
+                                                        defer: NO]);
+  [fixed setReleasedWhenClosed: NO];
+  [sizable setReleasedWhenClosed: NO];
+  [fixed orderFront: nil];
+  [sizable orderFront: nil];
+  QuirkProbeDispatchEvents(0.2);
+  style = GetWindowLongPtrW((HWND)[fixed windowHandle], GWL_STYLE);
+  if (style & (WS_MAXIMIZEBOX | WS_MINIMIZEBOX))
+    {
+      [problems addObject: [NSString stringWithFormat: @"a fixed dialog has%@%@",
+                                      (style & WS_MINIMIZEBOX) ? @" minimize" : @"",
+                                      (style & WS_MAXIMIZEBOX) ? @" maximize" : @""]];
+    }
+  style = GetWindowLongPtrW((HWND)[sizable windowHandle], GWL_STYLE);
+  if ((style & WS_MAXIMIZEBOX) == 0 || (style & WS_MINIMIZEBOX) == 0)
+    {
+      [problems addObject: @"a resizable window lacks minimize or maximize"];
+    }
+  [sizable setMaxSize: NSMakeSize(600, 400)];
+  style = GetWindowLongPtrW((HWND)[sizable windowHandle], GWL_STYLE);
+  if ((style & WS_MAXIMIZEBOX) || (style & WS_MINIMIZEBOX) == 0)
+    {
+      [problems addObject: @"with a maximum size, a resizable window keeps maximize or loses minimize"];
+    }
+  [sizable setMaxSize: NSMakeSize(10000, 10000)];
+  style = GetWindowLongPtrW((HWND)[sizable windowHandle], GWL_STYLE);
+  if ((style & WS_MAXIMIZEBOX) == 0)
+    {
+      [problems addObject: @"without a maximum size again, maximize doesn't come back"];
+    }
+  [fixed orderOut: nil];
+  [sizable orderOut: nil];
+  if ([problems count] == 0)
+    {
+      [self pass: @"dialog-caption-boxes" detail: @"minimize and maximize follow the style mask and maximum size"];
+    }
+  else
+    {
+      [self fail: @"dialog-caption-boxes" detail: [problems componentsJoinedByString: @"; "]];
+    }
+  [main orderOut: nil];
+}
+
 /* Popover panels as WinUI flyouts (ScreenshotTool #67): a panel whose
    class adopts GSThemePopoverPanel gets the flyout fill (an app's
    STFloatingPopoverWindow leaves its background clear for the theme), is a
@@ -7983,11 +8252,62 @@ QuirkProbeSendHover(NSView *view, BOOL entered)
     }
 }
 
+static void
+QuirkProbePress(NSView *view, BOOL pressed)
+{
+  [(NSButton *)view highlight: pressed];
+}
+
+static void
+QuirkProbeCheck(NSView *view, BOOL checked)
+{
+  [(NSButton *)view setState: checked ? NSOnState : NSOffState];
+}
+
+/* A state change as it's drawn at once, and 300ms later, each against the
+   new state drawn with animations off: the first is on its way, the last
+   has arrived. The new state is drawn as the animation's frames are, from
+   -setNeedsDisplay:, since libs-gui's redraw of a view marked for display
+   can draw a rounded control's antialiased corners a shade darker than
+   -display does. */
+static BOOL
+QuirkProbeAnimates(NSView *view, void (*change)(NSView *, BOOL), NSString **detail)
+{
+  NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+  NSBitmapImageRep *target = nil;
+  NSUInteger start, end;
+
+  /* Settled first: the window becoming key, say, mustn't count. */
+  QuirkProbeDispatchEvents(0.2);
+  [defaults setBool: NO forKey: @"WinUIThemeAnimations"];
+  change(view, YES);
+  [view setNeedsDisplay: YES];
+  QuirkProbeDispatchEvents(0.1);
+  target = QuirkProbeRender(view);
+  change(view, NO);
+  [view display];
+  [defaults setBool: YES forKey: @"WinUIThemeAnimations"];
+  change(view, YES);
+  [view display];
+  start = QuirkProbeDifferingPixels(QuirkProbeRender(view), target);
+  QuirkProbeDispatchEvents(0.3);
+  end = QuirkProbeDifferingPixels(QuirkProbeRender(view), target);
+  [defaults setBool: NO forKey: @"WinUIThemeAnimations"];
+  change(view, NO);
+  [view display];
+  [defaults setBool: YES forKey: @"WinUIThemeAnimations"];
+  *detail = [NSString stringWithFormat: @"%lu px from the new state as it changes, %lu after 300ms",
+                                        (unsigned long)start, (unsigned long)end];
+  return start >= 40 && end <= 2;
+}
+
 /* Motion (#105): a button's pointer-over fill fades in over WinUI's 83ms
    rather than jumping, and the theme's clock redraws it until it arrives;
    with animations off (Windows' "Animation effects", here the
    WinUIThemeAnimations default) it's at once. Menus and flyouts fade in
-   as they open. */
+   as they open, a flyout sliding down into place, and alerts fade in. A
+   pressed button's fill fades too, a switch's knob slides across, and a
+   checkbox's tick draws in. */
 - (void) checkMotion
 {
   NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
@@ -8004,6 +8324,12 @@ QuirkProbeSendHover(NSView *view, BOOL entered)
   BOOL menuShown = NO;
   CGFloat flyoutOpening = -1.0, flyoutOpen = -1.0, flyoutInstant = -1.0;
   CGFloat menuOpening = -1.0, menuOpen = -1.0;
+  CGFloat flyoutTarget = 0.0, flyoutStart = 0.0, flyoutEnd = 0.0;
+  NSPanel *alert = nil;
+  CGFloat alertOpening = -1.0, alertOpen = -1.0;
+  NSSwitch *toggle = nil;
+  NSButton *checkbox = nil;
+  NSString *detail = nil;
 
   if (NSClassFromString(@"WinUIThemeHoverTracker") == Nil)
     {
@@ -8050,6 +8376,46 @@ QuirkProbeSendHover(NSView *view, BOOL entered)
         @"fill %ld at rest, %ld as the pointer enters, %ld after 300ms, %ld leaving with animations off",
         (long)rest, (long)start, (long)settled, (long)instant]];
     }
+
+  [window makeFirstResponder: window];
+  if (QuirkProbeHasArgument(@"--high-contrast", nil))
+    {
+      [self skip: @"motion-press-fades" detail: @"high contrast's pressed button changes at once, with its title"];
+    }
+  else if (QuirkProbeAnimates(button, QuirkProbePress, &detail))
+    {
+      [self pass: @"motion-press-fades" detail: detail];
+    }
+  else
+    {
+      [self fail: @"motion-press-fades" detail: detail];
+    }
+
+  toggle = AUTORELEASE([[NSSwitch alloc] initWithFrame: NSMakeRect(160, 26, 40, 20)]);
+  [[window contentView] addSubview: toggle];
+  [toggle display];
+  if (QuirkProbeAnimates(toggle, QuirkProbeCheck, &detail))
+    {
+      [self pass: @"motion-switch-slides" detail: detail];
+    }
+  else
+    {
+      [self fail: @"motion-switch-slides" detail: detail];
+    }
+
+  checkbox = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(220, 26, 60, 20)]);
+  [checkbox setButtonType: NSSwitchButton];
+  [checkbox setTitle: @""];
+  [[window contentView] addSubview: checkbox];
+  [checkbox display];
+  if (QuirkProbeAnimates(checkbox, QuirkProbeCheck, &detail))
+    {
+      [self pass: @"motion-check-draws-in" detail: detail];
+    }
+  else
+    {
+      [self fail: @"motion-check-draws-in" detail: detail];
+    }
   [window orderOut: nil];
 
   /* A flyout panel and a menu as they open, and 300ms later. */
@@ -8057,10 +8423,13 @@ QuirkProbeSendHover(NSView *view, BOOL entered)
                                                                 styleMask: NSBorderlessWindowMask
                                                                   backing: NSBackingStoreBuffered
                                                                     defer: NO]);
+  flyoutTarget = NSMinY([flyout frame]);
   [flyout orderFront: nil];
   flyoutOpening = [flyout alphaValue];
+  flyoutStart = NSMinY([flyout frame]);
   QuirkProbeDispatchEvents(0.3);
   flyoutOpen = [flyout alphaValue];
+  flyoutEnd = NSMinY([flyout frame]);
   [flyout orderOut: nil];
   [defaults setBool: NO forKey: @"WinUIThemeAnimations"];
   [flyout orderFront: nil];
@@ -8086,7 +8455,40 @@ QuirkProbeSendHover(NSView *view, BOOL entered)
       menuOpen = [menuWindow alphaValue];
       [menuWindow orderOut: nil];
     }
-  [defaults removeObjectForKey: @"WinUIThemeAnimations"];
+
+  alert = NSGetAlertPanel(@"QuirkProbe Motion", @"An alert fading in.", @"OK", nil, nil);
+  if (alert != nil)
+    {
+      [alert orderFront: nil];
+      alertOpening = [alert alphaValue];
+      QuirkProbeDispatchEvents(0.3);
+      alertOpen = [alert alphaValue];
+      [alert orderOut: nil];
+      NSReleaseAlertPanel(alert);
+    }
+  [defaults setBool: NO forKey: @"WinUIThemeAnimations"];
+
+  if (flyoutStart > flyoutTarget && flyoutEnd == flyoutTarget)
+    {
+      [self pass: @"motion-flyout-slides" detail: [NSString stringWithFormat:
+        @"the flyout opens %.0f px above its place and settles there", flyoutStart - flyoutTarget]];
+    }
+  else
+    {
+      [self fail: @"motion-flyout-slides" detail: [NSString stringWithFormat:
+        @"the flyout's bottom is %.0f, %.0f opening and %.0f after 300ms",
+        flyoutTarget, flyoutStart, flyoutEnd]];
+    }
+  if (alertOpening >= 0.0 && alertOpening < 0.5 && alertOpen == 1.0)
+    {
+      [self pass: @"motion-dialog-fades-in" detail: [NSString stringWithFormat:
+        @"an alert's alpha is %.2f opening, %.2f open", alertOpening, alertOpen]];
+    }
+  else
+    {
+      [self fail: @"motion-dialog-fades-in" detail: [NSString stringWithFormat:
+        @"an alert's alpha is %.2f opening, %.2f open", alertOpening, alertOpen]];
+    }
 
   if (flyoutOpening < 0.5 && flyoutOpen == 1.0 && flyoutInstant == 1.0
       && menuShown && menuOpening < 0.5 && menuOpen == 1.0)
@@ -8605,6 +9007,10 @@ QuirkProbeFilterPatterns(NSArray *filters)
   printf("THEME %s\n", [[[[GSTheme theme] bundle] bundlePath] UTF8String] ?: "(default)");
   fflush(stdout);
 
+  /* The checks render each state as it's set, so without motion (#105);
+     checkMotion turns it on for its own checks. */
+  [[NSUserDefaults standardUserDefaults] setBool: NO forKey: @"WinUIThemeAnimations"];
+
   /* The native dialogs at run time, alone: Tests/Scripts/Invoke-DialogCheck.ps1
      runs them, with a driver for Windows 11's print dialog. They show real
      dialogs and don't depend on the palette, so the other runs leave them. */
@@ -8678,6 +9084,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkWindowsTitles];
   [self checkMotion];
   [self checkPopoverFlyout];
+  [self checkPopupWindows];
   [self after: QuirkProbeSettleDelay perform: @selector(createLateWindow:)];
 }
 

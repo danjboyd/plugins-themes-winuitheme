@@ -104,7 +104,8 @@ WinUIThemeRGB(CGFloat red, CGFloat green, CGFloat blue)
   else
     {
       controlColor = WinUIThemeRGB(243, 243, 243);
-      windowBackground = WinUIThemeRGB(249, 249, 249);
+      /* SolidBackgroundFillColorBase: a WinUI window's page, without Mica. */
+      windowBackground = WinUIThemeRGB(243, 243, 243);
       controlBackground = WinUIThemeRGB(255, 255, 255);
       surfaceColor = WinUIThemeRGB(250, 250, 251);
       menuBarBackground = WinUIThemeRGB(246, 246, 246);

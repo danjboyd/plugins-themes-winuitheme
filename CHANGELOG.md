@@ -5,6 +5,46 @@ Releases of the WinUI theme for GNUstep. Versions are semver pre-releases
 `GSThemeVersion` in `WinUIThemeInfo.plist`, and an annotated tag on `main`.
 Apps that bundle the theme should pin a tag, not `main`.
 
+## Unreleased
+
+**Measured against WinUI**
+- `Compare-Reference.ps1` finds no measurement out of tolerance in light
+  or dark (#105):
+  - The light window is SolidBackgroundFillColorBase, #F3F3F3, a WinUI
+    window's page; it was #F9F9F9.
+  - Button, combo box and text box borders lie over the window, not the
+    control's fill, as WinUI's do; in dark mode the lighter edge is the
+    top.
+  - Button titles sit in the middle; they were 2px low.
+  - The slider thumb is 22px and centred on the track, around a 10px dot
+    (14px under the pointer, 8px pressed).
+
+**Motion** (#105)
+- Pressed fills fade in and out over 83ms, as hover fills do: buttons,
+  pop-ups, combo boxes, checkboxes and radios.
+- A toggle switch's knob slides across and its track cross-fades; a
+  checkbox's tick draws in (167ms).
+- A menu bar's menus, context menus, pop-up lists and flyouts slide 8pt
+  down into place as they fade in; alerts fade in.
+
+**Windows**
+- Menus and tool tips are owned by the app's main window and are never
+  activated, so the window you were typing in keeps the focus; alerts are
+  owned by it and have no taskbar button of their own, as a Windows
+  message box hasn't (#30).
+- A dialog or panel that can't be resized has no maximize button: libs-
+  back's `setmaxsize` toggled it on. Minimize and maximize follow the
+  window's style mask and maximum size (#67).
+
+**Fixes**
+- A disabled toolbar item's icon stays dimmed when its button redraws on
+  its own; it darkened until it looked enabled (#110).
+- Reading Windows' "Animation effects" setting overran the stack by three
+  bytes, which could stop an app with "stack smashing detected" when a
+  hover faded.
+- A push button no longer sets its title again each time it's drawn,
+  which asked for another redraw every time.
+
 ## 0.1.0-alpha2 (2026-10-12)
 
 Menu bar keyboard access, Windows' print and page setup dialogs, popover

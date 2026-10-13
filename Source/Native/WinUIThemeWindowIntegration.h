@@ -49,4 +49,15 @@ NSString *WinUIThemeDisplayTitle(NSWindow *window);
    window and kept out of the taskbar and Alt+Tab (#30). */
 void WinUIThemeWindowIntegrationMakeFlyout(NSWindow *window, NSColor *borderColor);
 
+/* Menus and tool tips (#30): owned by the app's main window, tool windows
+   that are never activated. Alerts: owned by it, out of the taskbar, as a
+   Windows message box is. */
+void WinUIThemeWindowIntegrationMakePopup(NSWindow *window);
+void WinUIThemeWindowIntegrationOwnDialog(NSWindow *window);
+
+/* A titled window's minimize and maximize boxes as its style mask has
+   them (#67): libs-back's setmaxsize toggles the maximize box with XOR,
+   so a fixed-size dialog got one. */
+void WinUIThemeWindowIntegrationFixCaptionBoxes(NSWindow *window);
+
 #endif
