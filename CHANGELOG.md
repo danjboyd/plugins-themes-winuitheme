@@ -8,6 +8,11 @@ Apps that bundle the theme should pin a tag, not `main`.
 ## Unreleased
 
 **Windows**
+- **Mica with the theme's title bar:** DWM drew its own caption buttons
+  over the theme's (doubled glyphs), because the frame reached into the
+  client area from the top; it now reaches in from the bottom. Found with
+  real input in ObjcMarkdown. QuirkProbe `mica-chrome` compares the close
+  button's ink on the screen with and without Mica.
 - Menus, tool tips, pop-up lists, flyouts and the date picker's flyout
   have Windows' shadow, with the carried libs-back (`carry-0.32.0.2`),
   which gives a borderless window a frame for DWM's shadow when the gui

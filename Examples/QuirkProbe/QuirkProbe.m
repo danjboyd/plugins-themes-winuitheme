@@ -5828,6 +5828,57 @@ QuirkProbeHitTest(HWND hwnd, int x, int y)
   return SendMessageW(hwnd, WM_NCHITTEST, 0, MAKELPARAM(x, y));
 }
 
+/* The pixels of ink in a window's close button (its last 46x32pt of the
+   caption row) as the screen shows it: the ones unlike the button's
+   corner. */
+static NSUInteger
+QuirkProbeCloseButtonInkOnScreen(HWND hwnd)
+{
+  CGFloat desktop = QuirkProbeDesktopScale();
+  int width = (int)round(46.0 * desktop);
+  int height = (int)round(32.0 * desktop);
+  RECT client;
+  POINT origin = {0, 0};
+  HDC screen, memory;
+  HBITMAP bitmap;
+  BITMAPINFO info;
+  unsigned char *bits = NULL;
+  NSUInteger ink = 0;
+  int corner, x, y;
+
+  GetClientRect(hwnd, &client);
+  ClientToScreen(hwnd, &origin);
+  memset(&info, 0, sizeof(info));
+  info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+  info.bmiHeader.biWidth = width;
+  info.bmiHeader.biHeight = -height;
+  info.bmiHeader.biPlanes = 1;
+  info.bmiHeader.biBitCount = 32;
+  screen = GetDC(NULL);
+  memory = CreateCompatibleDC(screen);
+  bitmap = CreateDIBSection(screen, &info, DIB_RGB_COLORS, (void **)&bits, NULL, 0);
+  SelectObject(memory, bitmap);
+  BitBlt(memory, 0, 0, width, height, screen, origin.x + client.right - width, origin.y,
+         SRCCOPY | CAPTUREBLT);
+  corner = bits[0] + bits[1] + bits[2];
+  for (y = 0; y < height; y++)
+    {
+      for (x = 0; x < width; x++)
+        {
+          unsigned char *pixel = bits + 4 * (y * width + x);
+
+          if (abs(pixel[0] + pixel[1] + pixel[2] - corner) > 150)
+            {
+              ink++;
+            }
+        }
+    }
+  DeleteObject(bitmap);
+  DeleteDC(memory);
+  ReleaseDC(NULL, screen);
+  return ink;
+}
+
 /* Mica (#47): a main window shows Windows' Mica backdrop (from 11 22H2)
    through its title bar, menu bar and toolbar, which leave their pixels
    transparent; its content stays opaque. Panels don't. */
@@ -5916,6 +5967,37 @@ QuirkProbeHitTest(HWND hwnd, int x, int y)
                                                            [content alphaComponent]]];
         }
     }
+  /* With the theme's caption, DWM's frame reaches into the client area
+     from the bottom: reaching in from the top, DWM drew its own caption
+     buttons over the theme's. On the screen, the close button shows as
+     much ink as on a window without Mica, not twice as much. */
+  {
+    GSDisplayServer *server = GSCurrentServer();
+
+    if ([server respondsToSelector: @selector(clientDrawsCaptions)] && [server clientDrawsCaptions])
+      {
+        NSWindow *plain;
+        NSUInteger withMica, without;
+
+        [window makeKeyAndOrderFront: nil];
+        [frameView display];
+        QuirkProbeDispatchEvents(0.5);
+        withMica = QuirkProbeCloseButtonInkOnScreen((HWND)[window windowHandle]);
+        [[NSUserDefaults standardUserDefaults] setBool: NO forKey: @"WinUIThemeMica"];
+        plain = [self windowWithFrame: NSMakeRect(240, 260, 320, 200) title: @"QuirkProbe No Mica"];
+        [plain makeKeyAndOrderFront: nil];
+        [plain display];
+        QuirkProbeDispatchEvents(0.5);
+        without = QuirkProbeCloseButtonInkOnScreen((HWND)[plain windowHandle]);
+        [plain orderOut: nil];
+        if (without == 0 || withMica > without * 3 / 2 + 4)
+          {
+            [problems addObject: [NSString stringWithFormat:
+              @"the close button shows %lu pixels of ink on the screen, %lu without Mica: DWM's buttons too?",
+              (unsigned long)withMica, (unsigned long)without]];
+          }
+      }
+  }
   [window setMenu: nil];
   [window orderOut: nil];
   [panel orderOut: nil];

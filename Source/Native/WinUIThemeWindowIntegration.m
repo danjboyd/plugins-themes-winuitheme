@@ -611,8 +611,10 @@ WinUIThemeApplyMica(NSWindow *window, HWND hwnd, BOOL wanted)
     }
   if (wanted)
     {
-      margins.cxLeftWidth = margins.cxRightWidth = -1;
-      margins.cyTopHeight = margins.cyBottomHeight = -1;
+      /* Over the whole client area, reaching in from the bottom edge:
+         reaching in from the top (as -1 margins do), DWM draws its own
+         caption buttons in the frame over the theme's caption. */
+      margins.cyBottomHeight = 30000;
     }
   extendFrame(hwnd, &margins);
   objc_setAssociatedObject(window, &WinUIThemeMicaKey, wanted ? @"Mica" : nil,
