@@ -1,6 +1,6 @@
 # Handoff: Adwaita parity work
 
-State as of 2026-10-08 (evening), for picking the work up in a fresh session. The goal
+State as of 2026-10-13 (morning), for picking the work up in a fresh session. The goal
 (tracking issue #50): unmodified GNUstep apps look like first-rate WinUI 3
 apps under this theme, at parity with what the Adwaita theme
 (`C:\Users\Support\git\plugins-themes-Adwaita`) does for GNOME. The audit
@@ -26,6 +26,21 @@ in `Docs/IMPROVEMENTS.md`.
   - The trailer `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 - **PR bodies** end with `🤖 Generated with [Claude Code](https://claude.com/claude-code)`.
 - **Pushing and opening PRs** wait until the owner asks.
+- **Stacked branches:** never `gh pr merge --delete-branch` on a branch that
+  other PRs are based on. GitHub closes them, and reopening them needs the
+  owner. Merge without deleting, then retarget.
+- **Real input** (SendInput clicks and keys) is blocked by this session's
+  permission check unless the owner allows it. Probe checks that move the
+  pointer (`-Pointer`) are allowed. Synthesized NSEvents don't go through
+  Windows' input queue, so they don't stand in for real clicks.
+- **Sharing the desktop:** the "ScreenshotTool Windows" Claude session
+  works on the same desktop. It asks before taking it, and so should we
+  (SendMessage). A window or system error dialog of its own over the probe
+  makes pointer checks fail or a configuration time out; rerun once the
+  desktop is clear.
+- **Escapes in scripts:** bash heredocs here turn `\n` into a real
+  newline. Write scripts with the Write tool, or build escapes in Python
+  with `chr(92)`. Sources are CRLF.
 
 ## Where things stand
 
@@ -48,6 +63,21 @@ Phases A to J and these fixes are merged into `main`:
 | #85 | `window-tabs-off-by-default` | window tabs behind `WinUIThemeWindowTabs` (#72) |
 | #88 | `fix-overlay-scrollers-autohide` | #87 |
 | #90 | `version-0.1.0-alpha1` | the first release |
+| #93 | `adwaita-parity-phase-k` | #80, #81, #76, #86, #89, #74, #75, part of #72 |
+| #94, #96 | window tabbing fixes, tool tip colours | part of #72, #95 |
+| #98 | `test-isolation` | QuirkProbe in its own home, `-Pointer` opt-in |
+| #99 | `menu-bar-keyboard` | #78, #77 |
+| #100 | `native-dialogs` | #69, #20, page setup |
+| #101 | `popover-flyouts` | popover panels as flyouts (part of #30) |
+| #103 | `hc-scroller-tiling` | #103 |
+| #104 | `client-caption` | the theme's own title bar (needs the libs-back carry build) |
+| #106 | `windows-titles` | #33, #79 |
+| #107 | `motion` | the motion clock, hover fades, opening fades (part of #105) |
+| #108 | `reference-specimens` | `Compare-Reference.ps1` and the specimens page (part of #105) |
+| #109 | `version-0.1.0-alpha2` | the second release |
+| #110 | `toolbar-disabled-icon` | a disabled toolbar icon darkening when redrawn alone (ScreenshotTool's Redo at 1.5) |
+| #111 | `reference-fidelity` | measured against WinUI, more motion, the Win32 BOOL stack fix, #30, #67 |
+| #112 | `fidelity-bugs` | #92, #82, #102 |
 
 **Releases.** The owner approved the release process on 2026-10-08:
 - semver pre-release tags (`0.1.0-alphaN`);
@@ -57,16 +87,33 @@ Phases A to J and these fixes are merged into `main`:
 - a GitHub pre-release with the notes and the bundle zip built in CLANG64;
 - apps pin a tag, not `main`.
 
+**0.1.0-alpha2** is tag `0.1.0-alpha2` on `104b12e`, a GitHub pre-release
+with `WinUITheme-0.1.0-alpha2-msys2-clang64.zip`. **It has a stack overrun**
+(fixed in #111, `c2124c5`): reading Windows' "Animation effects" setting
+can stop an app with "stack smashing detected" once hover fades run.
+ThemeDemo built with alpha2 quit during real clicks. Cut 0.1.0-alpha3 soon,
+and move ObjcMarkdown's pin off alpha2.
+
 **0.1.0-alpha1** is tag `0.1.0-alpha1` on `eb9f8b8`. ObjcMarkdown's MSI is
 pinned to it (its `packaging/manifests/windows-msi.manifest.json`); it was
 pinned at `48d21f0`, from April, before.
 
-Phase K, on `adwaita-parity-phase-k` from `main` (`eb9f8b8`): #80 and #81
-(Gorm's inspectors), #76 (file dialog filters), #86 and #89 (ScreenshotTool's
-cell sizes and toolbar images), #74 and #75 (browser titles, split
-dividers), the window tabs redone on the reviewed shared code (part of #72),
-and `Docs/ADWAITA_PARITY_MATRIX.md`, the Adwaita session's comparison and
-proposed order.
+**Measured against WinUI (#108, #111).** `Tests/Scripts/Compare-Reference.ps1`
+captures the WinUI 3 reference app's specimens page and ThemeDemo's, and
+measures sizes, fills, strokes and text. Light and dark: 0 out of tolerance
+on `main`. The light window is #F3F3F3 (it was #F9F9F9, changed on the
+owner's go-ahead to do all five items; one line in `WinUIThemePalette.m`).
+
+**Motion (#105).** One clock in `Source/Rendering/WinUIThemeMotion.m`:
+- hover and pressed fills fade (83ms);
+- a switch's knob slides and a checkbox's tick draws in (167ms);
+- menus, tool tips and flyouts fade in; a menu bar's menus, context menus,
+  pop-up lists and flyouts also slide 8pt down into place;
+- alerts fade in.
+
+It's off under Windows' "Animation effects", or the
+`WinUIThemeAnimations` default. QuirkProbe turns it off for every check but
+`checkMotion`'s.
 
 **Window tabs (#72):**
 - **Shared code:** danjboyd/gnustep-window-tabbing at `4cb1b63`, the commit
@@ -137,29 +184,55 @@ app closes.
 
 | Area | Issues |
 | --- | --- |
-| ObjcMarkdown 0.2.2 | #78 menu keyboard access (a must-fix); #33 window titles ("README.md - Markdown Viewer", an edited marker, CFBundleDisplayName); #92 Redo as Ctrl+Y (lower) |
-| Windows | #69 print panel drops PrintDlgW's choices; #20 native dialogs at run time; #77 menu bar overflow; #79 alert captions; #30 popup windows' owner and styles; #67 dialogs get a maximize button (libs-back); #72 tabs on by default (#83 title-bar tabs) |
-| Fidelity | #82 pop-up selection in high contrast; #91 single-row chrome (`GSThemeToolbarInMenuBar`, after ObjcMarkdown 0.2.2) |
+| Tracking | #105 remaining WinUI gaps (its checklist hasn't been ticked: motion, measured checks and #30/#67/#82/#92/#102 are done; see below); #50 Adwaita parity |
+| Windows | #72 tabs on by default (draft PR #97, phase 2 of the shared code, awaits the owner's review); #83 title-bar tabs |
+| Fidelity | #91 single-row chrome (`GSThemeToolbarInMenuBar`) |
 | System | #47 Mica (investigate, upstream) |
-| Testing | #19 real-app backlog (menus, tool tips and hover in the apps need the real pointer) |
+| Testing | #19 real-app backlog |
 
-**Suggested next five** (the parity matrix's order; the owner decides):
+**Suggested next five** (the owner decides):
 
-1. **Test isolation:** run QuirkProbe with scratch GNUstep defaults (a
-   private `GNUstep.conf`; Adwaita's `run-quirk-probe.sh`, `5131af2`). Make
-   the checks that move the real pointer opt-in.
-2. **#78 menu keyboard access**, with #77's overflow: Alt, F10 and
-   Alt+letter, arrows, Enter and Esc. It's an ObjcMarkdown 0.2.2 blocker.
-   The model for overflow is Adwaita's #25.
-3. **#33 window titles** (ObjcMarkdown 0.2.2).
-4. **#69 print and #20 dialogs:** the model is Adwaita's
-   `GnomeThemePrintDialog.m` and its check-print-dialog.
-5. **Release 0.1.0-alpha2** once phase K and these land; then the matrix's
-   parity items (measured reference checks, #30, per-window nib metrics,
-   the README gallery).
+1. **0.1.0-alpha3**, for the stack-overrun fix and everything since
+   alpha2. Then repin ObjcMarkdown and tell the ScreenshotTool session.
+2. **Real clicks on menus.** Menus are now `WS_EX_NOACTIVATE` (#30). Check
+   with real input (owner's permission) that clicking a menu item, a pop-up's
+   item and a context menu item still chooses it, in ThemeDemo and ObjcMarkdown.
+3. **The rest of #105's motion:** list-row and menu-item hover fades, the
+   radio dot, the switch knob stretching while pressed, flyouts sliding from
+   the side they open on, the overlay scroll bar's rail, the indeterminate
+   ProgressBar and ProgressRing. Then tick #105's checklist.
+4. **Upstream libs-back:** `setmaxsize`'s XOR (#67; the theme works round
+   it) and, with the ScreenshotTool session, per-monitor DPI. Upstream
+   patches follow the formal process above.
+5. **#19 real-app pass** with real input: ObjcMarkdown, ScreenshotTool, Gorm,
+   TinyRetroPad. Also #72's hand checks, and #91 after ObjcMarkdown 0.2.2.
 
 ### Known gaps in finished work
 
+- **Menus never take activation (#30), not checked with real clicks.**
+  Windows delivers clicks to `WS_EX_NOACTIVATE` windows, and the probe's
+  synthesized and pointer-moving checks pass. A real click on a menu item
+  hasn't been tried: the session's permission check blocked SendInput.
+- **Motion's limits:** WinUI's ContentDialog also scales as it opens; a
+  layered window's alpha can't, so alerts only fade. High contrast's pressed
+  buttons change at once, with their titles. Only menus from the bar,
+  context menus, pop-up lists and flyouts slide; a submenu doesn't, so it
+  opens beside its menu where that menu will settle.
+- **A rounded control redrawn from `-setNeedsDisplay:`** has its antialiased
+  corners a shade darker than `-display` gives: libs-gui draws it a second
+  time over itself. It doesn't grow, and isn't visible, but a probe check
+  comparing renders must draw both the same way (`QuirkProbeAnimates`).
+- **libs-back's `setmaxsize`** still XORs the maximize box; the theme sets
+  both boxes again after `-setMaxSize:` (#67). A window whose style changes
+  some other way isn't corrected.
+- **Placeholder while focused (#102)** only for TextBoxes (fields the theme
+  fills). The field editor's clip view stops drawing its background once a
+  field with a placeholder has been edited; the editor draws its own for
+  fields without one.
+- **The probe opening menus:** opening a pop-up's list outside a click
+  (`-attachPopUpWithFrame:inView:`) and handling events left a later check
+  waiting, in 2 of 3 full runs. Open lists with a click and a timer during
+  tracking (`checkContrastPopUpSelection`).
 - **Menu and tool tip rounding and shadow (#39) are untested.** The theme
   sets `DWMWA_WINDOW_CORNER_PREFERENCE`, but this machine is a VM with a
   QXL display adapter and no GPU. Windows 11 rounds no windows here, the WinUI
