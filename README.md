@@ -37,6 +37,7 @@ is WinUI 3 client-area parity with GNUstep structure intact.
   | Shadows on menus, tool tips and flyouts (and, on Windows 11 with a GPU, DWM's rounded corners on them) | No shadow; DWM may not round them |
   | Window tabs in the title bar (`WinUIThemeWindowTabs`) | The tab bar in its own row above the content |
   | Sharp at 125%, 150% and other display scales, and rescaled when moved to a monitor with another scale (per-monitor DPI awareness, `GSBackDPIAware`) | Windows stretches the app's windows on a scaled display, so text and lines are blurred |
+  | On a second monitor of another size or scale, menus and pop-up lists drawn at that monitor's scale, and windows there finding their screen (`carry-0.32.0.4`) | One scale for every monitor, the primary's, stretched by Windows |
 
   Everything else in the theme works with a stock libs-back. Each change
   is also sent to GNUstep, and leaves `carry` once GNUstep releases it.

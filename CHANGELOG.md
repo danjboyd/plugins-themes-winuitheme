@@ -5,7 +5,16 @@ Releases of the WinUI theme for GNUstep. Versions are semver pre-releases
 `GSThemeVersion` in `WinUIThemeInfo.plist`, and an annotated tag on `main`.
 Apps that bundle the theme should pin a tag, not `main`.
 
-## Unreleased
+## 0.1.0-alpha4 (2026-10-14)
+
+Shadows, per-monitor DPI, Mica and title-bar tabs (which came after
+alpha3), the rest of #105's motion and controls, the date picker's gaps,
+context menus at the screen's edges, and fixes for scaled displays and a
+second monitor found on two-monitor VMs at 125% and 150%. Requires
+gnustep-gui 0.32 or later. Tested with the carried libs-back
+`carry-0.32.0.4` (`danjboyd/libs-back`), which the title bar, shadows,
+per-monitor DPI and the second-monitor fixes need; see "Requirements" in
+`README.md`. Apps on alpha3 should move to it with `carry-0.32.0.4`.
 
 **Motion** (#105)
 - A radio's dot grows in as it's checked and shrinks away as another
@@ -154,6 +163,26 @@ Apps that bundle the theme should pin a tag, not `main`.
 - `Invoke-QuirkProbe.ps1 -Backend DIR` and `Invoke-ThemeDemoScript.ps1
   -Backend DIR` run on a libs-back bundle of one's choosing, such as the
   carry build, copied into the test home, without replacing MSYS2's.
+- Checked on temporary OCI Windows Server 2025 VMs with two monitors
+  (1920x1080 at 150% and 1280x800 at 125%): drags and Win+Shift+Arrow
+  between them rescale windows sharply; the caption, menus, pop-up
+  lists, combo lists, date flyouts, tool tips and text views are right
+  on both.
+
+**Known issues**
+- **A second monitor:** the first menu shown after launch can have a
+  dark strip on its right until it opens again; a pop-up list on a
+  monitor at another scale from the one it last opened on is narrower
+  than its button; a window grows by a few pixels each time it moves to
+  another monitor and back.
+- **Minimum and maximum sizes** an app gives in points
+  (`-setMinSize:`) are taken as pixels on a scaled display, as
+  gnustep-gui treats frame sizes; `-setContentMinSize:` is scaled.
+- **Motion:** alerts fade but don't scale as WinUI's ContentDialog does.
+- **Unchecked on a GPU:** Mica's blur, and DWM's rounding of menus, tool
+  tips and flyouts.
+- Window tabs stay off by default (#72); paused and error progress and
+  slider tick marks wait on an API decision.
 
 ## 0.1.0-alpha3 (2026-10-13)
 
