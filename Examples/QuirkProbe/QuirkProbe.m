@@ -523,6 +523,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkTableDefaults;
 - (void) checkLiveSettings;
 - (void) checkLiveTextSize;
+- (void) checkContextMenuEdges;
 - (void) checkIndicators;
 - (void) checkMenuFlyout;
 - (void) checkOverlayScrollers;
@@ -5651,6 +5652,65 @@ QuirkProbeFindListener(HWND hwnd, LPARAM found)
 #endif
 }
 
+/* A context menu at the pointer: its top-left corner there, and near the
+   screen's bottom right corner flipped to open up and to the left of the
+   pointer, on the screen, as Windows' menus do (#105). libs-gui put the
+   top-left corner at the pointer wherever that was, so the menu ran off
+   the screen. -displayTransient places it from the real pointer. */
+- (void) checkContextMenuEdges
+{
+  NSMenu *menu = nil;
+  NSRect visible = [[NSScreen mainScreen] visibleFrame];
+  NSPoint middle = NSMakePoint(floor(NSMidX(visible)), floor(NSMidY(visible)));
+  NSPoint corner = NSMakePoint(floor(NSMaxX(visible) - 20.0), floor(NSMinY(visible) + 20.0));
+  NSRect atMiddle, atCorner;
+  NSInteger i;
+
+  if ([[NSUserDefaults standardUserDefaults] boolForKey: @"ProbeMovesPointer"] == NO)
+    {
+      [self skip: @"context-menu-edges" detail: @"moves the pointer: needs -ProbeMovesPointer YES"];
+      return;
+    }
+  menu = AUTORELEASE([[NSMenu alloc] initWithTitle: @"Context"]);
+  for (i = 0; i < 6; i++)
+    {
+      [menu addItemWithTitle: [NSString stringWithFormat: @"Context item %ld", (long)i]
+                      action: NULL
+               keyEquivalent: @""];
+    }
+  [[menu menuRepresentation] sizeToFit];
+
+  QuirkProbeSetPointer(middle);
+  QuirkProbeDispatchEvents(0.2);
+  [menu displayTransient];
+  atMiddle = [[[menu menuRepresentation] window] frame];
+  [menu closeTransient];
+
+  QuirkProbeSetPointer(corner);
+  QuirkProbeDispatchEvents(0.2);
+  [menu displayTransient];
+  atCorner = [[[menu menuRepresentation] window] frame];
+  [menu closeTransient];
+  QuirkProbeSetPointer(NSMakePoint(-40, -40));
+  QuirkProbeDispatchEvents(0.2);
+
+  if (fabs(NSMinX(atMiddle) - middle.x) <= 2.0 && fabs(NSMaxY(atMiddle) - middle.y) <= 2.0
+      && fabs(NSMaxX(atCorner) - corner.x) <= 2.0 && fabs(NSMinY(atCorner) - corner.y) <= 2.0
+      && NSContainsRect(NSInsetRect(visible, -1.0, -1.0), atCorner))
+    {
+      [self pass: @"context-menu-edges" detail: [NSString stringWithFormat:
+        @"top-left at the pointer mid-screen; at the bottom right corner it opens up and left, %@",
+        NSStringFromRect(atCorner)]];
+    }
+  else
+    {
+      [self fail: @"context-menu-edges" detail: [NSString stringWithFormat:
+        @"mid-screen %@ for the pointer at %@; at the corner %@ for %@, on a screen of %@",
+        NSStringFromRect(atMiddle), NSStringFromPoint(middle), NSStringFromRect(atCorner),
+        NSStringFromPoint(corner), NSStringFromRect(visible)]];
+    }
+}
+
 /* A text size change reaching windows already open (#105): a button, a
    table's cells and a box's title made before the change take the new
    size, and go back with it. libs-gui's cells kept the font they were
@@ -10490,6 +10550,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkTableDefaults];
   [self checkLiveSettings];
   [self checkLiveTextSize];
+  [self checkContextMenuEdges];
   [self checkIndicators];
   [self checkMenuFlyout];
   [self checkOverlayScrollers];
