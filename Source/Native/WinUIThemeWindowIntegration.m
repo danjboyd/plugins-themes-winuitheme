@@ -1198,14 +1198,33 @@ WinUIThemeSendDisplayTitle(NSWindow *window, int windowNumber)
 
 /* With a backend that leaves the caption to the theme (#83), the caption
    row is the top of the client area: content, menu bar and toolbar go
-   below it. */
+   below it. Offsets are in the window's device pixels and the caption's
+   height in points: gnustep-gui scales a DPI-aware window by the main
+   screen's factor here (+contentRectForFrameRect:styleMask:), so the
+   caption is scaled by it too. At 150% the menu bar covered the lower
+   half of a 32pt caption laid out as 32px. */
 + (void) offsets: (float *)l : (float *)r : (float *)t : (float *)b
     forStyleMask: (NSUInteger)style
 {
   [super offsets: l : r : t : b forStyleMask: style];
   if (WinUIThemeDrawsCaptionForStyle(style))
     {
-      *t += WinUIThemeCaptionHeight();
+      CGFloat factor = (style & NSUnscaledWindowMask) ? 1.0 : [[NSScreen mainScreen] userSpaceScaleFactor];
+
+      if (factor <= 0.0)
+        {
+          factor = 1.0;
+        }
+      /* gnustep-gui scales the content's size by the factor but not its
+         origin, which takes the left and bottom offsets as they are: 8px
+         of resize border put the content 8pt in, over the caption's foot.
+         In points they put the origin where it belongs; the top offset
+         then takes the bottom's share of the size, b(f - 1), so the
+         content's top meets the caption's foot. The width reaches a
+         little into the invisible right border. */
+      *l /= factor;
+      *b /= factor;
+      *t += WinUIThemeCaptionHeight() * factor + *b * (factor - 1.0);
     }
 }
 

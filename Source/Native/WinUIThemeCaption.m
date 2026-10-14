@@ -756,6 +756,19 @@ WinUIThemeCaptionLayout(GSWindowDecorationView *decoration, NSWindow *window, in
       return;
     }
   [GSCurrentServer() styleoffsets: &l : &r : &t : &b : [window styleMask]];
+  /* The offsets are device pixels, the decoration's bounds points: on a
+     scaled display, by the factor the gui lays the content out with. */
+  if (([window styleMask] & NSUnscaledWindowMask) == 0)
+    {
+      CGFloat factor = [[NSScreen mainScreen] userSpaceScaleFactor];
+
+      if (factor > 0.0)
+        {
+          l /= factor;
+          r /= factor;
+          t /= factor;
+        }
+    }
   frame = NSMakeRect(l, NSMaxY(bounds) - t - height, NSWidth(bounds) - l - r, height);
   if (caption == nil)
     {

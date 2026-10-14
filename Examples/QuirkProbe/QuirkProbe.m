@@ -542,6 +542,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkHorizontalOnlyScroller;
 - (void) checkWindowTabs;
 - (void) checkClientCaption;
+- (void) checkClientCaptionScaled;
 - (void) checkDPIAwareness;
 - (void) checkMica;
 - (void) checkToolTipScaled;
@@ -6764,6 +6765,59 @@ QuirkProbeCloseButtonInkOnScreen(HWND hwnd)
     }
 }
 
+/* The theme's caption on a scaled display: the gui draws a DPI-aware
+   window at the screen's scale (GSScaleFactor here) and lays its content
+   out in points from offsets in pixels. The content, menu bar and toolbar
+   stay under the caption row. At 150% the caption's 32pt went in as
+   32px, so the content's top half covered the caption's lower half
+   (found on a 150% monitor). */
+- (void) checkClientCaptionScaled
+{
+  NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+  GSDisplayServer *server = GSCurrentServer();
+  NSWindow *window = nil;
+  NSView *row = nil;
+  NSString *detail = nil;
+  CGFloat contentTop, rowBottom;
+
+  if ([server respondsToSelector: @selector(clientDrawsCaptions)] == NO
+      || [server clientDrawsCaptions] == NO)
+    {
+      [self skip: @"client-caption-row-scaled" detail: @"the backend draws the caption (stock libs-back)"];
+      return;
+    }
+  [defaults setObject: @"1.5" forKey: @"GSScaleFactor"];
+  window = [[NSWindow alloc] initWithContentRect: NSMakeRect(300, 300, 320, 160)
+                                       styleMask: (NSTitledWindowMask | NSClosableWindowMask
+                                                   | NSMiniaturizableWindowMask
+                                                   | NSResizableWindowMask)
+                                         backing: NSBackingStoreBuffered
+                                           defer: NO];
+  [window setTitle: @"QuirkProbe Scaled Caption"];
+  [window setReleasedWhenClosed: NO];
+  [_windows addObject: window];
+  RELEASE(window);
+  [window orderFront: nil];
+  [window display];
+  row = QuirkProbeFindViewOfClass([[window contentView] superview],
+                                  NSClassFromString(@"WinUIThemeCaptionView"));
+  contentTop = NSMaxY([[window contentView] frame]);
+  rowBottom = (row != nil) ? NSMinY([row frame]) : -1.0;
+  detail = [NSString stringWithFormat: @"at 1.5: caption row %@, content top %.1fpt, %.0fpt content asked",
+                                       row ? NSStringFromRect([row frame]) : @"missing", contentTop,
+                                       NSHeight([[window contentView] frame])];
+  [window orderOut: nil];
+  [defaults removeObjectForKey: @"GSScaleFactor"];
+  if (row != nil && contentTop <= rowBottom + 0.5)
+    {
+      [self pass: @"client-caption-row-scaled" detail: detail];
+    }
+  else
+    {
+      [self fail: @"client-caption-row-scaled" detail: detail];
+    }
+}
+
 - (void) checkClientCaption
 {
   GSDisplayServer *server = GSCurrentServer();
@@ -10684,6 +10738,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkHorizontalOnlyScroller];
   [self checkWindowTabs];
   [self checkClientCaption];
+  [self checkClientCaptionScaled];
   [self checkDPIAwareness];
   [self checkMica];
   [self checkPopUpClick];
