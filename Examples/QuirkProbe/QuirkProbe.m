@@ -534,6 +534,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkSlider;
 - (void) checkSliderTicks;
 - (void) checkProgress;
+- (void) checkProgressStates;
 - (void) checkLevelIndicator;
 - (void) checkDatePicker;
 - (void) checkBrowser;
@@ -3810,6 +3811,93 @@ QuirkProbeColumnCount(NSBitmapImageRep *rep, QuirkProbePixelTest test,
 /* WinUI's ProgressBar and ProgressRing (issue #42): a 3px accent bar on a
    1px track line, not a bordered bezel; and an accent ring, hollow, not
    GNUstep's NeXT spinner. */
+/* Paused and error progress (#105): -setGSThemeState: @"paused" draws
+   the bar in SystemFillColorCaution, @"error" in SystemFillColorCritical,
+   and an indeterminate bar in error stops and fills its track, as WinUI's
+   ProgressBar ShowPaused and ShowError. Sampled in the bar's middle row
+   at a quarter and at seven eighths of its length. */
+- (void) checkProgressStates
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(420, 200, 300, 100)
+                                     title: @"QuirkProbe Progress States"];
+  NSProgressIndicator *bar = AUTORELEASE([[NSProgressIndicator alloc]
+    initWithFrame: NSMakeRect(20, 40, 200, 20)]);
+  BOOL dark = QuirkProbeHasArgument(@"--mode", @"dark");
+  NSUInteger caution[3] = { 0x9D, 0x5D, 0x00 };
+  NSUInteger critical[3] = { 0xC4, 0x2B, 0x1C };
+  NSMutableArray *problems = [NSMutableArray array];
+  NSInteger pass;
+
+  if (QuirkProbeHasArgument(@"--high-contrast", nil))
+    {
+      [self skip: @"progress-states" detail: @"high contrast keeps the highlight colour"];
+      return;
+    }
+  if ([bar respondsToSelector: @selector(setGSThemeState:)] == NO)
+    {
+      [self fail: @"progress-states" detail: @"NSProgressIndicator has no -setGSThemeState:"];
+      return;
+    }
+  if (dark)
+    {
+      caution[0] = 0xFC; caution[1] = 0xE1; caution[2] = 0x00;
+      critical[0] = 0xFF; critical[1] = 0x99; critical[2] = 0xA4;
+    }
+  [bar setMinValue: 0.0];
+  [bar setMaxValue: 100.0];
+  [bar setDoubleValue: 50.0];
+  [[window contentView] addSubview: bar];
+  [window orderFront: nil];
+  for (pass = 0; pass < 3; pass++)
+    {
+      NSString *names[3] = { @"paused", @"error", @"indeterminate error" };
+      NSUInteger *expected = (pass == 0) ? caution : critical;
+      NSBitmapImageRep *rep = nil;
+      CGFloat scale;
+      NSInteger y, index;
+      CGFloat xs[2] = { 50.0, 175.0 };
+
+      [bar setIndeterminate: (pass == 2)];
+      [bar performSelector: @selector(setGSThemeState:) withObject: (pass == 0) ? @"paused" : @"error"];
+      [window display];
+      rep = QuirkProbeRender(bar);
+      scale = QuirkProbeScale(rep, bar);
+      y = (NSInteger)(NSHeight([bar bounds]) / 2.0 * scale);
+      if (pass == 2)
+        {
+          [self saveView: bar named: @"progress-indeterminate-error"];
+        }
+      /* The second sample only where the bar reaches: a full bar. */
+      for (index = 0; index < ((pass == 2) ? 2 : 1); index++)
+        {
+          NSUInteger red = 0, green = 0, blue = 0;
+
+          QuirkProbePixel(rep, (NSInteger)(xs[index] * scale), y, &red, &green, &blue);
+          if (labs((long)red - (long)expected[0]) > 8 || labs((long)green - (long)expected[1]) > 8
+              || labs((long)blue - (long)expected[2]) > 8)
+            {
+              [problems addObject: [NSString stringWithFormat: @"%@: %lu,%lu,%lu at %.0fpt, not %lu,%lu,%lu",
+                                                               names[pass], (unsigned long)red, (unsigned long)green,
+                                                               (unsigned long)blue, xs[index],
+                                                               (unsigned long)expected[0], (unsigned long)expected[1],
+                                                               (unsigned long)expected[2]]];
+            }
+        }
+    }
+  [bar performSelector: @selector(setGSThemeState:) withObject: nil];
+  [bar setIndeterminate: NO];
+  if ([problems count] == 0)
+    {
+      [self pass: @"progress-states" detail: @"paused in the caution colour, error in the critical colour, an indeterminate bar in error full"];
+    }
+  else
+    {
+      [self fail: @"progress-states" detail: [problems componentsJoinedByString: @"; "]];
+    }
+  [bar removeFromSuperview];
+  [window orderOut: nil];
+}
+
 - (void) checkProgress
 {
   NSWindow *window = [self windowWithFrame: NSMakeRect(420, 200, 300, 100)
@@ -11339,6 +11427,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkSlider];
   [self checkSliderTicks];
   [self checkProgress];
+  [self checkProgressStates];
   [self checkLevelIndicator];
   [self checkDatePicker];
   [self checkBrowser];

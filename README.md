@@ -298,6 +298,26 @@ default overrides the app: `defaults write <app> GSThemeToolbarInMenuBar
 NO` for one app, or `NSGlobalDomain` for every app that doesn't say NO
 itself. A change applies to open windows, which keep their frames.
 
+## Paused and Error Progress
+
+WinUI's ProgressBar can show that a task is paused (a yellow bar) or
+failed (a red one); NSProgressIndicator has no such state. The theme
+adds `-setGSThemeState:` to NSProgressIndicator, taking `@"paused"`,
+`@"error"` or nil, a theme-neutral name any theme may implement. Other
+themes and AppKit don't have it, so ask first:
+
+```objc
+if ([indicator respondsToSelector: @selector(setGSThemeState:)])
+  {
+    [indicator performSelector: @selector(setGSThemeState:) withObject: @"error"];
+  }
+```
+
+The bar is then SystemFillColorCaution or SystemFillColorCritical; an
+indeterminate bar stops and fills its track, as WinUI's does. High
+contrast keeps the highlight colour, and the spinning style (a
+ProgressRing, which has no such states) is unchanged.
+
 ## Motion
 
 WinUI eases between states, and so does the theme:

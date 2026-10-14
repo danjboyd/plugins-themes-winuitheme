@@ -23,6 +23,8 @@
 #import "../Settings/WinUIThemeMetrics.h"
 #import "../Settings/WinUIThemeSettings.h"
 
+#import <objc/runtime.h>
+
 @interface NSCell (WinUIThemeTextDrawingPrivate)
 - (NSDictionary *) _nonAutoreleasedTypingAttributes;
 - (BOOL) _shouldShortenStringForRect: (NSRect)titleRect
@@ -814,6 +816,32 @@ WinUIThemeDrawProgressRing(WinUITheme *theme, NSRect bounds, NSColor *color,
   [arc stroke];
 }
 
+/* Paused and error progress (#105), WinUI's ProgressBar ShowPaused and
+   ShowError, which NSProgressIndicator lacks. An app sets them with
+   -setGSThemeState: (@"paused", @"error" or nil), a theme-neutral name
+   any theme may implement; apps ask -respondsToSelector: first, as other
+   themes and AppKit don't have it. Kept with the indicator. */
+static char WinUIThemeProgressStateKey;
+
+@implementation NSProgressIndicator (WinUIThemeProgressState)
+
+- (void) setGSThemeState: (NSString *)state
+{
+  if ([state isEqualToString: @"paused"] == NO && [state isEqualToString: @"error"] == NO)
+    {
+      state = nil;
+    }
+  objc_setAssociatedObject(self, &WinUIThemeProgressStateKey, state, OBJC_ASSOCIATION_COPY_NONATOMIC);
+  [self setNeedsDisplay: YES];
+}
+
+- (NSString *) GSThemeState
+{
+  return objc_getAssociatedObject(self, &WinUIThemeProgressStateKey);
+}
+
+@end
+
 @implementation WinUITheme (Controls)
 
 - (void) setKeyEquivalent: (NSString *)key
@@ -1316,7 +1344,11 @@ WinUIThemeSwitchOnAmount(NSControlStateValue value)
 /* WinUI's ProgressBar (#42): a 1px track line in ControlStrongStroke under
    a 3px rounded accent bar, without the bezel. Indeterminate, two accent
    segments slide across, timed by the clock rather than the redraw count
-   so they move evenly. The spinning style is a ProgressRing. */
+   so they move evenly. The spinning style is a ProgressRing. Paused,
+   the bar is SystemFillColorCaution, in error SystemFillColorCritical;
+   an indeterminate bar then stops and fills the track, as WinUI's
+   IndeterminatePaused and IndeterminateError states do. A ProgressRing
+   has neither state. */
 - (void) drawProgressIndicator: (NSProgressIndicator *)progress
                     withBounds: (NSRect)bounds
                       withClip: (NSRect)rect
@@ -1331,6 +1363,8 @@ WinUIThemeSwitchOnAmount(NSControlStateValue value)
   NSRect barArea = NSIntegralRect(bounds);
   CGFloat thickness = MIN(3.0, vertical ? NSWidth(barArea) : NSHeight(barArea));
   NSRect trackLine;
+  NSString *state = [progress GSThemeState];
+  BOOL indeterminate = [progress isIndeterminate];
 
   (void)rect;
   (void)count;
@@ -1338,8 +1372,17 @@ WinUIThemeSwitchOnAmount(NSControlStateValue value)
 
   if ([progress style] == NSProgressIndicatorSpinningStyle)
     {
-      WinUIThemeDrawProgressRing(self, bounds, bar, [progress isIndeterminate], fraction);
+      WinUIThemeDrawProgressRing(self, bounds, bar, indeterminate, fraction);
       return;
+    }
+  if (state != nil)
+    {
+      bar = WinUIThemeStatusColor(self, [state isEqualToString: @"error"], enabled, bar);
+      if (indeterminate)
+        {
+          indeterminate = NO;
+          fraction = 1.0;
+        }
     }
 
   /* The bar, centred across the control; the track line through its middle. */
@@ -1358,7 +1401,7 @@ WinUIThemeSwitchOnAmount(NSControlStateValue value)
   [track set];
   NSRectFill(trackLine);
 
-  if ([progress isIndeterminate])
+  if (indeterminate)
     {
       double t = fmod([NSDate timeIntervalSinceReferenceDate], 2.0) / 2.0;
       CGFloat length = vertical ? NSHeight(barArea) : NSWidth(barArea);

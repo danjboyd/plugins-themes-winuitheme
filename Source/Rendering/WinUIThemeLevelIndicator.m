@@ -74,22 +74,32 @@ WinUIThemeLevelStateFor(double value, double warning, double critical)
 
 /* SystemFillColorCaution and SystemFillColorCritical. High contrast keeps
    the highlight colour, as its ProgressBar does. */
-static NSColor *
-WinUIThemeLevelColor(WinUITheme *theme, WinUIThemeLevelState state, BOOL enabled, NSColor *value)
+NSColor *
+WinUIThemeStatusColor(WinUITheme *theme, BOOL critical, BOOL enabled, NSColor *fallback)
 {
   BOOL dark = [[theme settings] prefersDarkAppearance];
 
-  if (state == WinUIThemeLevelNormal || enabled == NO || [[theme settings] highContrastEnabled])
+  if (enabled == NO || [[theme settings] highContrastEnabled])
     {
-      return value;
+      return fallback;
     }
-  if (state == WinUIThemeLevelCaution)
+  if (critical == NO)
     {
       return dark ? [NSColor colorWithCalibratedRed: 0xFC / 255.0 green: 0xE1 / 255.0 blue: 0x00 / 255.0 alpha: 1.0]
                   : [NSColor colorWithCalibratedRed: 0x9D / 255.0 green: 0x5D / 255.0 blue: 0x00 / 255.0 alpha: 1.0];
     }
   return dark ? [NSColor colorWithCalibratedRed: 0xFF / 255.0 green: 0x99 / 255.0 blue: 0xA4 / 255.0 alpha: 1.0]
               : [NSColor colorWithCalibratedRed: 0xC4 / 255.0 green: 0x2B / 255.0 blue: 0x1C / 255.0 alpha: 1.0];
+}
+
+static NSColor *
+WinUIThemeLevelColor(WinUITheme *theme, WinUIThemeLevelState state, BOOL enabled, NSColor *value)
+{
+  if (state == WinUIThemeLevelNormal)
+    {
+      return value;
+    }
+  return WinUIThemeStatusColor(theme, state == WinUIThemeLevelCritical, enabled, value);
 }
 
 /* `length` of `area` along the bar, from its start: the left, or the

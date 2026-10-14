@@ -232,6 +232,9 @@ void WinUIThemeRangeColors(WinUITheme *theme, BOOL enabled,
                            NSColor **trackOut, NSColor **valueOut,
                            NSColor **thumbOut, NSColor **borderOut, NSColor **bottomOut);
 NSRect WinUIThemeSliderTrackRect(WinUITheme *theme, NSRect rect, BOOL horizontal);
+/* SystemFillColorCaution, or SystemFillColorCritical when `critical`, in
+   the palette's mode; `fallback` in high contrast or disabled. */
+NSColor *WinUIThemeStatusColor(WinUITheme *theme, BOOL critical, BOOL enabled, NSColor *fallback);
 
 /* While a selected table or outline row draws in high contrast, the colour
    its text takes whatever the app set (WinUIThemeMenusAndData.m); nil
