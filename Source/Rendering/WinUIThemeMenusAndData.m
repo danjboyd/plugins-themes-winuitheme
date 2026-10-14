@@ -2018,6 +2018,24 @@ static CGFloat WinUIThemeToolTipDrop = 0.0;
    places it below the pointer. The theme pads it as WinUI does, keeping
    its top edge where libs-gui put it (clear of the pointer) and on the
    screen. */
+/* The screen the pointer is on, or nil. */
+static NSScreen *
+WinUIThemeScreenUnderPointer(void)
+{
+  NSPoint pointer = [NSEvent mouseLocation];
+  NSEnumerator *enumerator = [[NSScreen screens] objectEnumerator];
+  NSScreen *screen = nil;
+
+  while ((screen = [enumerator nextObject]) != nil)
+    {
+      if (NSPointInRect(pointer, [screen frame]))
+        {
+          return screen;
+        }
+    }
+  return nil;
+}
+
 - (void) _overrideGSTTPanelMethod_setFrame: (NSRect)frame display: (BOOL)flag
 {
   typedef void (*SetFrameIMP)(id, SEL, NSRect, BOOL);
@@ -2048,9 +2066,21 @@ static CGFloat WinUIThemeToolTipDrop = 0.0;
       asked = NSMakeSize(textSize.width + WinUIThemeToolTipGNUstepFudge + WinUIThemeToolTipGNUstepMargin,
                          textSize.height + WinUIThemeToolTipGNUstepFudge + WinUIThemeToolTipGNUstepMargin);
       NSRect visible = [[window screen] != nil ? [window screen] : [NSScreen mainScreen] visibleFrame];
+      NSScreen *pointerScreen = WinUIThemeScreenUnderPointer();
 
       if (fabs(NSWidth(frame) - asked.width) <= 1.0 && fabs(NSHeight(frame) - asked.height) <= 1.0)
         {
+          /* libs-gui places a new tip just off the pointer and keeps it on
+             the main screen (the key window's), so a tip for a view on
+             another monitor opened on the main one. There, it's placed
+             as libs-gui does and kept on the pointer's screen. */
+          if (pointerScreen != nil && pointerScreen != [NSScreen mainScreen])
+            {
+              NSPoint pointer = [NSEvent mouseLocation];
+
+              frame.origin = NSMakePoint(pointer.x + 8.0, pointer.y - 15.0 - NSHeight(frame));
+              visible = [pointerScreen visibleFrame];
+            }
           /* A new tip: pad it. libs-gui gives the size in points as the
              window's frame, which is in pixels; on a scaled display the
              window draws its text at the screen's scale, so the padded
@@ -2077,6 +2107,15 @@ static CGFloat WinUIThemeToolTipDrop = 0.0;
       if (NSMaxX(frame) > NSMaxX(visible))
         {
           frame.origin.x = MAX(NSMinX(visible), NSMaxX(visible) - NSWidth(frame));
+        }
+      /* A screen shorter than the main one, or beside it. */
+      if (NSMaxY(frame) > NSMaxY(visible))
+        {
+          frame.origin.y = MAX(NSMinY(visible), NSMaxY(visible) - NSHeight(frame));
+        }
+      if (NSMinX(frame) < NSMinX(visible))
+        {
+          frame.origin.x = NSMinX(visible);
         }
     }
   if (originalIMP != NULL)
