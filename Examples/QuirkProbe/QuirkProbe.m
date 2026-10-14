@@ -522,6 +522,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkMetricsChoice;
 - (void) checkTableDefaults;
 - (void) checkLiveSettings;
+- (void) checkLiveTextSize;
 - (void) checkIndicators;
 - (void) checkMenuFlyout;
 - (void) checkOverlayScrollers;
@@ -5510,6 +5511,97 @@ QuirkProbeFindListener(HWND hwnd, LPARAM found)
 #endif
 }
 
+/* A text size change reaching windows already open (#105): a button, a
+   table's cells and a box's title made before the change take the new
+   size, and go back with it. libs-gui's cells kept the font they were
+   made with, so only controls made afterwards changed. The probe stands
+   in a text size (WinUIThemeTextScaleFactor) for Settings'. */
+- (void) checkLiveTextSize
+{
+#ifdef _WIN32
+  NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+  NSWindow *window = [self windowWithFrame: NSMakeRect(300, 300, 320, 200)
+                                     title: @"QuirkProbe Text Size"];
+  NSButton *button = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(20, 150, 140, 32)]);
+  NSTableView *table = AUTORELEASE([[NSTableView alloc] initWithFrame: NSMakeRect(20, 20, 280, 60)]);
+  NSTableColumn *column = AUTORELEASE([[NSTableColumn alloc] initWithIdentifier: @"name"]);
+  NSBox *box = AUTORELEASE([[NSBox alloc] initWithFrame: NSMakeRect(170, 90, 130, 100)]);
+  NSMutableArray *searchList = nil;
+  HWND listener = NULL;
+  CGFloat body = [NSFont systemFontSize];
+  CGFloat before[3], during[3], after[3];
+  CGFloat bodyDuring;
+  NSString *scale = (QuirkProbeHasArgument(@"-WinUIThemeTextScaleFactor", nil)
+                     || [defaults floatForKey: @"WinUIThemeTextScaleFactor"] >= 125.0) ? @"100" : @"150";
+  int i;
+
+  EnumThreadWindows(GetCurrentThreadId(), QuirkProbeFindListener, (LPARAM)&listener);
+  if (listener == NULL)
+    {
+      [self fail: @"live-text-size" detail: @"the theme has no settings listener window"];
+      return;
+    }
+  [button setTitle: @"Button"];
+  [table addTableColumn: column];
+  [box setTitle: @"Box"];
+  [[window contentView] addSubview: button];
+  [[window contentView] addSubview: table];
+  [[window contentView] addSubview: box];
+  [window orderFront: nil];
+  [window display];
+  before[0] = [[button font] pointSize];
+  before[1] = [[[column dataCell] font] pointSize];
+  before[2] = [[box titleFont] pointSize];
+
+  [defaults setVolatileDomain: [NSDictionary dictionaryWithObject: scale
+                                                           forKey: @"WinUIThemeTextScaleFactor"]
+                      forName: @"QuirkProbeLiveText"];
+  searchList = AUTORELEASE([[defaults searchList] mutableCopy]);
+  [searchList insertObject: @"QuirkProbeLiveText" atIndex: 0];
+  [defaults setSearchList: searchList];
+  SendMessageW(listener, WM_SETTINGCHANGE, 0, (LPARAM)L"ImmersiveColorSet");
+  QuirkProbeDispatchEvents(0.6);
+  bodyDuring = [NSFont systemFontSize];
+  during[0] = [[button font] pointSize];
+  during[1] = [[[column dataCell] font] pointSize];
+  during[2] = [[box titleFont] pointSize];
+
+  [searchList removeObject: @"QuirkProbeLiveText"];
+  [defaults setSearchList: searchList];
+  [defaults removeVolatileDomainForName: @"QuirkProbeLiveText"];
+  SendMessageW(listener, WM_SETTINGCHANGE, 0, (LPARAM)L"ImmersiveColorSet");
+  QuirkProbeDispatchEvents(0.6);
+  after[0] = [[button font] pointSize];
+  after[1] = [[[column dataCell] font] pointSize];
+  after[2] = [[box titleFont] pointSize];
+  [window orderOut: nil];
+
+  for (i = 0; i < 3; i++)
+    {
+      if (fabs(before[i] - body) > 0.01 || fabs(during[i] - bodyDuring) > 0.01
+          || fabs(after[i] - before[i]) > 0.01)
+        {
+          break;
+        }
+    }
+  if (i == 3 && fabs(bodyDuring - body) > 0.5)
+    {
+      [self pass: @"live-text-size" detail: [NSString stringWithFormat:
+        @"a button, a table's cells and a box title went from %.0fpt to %.0fpt at %@%% and back",
+        body, bodyDuring, scale]];
+    }
+  else
+    {
+      [self fail: @"live-text-size" detail: [NSString stringWithFormat:
+        @"body %.0fpt then %.0fpt at %@%%; button %.0f/%.0f/%.0f, cells %.0f/%.0f/%.0f, box %.0f/%.0f/%.0f",
+        body, bodyDuring, scale, before[0], during[0], after[0], before[1], during[1], after[1],
+        before[2], during[2], after[2]]];
+    }
+#else
+  [self skip: @"live-text-size" detail: @"Windows only"];
+#endif
+}
+
 /* WinUI's CheckBox and RadioButton (issue #5): a 20px indicator, and a
    checked radio's accent ring around a 12px centre dot. The theme drew
    18px indicators and an 8px dot. */
@@ -10257,6 +10349,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkMetricsChoice];
   [self checkTableDefaults];
   [self checkLiveSettings];
+  [self checkLiveTextSize];
   [self checkIndicators];
   [self checkMenuFlyout];
   [self checkOverlayScrollers];

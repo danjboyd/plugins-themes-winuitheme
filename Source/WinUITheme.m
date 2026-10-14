@@ -23,6 +23,7 @@
 #import "Settings/WinUIThemeSettings.h"
 #import "Settings/WinUIThemeMetrics.h"
 #import "Rendering/WinUIThemePalette.h"
+#import "Rendering/WinUIThemeDrawing.h"
 #import "Native/WinUIThemeShellDialogs.h"
 #import "Native/WinUIThemeWindowIntegration.h"
 #import "GSWindowTabbing.h"
@@ -161,6 +162,8 @@ WinUIThemeRightTextAlignment(void)
 
 - (void) systemSettingsDidChange
 {
+  id textSizes = WinUIThemeTextScaleSnapshotTake(self);
+
   [self reloadConfiguration];
   if ([GSTheme theme] == self)
     {
@@ -175,6 +178,9 @@ WinUIThemeRightTextAlignment(void)
         {
           WinUIThemeWindowIntegrationReloadTheme(self);
         }
+      /* Open windows take a new text size too, not only controls made
+         afterwards (#105). */
+      WinUIThemeTextScaleApply(self, textSizes);
     }
 }
 
