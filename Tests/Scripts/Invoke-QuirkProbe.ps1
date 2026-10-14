@@ -52,9 +52,10 @@ $configurationArguments = @{
   # Compact metrics (#31), as apps with a main nib or Gorm file get them.
   "compact"       = @("--mode", "light", "-WinUIThemeMetrics", "compact")
   # The gui drawing at 1.5, as on a 150% monitor with the DPI-aware carried
-  # backend (GSScaleFactor), the theme's metrics scaled with it. Not in the
-  # default list: run it with -Configuration scaled-150.
-  "scaled-150"    = @("--mode", "light", "--scale", "1.5", "-GSScaleFactor", "1.5")
+  # backend (GSScaleFactor). The theme's metrics stay at 1.0 there, as a
+  # DPI-aware process's (WinUIThemeSystemDpi). Not in the default list:
+  # run it with -Configuration scaled-150.
+  "scaled-150"    = @("--mode", "light", "-GSScaleFactor", "1.5")
   "dusk"          = @("--mode", "light", "--high-contrast", "yes", "--contrast-theme", "dusk")
   "desert"        = @("--mode", "light", "--high-contrast", "yes", "--contrast-theme", "desert")
 }
