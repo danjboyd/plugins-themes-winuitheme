@@ -1514,6 +1514,7 @@ WinUIThemeRunPickerFlyout(WinUITheme *theme, NSDatePicker *picker, NSRect field,
   WinUIThemeDatePickerFlyoutView *view = nil;
   NSPanel *panel = nil;
   NSRect screenField, frame, visible;
+  CGFloat scale;
   NSDateComponents *picked = nil;
   BOOL wasActive = [NSApp isActive];
 
@@ -1541,18 +1542,27 @@ WinUIThemeRunPickerFlyout(WinUITheme *theme, NSDatePicker *picker, NSRect field,
              font: font
         yearRange: NSMakeRange(firstYear, lastYear - firstYear + 1)]);
 
-  /* Over the field, its value level with the band. */
+  /* Over the field, its value level with the band. The screen is in
+     device pixels and the flyout's view in points: on a scaled display
+     the gui makes the panel the view's size times the main screen's
+     factor, so it's placed at that size. */
   screenField = [picker convertRect: field toView: nil];
   screenField.origin = [[picker window] convertBaseToScreen: screenField.origin];
-  frame.size = [view frame].size;
+  scale = [[NSScreen mainScreen] userSpaceScaleFactor];
+  if (scale <= 0.0)
+    {
+      scale = 1.0;
+    }
+  frame.size = NSMakeSize(NSWidth([view frame]) * scale, NSHeight([view frame]) * scale);
   frame.origin.x = NSMinX(screenField);
-  frame.origin.y = NSMidY(screenField) + [WinUIThemeDatePickerFlyoutView bandCentre] - NSHeight(frame);
+  frame.origin.y = NSMidY(screenField) + [WinUIThemeDatePickerFlyoutView bandCentre] * scale - NSHeight(frame);
   visible = [[[picker window] screen] visibleFrame];
   if (NSIsEmptyRect(visible) == NO)
     {
       frame.origin.x = MAX(NSMinX(visible), MIN(NSMinX(frame), NSMaxX(visible) - NSWidth(frame)));
       frame.origin.y = MAX(NSMinY(visible), MIN(NSMinY(frame), NSMaxY(visible) - NSHeight(frame)));
     }
+  frame.size = [view frame].size;
 
   panel = [[NSPanel alloc] initWithContentRect: frame
                                      styleMask: NSBorderlessWindowMask

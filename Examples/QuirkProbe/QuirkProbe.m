@@ -3569,6 +3569,32 @@ QuirkProbeTwelveHourClock(void)
 
 /* Renders the date picker flyout while it's open, then accepts it with
    Enter (see checkDatePicker). */
+/* The flyout open on a scaled display: its frame, then Escape. */
+- (void) recordScaledDatePickerFlyout: (NSTimer *)timer
+{
+  NSEnumerator *enumerator = [[NSApp windows] objectEnumerator];
+  NSWindow *window;
+  NSWindow *owner = [timer userInfo];
+
+  while ((window = [enumerator nextObject]) != nil)
+    {
+      if ([window isVisible]
+          && [NSStringFromClass([[window contentView] class]) isEqualToString: @"WinUIThemeDatePickerFlyoutView"])
+        {
+          _scaledFlyoutFrame = [window frame];
+        }
+    }
+  [NSApp postEvent: [NSEvent keyEventWithType: NSKeyDown location: NSZeroPoint modifierFlags: 0
+                                    timestamp: 0 windowNumber: [owner windowNumber] context: nil
+                                   characters: @"\e" charactersIgnoringModifiers: @"\e"
+                                    isARepeat: NO keyCode: 0]
+           atStart: NO];
+  [NSApp postEvent: [NSEvent mouseEventWithType: NSLeftMouseUp location: NSMakePoint(80, 386)
+                                  modifierFlags: 0 timestamp: 0 windowNumber: [owner windowNumber]
+                                        context: nil eventNumber: 0 clickCount: 1 pressure: 0.0]
+           atStart: NO];
+}
+
 - (void) inspectDatePickerFlyout: (NSTimer *)timer
 {
   NSEnumerator *enumerator = [[NSApp windows] objectEnumerator];
@@ -3994,6 +4020,48 @@ QuirkProbeTwelveHourClock(void)
           @"after Down, the day's down button and Enter the date is %@ (%lu actions); expected 2026-11-06",
           [picked descriptionWithCalendarFormat: @"%Y-%m-%d %H:%M %z"],
           (unsigned long)_datePickerActions]];
+      }
+  }
+
+  /* On a scaled display (GSScaleFactor here) the flyout opens with its
+     band level with the field: the screen is in device pixels and the
+     flyout's view in points, and at 150% it opened about 110px too high.
+     Away from the screen's edges, so it isn't moved to fit. */
+  {
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    NSTimer *timer = [NSTimer timerWithTimeInterval: 0.3 target: self
+                                           selector: @selector(recordScaledDatePickerFlyout:)
+                                           userInfo: window repeats: NO];
+    NSEvent *click = [NSEvent mouseEventWithType: NSLeftMouseDown
+                                        location: [date convertPoint: NSMakePoint(60, 16) toView: nil]
+                                   modifierFlags: 0 timestamp: 0 windowNumber: [window windowNumber]
+                                         context: nil eventNumber: 0 clickCount: 1 pressure: 1.0];
+    NSRect field = [date convertRect: [date bounds] toView: nil];
+    CGFloat bandY;
+
+    [window setFrameOrigin: NSMakePoint(400, 300)];
+    field = [date convertRect: [date bounds] toView: nil];
+    field.origin = [window convertBaseToScreen: field.origin];
+    _scaledFlyoutFrame = NSZeroRect;
+    [defaults setObject: @"1.5" forKey: @"GSScaleFactor"];
+    [[NSRunLoop currentRunLoop] addTimer: timer forMode: NSEventTrackingRunLoopMode];
+    [date mouseDown: click];
+    [timer invalidate];
+    [defaults removeObjectForKey: @"GSScaleFactor"];
+    /* The band's middle, 180pt from the flyout's top, in pixels. */
+    bandY = NSMaxY(_scaledFlyoutFrame) - 180.0 * 1.5;
+    if (NSIsEmptyRect(_scaledFlyoutFrame) == NO && fabs(bandY - NSMidY(field)) <= 2.0
+        && fabs(NSHeight(_scaledFlyoutFrame) - 401.0 * 1.5) <= 2.0)
+      {
+        [self pass: @"date-picker-flyout-scaled" detail: [NSString stringWithFormat:
+          @"at 1.5 the band is %.0fpx from the field's middle, in a %.0fx%.0fpx flyout",
+          bandY - NSMidY(field), NSWidth(_scaledFlyoutFrame), NSHeight(_scaledFlyoutFrame)]];
+      }
+    else
+      {
+        [self fail: @"date-picker-flyout-scaled" detail: [NSString stringWithFormat:
+          @"at 1.5 the flyout is %@: its band %.0fpx from the field's middle (%@)",
+          NSStringFromRect(_scaledFlyoutFrame), bandY - NSMidY(field), NSStringFromRect(field)]];
       }
   }
   [window orderOut: nil];
@@ -8158,6 +8226,37 @@ QuirkProbeInkIn(NSBitmapImageRep *rep, NSRect area, NSInteger fill, NSInteger th
                 (unsigned long)accent.count, (long)accent.width]];
             }
           [table deselectAll: nil];
+        }
+
+      /* On a scaled display (GSScaleFactor here) the list is tall enough
+         for its rows: its frame is in device pixels and its rows in
+         points, and at 150% it showed 2 of its 3 rows. */
+      if ([table isKindOfClass: [NSTableView class]] && [table numberOfRows] > 0)
+        {
+          NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+          NSScrollView *scroll = [table enclosingScrollView];
+          CGFloat shown, needed;
+
+          [defaults setObject: @"1.5" forKey: @"GSScaleFactor"];
+          [list orderOut: nil];
+          [list positionWithComboBoxCell: cell];
+          [list orderFront: nil];
+          [list display];
+          shown = NSHeight([scroll documentVisibleRect]);
+          needed = NSHeight([table frame]);
+          [defaults removeObjectForKey: @"GSScaleFactor"];
+          if (shown + 0.5 >= needed)
+            {
+              [self pass: @"combo-list-scaled" detail: [NSString stringWithFormat:
+                @"at 1.5 the list shows its %ld rows: %.0fpt of %.0fpt, a %.0fpx window",
+                (long)[table numberOfRows], shown, needed, NSHeight([list frame])]];
+            }
+          else
+            {
+              [self fail: @"combo-list-scaled" detail: [NSString stringWithFormat:
+                @"at 1.5 the list shows %.0fpt of its rows' %.0fpt in a %.0fpx window",
+                shown, needed, NSHeight([list frame])]];
+            }
         }
       if (cellIvar != NULL)
         {
