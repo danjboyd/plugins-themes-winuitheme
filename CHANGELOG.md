@@ -5,6 +5,42 @@ Releases of the WinUI theme for GNUstep. Versions are semver pre-releases
 `GSThemeVersion` in `WinUIThemeInfo.plist`, and an annotated tag on `main`.
 Apps that bundle the theme should pin a tag, not `main`.
 
+## Unreleased
+
+**Chrome**
+- Single-row chrome (#91): an app that declares `GSThemeToolbarInMenuBar`
+  in its Info.plist gets its toolbar in the menu bar's row, as Notepad
+  and Paint have it:
+  - the menu titles first, then icon-only 32pt commands named by tool
+    tips;
+  - the toolbar folds into its ">>" before the menus fold;
+  - the content keeps its size;
+  - a user default overrides the app, and a change applies to open
+    windows.
+
+  ObjcMarkdown already declares it. QuirkProbe `toolbar-in-menu-bar`,
+  `toolbar-in-menu-bar-off`.
+
+**Controls** (#105)
+- Sliders draw their tick marks (`-setNumberOfTickMarks:`), as WinUI's
+  TickBar; libs-gui kept them but drew none. QuirkProbe `slider-ticks`.
+- Progress bars can show a paused or failed task, as WinUI's ProgressBar
+  does: `-[NSProgressIndicator setGSThemeState:]` with `@"paused"` or
+  `@"error"`. It's a theme-neutral name; ask `-respondsToSelector:`
+  first. QuirkProbe `progress-states`.
+
+**Fixes**
+- On a scaled display with the DPI-aware carried backend, an item after
+  a flexible space went into the toolbar's ">>" menu with the row half
+  empty: ScreenshotTool's Copy at 125% and 150% on alpha4, found by the
+  ScreenshotTool session. libs-gui rounds the space's frame to device
+  pixels, past the toolbar's width; the space gives the excess back.
+  QuirkProbe `toolbar-flexible-space-scaled`.
+
+**Testing**
+- QuirkProbe sets centre and right alignment as the running gui numbers
+  them, so it runs clean on libs-gui master too.
+
 ## 0.1.0-alpha4 (2026-10-14)
 
 Shadows, per-monitor DPI, Mica and title-bar tabs (which came after
