@@ -8400,16 +8400,28 @@ QuirkProbeDifferingPixels(NSBitmapImageRep *a, NSBitmapImageRep *b)
   return count;
 }
 
-/* Sends `window` a press and release of the left button at `point`. */
+/* Sends `window` a press and release of the left button at `point`, in
+   points from the window's corner: window coordinates are device pixels
+   when the gui draws at another scale (GSScaleFactor), where a press
+   meant to miss a button landed on it and its tracking loop waited for a
+   release the probe sends only afterwards. */
 static void
 QuirkProbeClickAt(NSWindow *window, NSPoint point)
 {
-  NSEvent *down = [NSEvent mouseEventWithType: NSLeftMouseDown location: point modifierFlags: 0
+  CGFloat factor = [window userSpaceScaleFactor];
+  NSEvent *down = nil;
+  NSEvent *up = nil;
+
+  if (factor > 0.0 && factor != 1.0)
+    {
+      point = NSMakePoint(point.x * factor, point.y * factor);
+    }
+  down = [NSEvent mouseEventWithType: NSLeftMouseDown location: point modifierFlags: 0
                                     timestamp: 0 windowNumber: [window windowNumber] context: nil
                                   eventNumber: 0 clickCount: 1 pressure: 1];
-  NSEvent *up = [NSEvent mouseEventWithType: NSLeftMouseUp location: point modifierFlags: 0
-                                  timestamp: 0 windowNumber: [window windowNumber] context: nil
-                                eventNumber: 0 clickCount: 1 pressure: 0];
+  up = [NSEvent mouseEventWithType: NSLeftMouseUp location: point modifierFlags: 0
+                     timestamp: 0 windowNumber: [window windowNumber] context: nil
+                   eventNumber: 0 clickCount: 1 pressure: 0];
 
   [NSApp sendEvent: down];
   [NSApp sendEvent: up];
