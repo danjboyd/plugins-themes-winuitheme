@@ -20,6 +20,7 @@
 
 #import "WinUIThemeWindowIntegration.h"
 #import "WinUIThemeCaption.h"
+#import "WinUIThemeToolbarInMenuBar.h"
 
 #import "../WinUITheme.h"
 #import "../Settings/WinUIThemeSettings.h"
@@ -1084,7 +1085,10 @@ WinUIThemeApplyWindowIdentity(NSWindow *window,
 
 @interface GSWindowDecorationView (WinUIThemeMenuView)
 - (void) addMenuView: (NSMenuView *)menuView;
+- (NSMenuView *) removeMenuView;
 - (void) addToolbarView: (GSToolbarView *)toolbarView;
+- (void) removeToolbarView: (GSToolbarView *)toolbarView;
+- (void) adjustToolbarView: (GSToolbarView *)toolbarView;
 + (void) offsets: (float *)l : (float *)r : (float *)t : (float *)b
     forStyleMask: (NSUInteger)style;
 @end
@@ -1254,7 +1258,10 @@ WinUIThemeSendDisplayTitle(NSWindow *window, int windowNumber)
 
 - (void) layout
 {
+  BOOL heldToolbar = [self winUIThemeBeginLayout];
+
   [super layout];
+  [self winUIThemeEndLayout: heldToolbar];
   WinUIThemeCaptionLayout(self, window, windowNumber);
 }
 
@@ -1300,19 +1307,71 @@ WinUIThemeSendDisplayTitle(NSWindow *window, int windowNumber)
   NSRect frame = [window frame];
 
   [super addMenuView: menuView];
+  [self winUIThemeMenuViewAdded];
   WinUIThemeKeepTabFrame(window, frame);
   WinUIThemeFitDecorationToWindow(self, window);
 }
 
+- (NSMenuView *) removeMenuView
+{
+  BOOL heldToolbar = [self winUIThemeMenuViewWillBeRemoved];
+  NSMenuView *menuView = [super removeMenuView];
+
+  [self winUIThemeMenuViewRemoved: heldToolbar];
+  return menuView;
+}
+
 - (void) addToolbarView: (GSToolbarView *)toolbarView
 {
+  if ([self winUIThemeAddToolbarViewToMenuBar: toolbarView])
+    {
+      return;
+    }
   [super addToolbarView: toolbarView];
   WinUIThemeFitDecorationToWindow(self, window);
+}
+
+- (void) removeToolbarView: (GSToolbarView *)toolbarView
+{
+  if ([self winUIThemeRemoveToolbarViewFromMenuBar: toolbarView] == NO)
+    {
+      [super removeToolbarView: toolbarView];
+    }
+}
+
+- (void) adjustToolbarView: (GSToolbarView *)toolbarView
+{
+  if ([self winUIThemeAdjustToolbarViewInMenuBar: toolbarView] == NO)
+    {
+      [super adjustToolbarView: toolbarView];
+    }
+}
+
+/* With the toolbar in the menu bar's row (#91), the content takes the
+   toolbar's own row back. */
+- (NSRect) contentRectForFrameRect: (NSRect)aRect
+                         styleMask: (NSUInteger)aStyle
+{
+  return [self winUIThemeContentRect: [super contentRectForFrameRect: aRect styleMask: aStyle]];
+}
+
+- (NSRect) frameRectForContentRect: (NSRect)aRect
+                         styleMask: (NSUInteger)aStyle
+{
+  return [self winUIThemeFrameRect: [super frameRectForContentRect: aRect styleMask: aStyle]];
 }
 
 @end
 
 @implementation WinUIThemeStandardWindowDecorationView
+
+- (void) layout
+{
+  BOOL heldToolbar = [self winUIThemeBeginLayout];
+
+  [super layout];
+  [self winUIThemeEndLayout: heldToolbar];
+}
 
 - (void) setWindowNumber: (int)theWindowNumber
 {
@@ -1339,14 +1398,58 @@ WinUIThemeSendDisplayTitle(NSWindow *window, int windowNumber)
   NSRect frame = [window frame];
 
   [super addMenuView: menuView];
+  [self winUIThemeMenuViewAdded];
   WinUIThemeKeepTabFrame(window, frame);
   WinUIThemeFitDecorationToWindow(self, window);
 }
 
+- (NSMenuView *) removeMenuView
+{
+  BOOL heldToolbar = [self winUIThemeMenuViewWillBeRemoved];
+  NSMenuView *menuView = [super removeMenuView];
+
+  [self winUIThemeMenuViewRemoved: heldToolbar];
+  return menuView;
+}
+
 - (void) addToolbarView: (GSToolbarView *)toolbarView
 {
+  if ([self winUIThemeAddToolbarViewToMenuBar: toolbarView])
+    {
+      return;
+    }
   [super addToolbarView: toolbarView];
   WinUIThemeFitDecorationToWindow(self, window);
+}
+
+- (void) removeToolbarView: (GSToolbarView *)toolbarView
+{
+  if ([self winUIThemeRemoveToolbarViewFromMenuBar: toolbarView] == NO)
+    {
+      [super removeToolbarView: toolbarView];
+    }
+}
+
+- (void) adjustToolbarView: (GSToolbarView *)toolbarView
+{
+  if ([self winUIThemeAdjustToolbarViewInMenuBar: toolbarView] == NO)
+    {
+      [super adjustToolbarView: toolbarView];
+    }
+}
+
+/* With the toolbar in the menu bar's row (#91), the content takes the
+   toolbar's own row back. */
+- (NSRect) contentRectForFrameRect: (NSRect)aRect
+                         styleMask: (NSUInteger)aStyle
+{
+  return [self winUIThemeContentRect: [super contentRectForFrameRect: aRect styleMask: aStyle]];
+}
+
+- (NSRect) frameRectForContentRect: (NSRect)aRect
+                         styleMask: (NSUInteger)aStyle
+{
+  return [self winUIThemeFrameRect: [super frameRectForContentRect: aRect styleMask: aStyle]];
 }
 
 @end

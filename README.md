@@ -272,6 +272,32 @@ does a window in high contrast or with Windows' transparency effects
 off. An inactive window shows Mica's solid colour, as Windows draws it.
 `defaults write NSGlobalDomain WinUIThemeMica NO` turns it off.
 
+## Toolbar in the Menu Bar
+
+Notepad and Paint have one row under the title bar: the menus at its
+start, the commands after them. An app whose toolbar suits that (a few
+icons) declares it in its Info.plist:
+
+```
+GSThemeToolbarInMenuBar = YES;
+```
+
+A window with a menu bar then shows its toolbar in the menu bar's row
+(#91): the menu titles keep the room they need, the toolbar takes the
+rest, so items after a flexible space sit at the row's end. Items are
+icon-only 32pt buttons with 16pt icons, as a compact CommandBar's, their
+labels shown as tool tips; a label-only toolbar keeps its text buttons.
+When the row is too narrow, the toolbar's items fold into its ">>" first,
+and the menus fold into their "..." only once the toolbar is down to one
+button. The content takes the toolbar's row back. A window without a
+menu bar (a panel) keeps the toolbar in a row of its own, and hiding the
+toolbar leaves the menu bar alone.
+
+The key is theme-neutral, so another theme may read it too. A user
+default overrides the app: `defaults write <app> GSThemeToolbarInMenuBar
+NO` for one app, or `NSGlobalDomain` for every app that doesn't say NO
+itself. A change applies to open windows, which keep their frames.
+
 ## Motion
 
 WinUI eases between states, and so does the theme:

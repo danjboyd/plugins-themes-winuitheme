@@ -26,6 +26,7 @@
 #import "Rendering/WinUIThemeDrawing.h"
 #import "Native/WinUIThemeShellDialogs.h"
 #import "Native/WinUIThemeWindowIntegration.h"
+#import "Native/WinUIThemeToolbarInMenuBar.h"
 #import "GSWindowTabbing.h"
 
 #import <AppKit/AppKit.h>
@@ -212,6 +213,10 @@ WinUIThemeRightTextAlignment(void)
                                            selector: @selector(applicationDidFinishLaunching:)
                                                name: NSApplicationDidFinishLaunchingNotification
                                              object: nil];
+  [[NSNotificationCenter defaultCenter] addObserver: self
+                                           selector: @selector(defaultsDidChange:)
+                                               name: NSUserDefaultsDidChangeNotification
+                                             object: nil];
   if ([self shouldUseWindowIntegration])
     {
       WinUIThemeWindowIntegrationActivate(self);
@@ -229,10 +234,19 @@ WinUIThemeRightTextAlignment(void)
   [center removeObserver: self name: NSWindowDidBecomeKeyNotification object: nil];
   [center removeObserver: self name: NSWindowDidBecomeMainNotification object: nil];
   [center removeObserver: self name: NSApplicationDidFinishLaunchingNotification object: nil];
+  [center removeObserver: self name: NSUserDefaultsDidChangeNotification object: nil];
   WinUIThemeWindowIntegrationDeactivate();
   [self removeRuntimeDefaults];
   _runtimeDefaultsApplied = NO;
   [super deactivate];
+}
+
+/* Settings that apply to open windows, changed by the app or the user
+   (NSUserDefaults notices a `defaults write` when it synchronises): the
+   toolbar in the menu bar's row (#91). */
+- (void) defaultsDidChange: (NSNotification *)notification
+{
+  WinUIThemeToolbarInMenuBarSettingChanged();
 }
 
 /* Once the app's own launch code has run (it may build its menus then). */

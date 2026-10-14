@@ -369,6 +369,11 @@ QuirkProbeModuleOfAddress(void *address)
 - (void) positionWithComboBoxCell: (NSComboBoxCell *)comboBoxCell;
 @end
 
+/* libs-gui's toolbar item view, private. */
+@interface NSToolbarItem (QuirkProbeToolbar)
+- (NSView *) _backView;
+@end
+
 @interface NSView (QuirkProbeTabBar)
 - (NSUInteger) numberOfTabs;
 - (NSRect) rectForTabAtIndex: (NSUInteger)index;
@@ -490,6 +495,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkToolbarSeparator;
 - (void) checkDecorationFitsTallWindow;
 - (void) checkToolbarIconSize;
+- (void) checkToolbarInMenuBar;
 - (void) checkScrollerEdge;
 - (void) checkTextAlignment;
 - (void) checkTableHeader;
@@ -1170,11 +1176,17 @@ static NSRect QuirkProbeOpenListRow;
 
 - (NSArray *) toolbarAllowedItemIdentifiers: (NSToolbar *)toolbar
 {
-  return [NSArray arrayWithObjects: QuirkProbeImageItem, NSToolbarSeparatorItemIdentifier, nil];
+  return [NSArray arrayWithObjects: QuirkProbeImageItem, NSToolbarSeparatorItemIdentifier,
+                                    NSToolbarFlexibleSpaceItemIdentifier, nil];
 }
 
 - (NSArray *) toolbarDefaultItemIdentifiers: (NSToolbar *)toolbar
 {
+  if ([[toolbar identifier] isEqualToString: @"QuirkProbeMenuRowToolbar"])
+    {
+      return [NSArray arrayWithObjects: QuirkProbeImageItem, NSToolbarFlexibleSpaceItemIdentifier,
+                                        QuirkProbeImageItem, nil];
+    }
   if ([[toolbar identifier] isEqualToString: @"QuirkProbeSeparatorToolbar"])
     {
       return [NSArray arrayWithObjects: QuirkProbeImageItem, NSToolbarSeparatorItemIdentifier,
@@ -1678,6 +1690,223 @@ QuirkProbeDarkest(NSBitmapImageRep *rep)
     [item setAction: @selector(toolbarItemClicked:)];
   }
   [window setToolbar: nil];
+  [window orderOut: nil];
+}
+
+/* Single-row chrome (#91): with GSThemeToolbarInMenuBar the toolbar
+   shares the menu bar's row, the menu titles first, then the items, the
+   flexible space putting the last item at the row's end; icon-only 32pt
+   buttons named by tool tips; the content takes the toolbar's row back
+   and keeps its size. Hiding the toolbar leaves the menu bar the row; the
+   setting turned off puts the toolbar back in a row of its own with the
+   window's frame kept, as a window of an app that doesn't declare it
+   has. */
+- (void) checkToolbarInMenuBar
+{
+  NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+  NSWindow *window = [self windowWithFrame: NSMakeRect(300, 300, 520, 200)
+                                     title: @"QuirkProbe Toolbar In Menu Bar"];
+  NSMenu *menu = AUTORELEASE([[NSMenu alloc] initWithTitle: @"QuirkProbe"]);
+  NSToolbar *toolbar = [[NSToolbar alloc] initWithIdentifier: @"QuirkProbeMenuRowToolbar"];
+  NSMutableArray *problems = [NSMutableArray array];
+  NSView *decoration = nil;
+  NSView *toolbarView = nil;
+  NSMenuView *bar = nil;
+  NSToolbarItem *first = nil;
+  NSToolbarItem *last = nil;
+  NSRect barFrame, toolbarFrame, firstFrame, lastFrame, contentFrame;
+  NSRect windowFrame;
+  CGFloat contentHeight;
+  CGFloat menuHeight;
+
+  [defaults setBool: YES forKey: @"GSThemeToolbarInMenuBar"];
+  [menu addItemWithTitle: @"File" action: NULL keyEquivalent: @""];
+  [menu addItemWithTitle: @"Edit" action: NULL keyEquivalent: @""];
+  [menu addItemWithTitle: @"View" action: NULL keyEquivalent: @""];
+  [toolbar setDelegate: self];
+  [toolbar setDisplayMode: NSToolbarDisplayModeIconAndLabel];
+  /* As an app usually has it: the toolbar first, the menu bar when the
+     window first becomes key. */
+  [window setToolbar: toolbar];
+  RELEASE(toolbar);
+  [window orderFront: nil];
+  contentHeight = NSHeight([[window contentView] frame]);
+  [window setMenu: menu];
+  [window display];
+  QuirkProbeDispatchEvents(0.2);
+
+  decoration = [[window contentView] superview];
+  toolbarView = QuirkProbeFindViewOfClass(decoration, NSClassFromString(@"GSToolbarView"));
+  bar = (NSMenuView *)QuirkProbeFindViewOfClass(decoration, [NSMenuView class]);
+  if (toolbarView == nil || bar == nil || [[toolbar items] count] < 3)
+    {
+      [self skip: @"toolbar-in-menu-bar" detail: @"no toolbar view, menu bar or items"];
+      [self skip: @"toolbar-in-menu-bar-off" detail: @"no toolbar view, menu bar or items"];
+      [defaults removeObjectForKey: @"GSThemeToolbarInMenuBar"];
+      [window setToolbar: nil];
+      [window setMenu: nil];
+      [window orderOut: nil];
+      return;
+    }
+  menuHeight = [[GSTheme theme] menuHeightForWindow: window];
+  first = [[toolbar items] objectAtIndex: 0];
+  last = [[toolbar items] lastObject];
+  barFrame = [decoration convertRect: [bar bounds] fromView: bar];
+  toolbarFrame = [decoration convertRect: [toolbarView bounds] fromView: toolbarView];
+  firstFrame = [decoration convertRect: [[first _backView] bounds] fromView: [first _backView]];
+  lastFrame = [decoration convertRect: [[last _backView] bounds] fromView: [last _backView]];
+  contentFrame = [decoration convertRect: [[window contentView] bounds] fromView: [window contentView]];
+
+  if (fabs(NSMinY(toolbarFrame) - NSMinY(barFrame)) > 0.5 || fabs(NSHeight(toolbarFrame) - menuHeight) > 0.5)
+    {
+      [problems addObject: [NSString stringWithFormat: @"the toolbar %@ isn't in the menu bar's row %@",
+                                                       NSStringFromRect(toolbarFrame), NSStringFromRect(barFrame)]];
+    }
+  if (NSMaxX(barFrame) > NSMinX(firstFrame) + 0.5 || NSMinX(firstFrame) > NSMaxX(barFrame) + 40.0)
+    {
+      [problems addObject: [NSString stringWithFormat: @"the first item starts at %.0f, the menus end at %.0f",
+                                                       NSMinX(firstFrame), NSMaxX(barFrame)]];
+    }
+  if (fabs(NSMaxX(lastFrame) - NSMaxX(toolbarFrame)) > 4.0)
+    {
+      [problems addObject: [NSString stringWithFormat: @"the last item ends at %.0f, the row at %.0f",
+                                                       NSMaxX(lastFrame), NSMaxX(toolbarFrame)]];
+    }
+  if (fabs(NSHeight(firstFrame) - menuHeight) > 0.5 || NSWidth(firstFrame) > 40.0)
+    {
+      [problems addObject: [NSString stringWithFormat: @"an item is %.0fx%.0f, not a %.0fpt icon button",
+                                                       NSWidth(firstFrame), NSHeight(firstFrame), menuHeight]];
+    }
+  {
+    NSView *button = QuirkProbeFindViewOfClass([first _backView], NSClassFromString(@"GSToolbarButton"));
+
+    if (button == nil)
+      {
+        button = [first _backView];
+      }
+    if ([[button toolTip] isEqualToString: [first label]] == NO)
+      {
+        [problems addObject: [NSString stringWithFormat: @"the button's tool tip is %@, not its label",
+                                                         [button toolTip]]];
+      }
+  }
+  if (fabs(NSMaxY(contentFrame) - NSMinY(barFrame)) > 1.5)
+    {
+      [problems addObject: [NSString stringWithFormat: @"the content's top is %.0f, the row's foot %.0f",
+                                                       NSMaxY(contentFrame), NSMinY(barFrame)]];
+    }
+  if (fabs(NSHeight(contentFrame) - contentHeight) > 0.5)
+    {
+      [problems addObject: [NSString stringWithFormat: @"the content is %.0fpt high, %.0fpt before the menu bar",
+                                                       NSHeight(contentFrame), contentHeight]];
+    }
+  /* One background: the toolbar's empty middle as the menu bar's end. */
+  {
+    NSBitmapImageRep *rep = nil;
+    CGFloat scale;
+    NSUInteger r1, g1, b1, r2, g2, b2;
+    NSInteger y;
+
+    [decoration display];
+    rep = QuirkProbeRender(decoration);
+    scale = QuirkProbeScale(rep, decoration);
+    y = (NSInteger)((NSHeight([decoration bounds]) - NSMidY(barFrame)) * scale);
+    if (QuirkProbePixel(rep, (NSInteger)((NSMaxX(barFrame) - 2.0) * scale), y, &r1, &g1, &b1)
+        && QuirkProbePixel(rep, (NSInteger)((NSMaxX(firstFrame) + NSMinX(lastFrame)) / 2.0 * scale), y,
+                           &r2, &g2, &b2)
+        && (labs((long)r1 - (long)r2) > 2 || labs((long)g1 - (long)g2) > 2 || labs((long)b1 - (long)b2) > 2))
+      {
+        [problems addObject: [NSString stringWithFormat: @"the row's background is %lu,%lu,%lu under the menus, %lu,%lu,%lu under the toolbar",
+                                                         (unsigned long)r1, (unsigned long)g1, (unsigned long)b1,
+                                                         (unsigned long)r2, (unsigned long)g2, (unsigned long)b2]];
+      }
+    [self saveView: decoration named: @"toolbar-in-menu-bar"];
+  }
+
+  /* Hidden: the menu bar has the row; shown again, it's shared again. */
+  [window toggleToolbarShown: nil];
+  barFrame = [decoration convertRect: [bar bounds] fromView: bar];
+  contentFrame = [decoration convertRect: [[window contentView] bounds] fromView: [window contentView]];
+  if ([toolbarView superview] != nil || NSWidth(barFrame) < NSWidth([decoration bounds]) - 20.0
+      || fabs(NSHeight(contentFrame) - contentHeight) > 0.5)
+    {
+      [problems addObject: [NSString stringWithFormat: @"with the toolbar hidden the menu bar is %.0fpt wide, the content %.0fpt high",
+                                                       NSWidth(barFrame), NSHeight(contentFrame)]];
+    }
+  [window toggleToolbarShown: nil];
+  toolbarFrame = [decoration convertRect: [toolbarView bounds] fromView: toolbarView];
+  barFrame = [decoration convertRect: [bar bounds] fromView: bar];
+  if ([toolbarView superview] != decoration || fabs(NSMinY(toolbarFrame) - NSMinY(barFrame)) > 0.5)
+    {
+      [problems addObject: [NSString stringWithFormat: @"shown again, the toolbar is at %@, the menu bar %@",
+                                                       NSStringFromRect(toolbarFrame), NSStringFromRect(barFrame)]];
+    }
+  /* Too narrow for both: the toolbar keeps a button and its ">>", and
+     the menus fold into their "..." (#77) instead. */
+  windowFrame = [window frame];
+  [window setFrame: NSMakeRect(NSMinX(windowFrame), NSMinY(windowFrame), 180, NSHeight(windowFrame))
+           display: YES];
+  toolbarFrame = [decoration convertRect: [toolbarView bounds] fromView: toolbarView];
+  if (NSWidth(toolbarFrame) < 59.5 || NSIsEmptyRect([bar rectOfItemAtIndex: 2]) == NO)
+    {
+      [problems addObject: [NSString stringWithFormat: @"180pt wide, the toolbar is %.0fpt and View's title at %@",
+                                                       NSWidth(toolbarFrame),
+                                                       NSStringFromRect([bar rectOfItemAtIndex: 2])]];
+    }
+  [window setFrame: windowFrame display: YES];
+  toolbarFrame = [decoration convertRect: [toolbarView bounds] fromView: toolbarView];
+  barFrame = [decoration convertRect: [bar bounds] fromView: bar];
+  if ([problems count] == 0)
+    {
+      [self pass: @"toolbar-in-menu-bar" detail: [NSString stringWithFormat:
+        @"one %.0fpt row: menus to %.0f, items from %.0f to %.0f of %.0f; the content kept %.0fpt",
+        menuHeight, NSMaxX(barFrame), NSMinX(firstFrame), NSMaxX(lastFrame), NSMaxX(toolbarFrame), contentHeight]];
+    }
+  else
+    {
+      [self fail: @"toolbar-in-menu-bar" detail: [problems componentsJoinedByString: @"; "]];
+    }
+
+  /* Off: a row of its own under the menu bar, the window's frame kept. */
+  [problems removeAllObjects];
+  windowFrame = [window frame];
+  [defaults setBool: NO forKey: @"GSThemeToolbarInMenuBar"];
+  [[NSNotificationCenter defaultCenter] postNotificationName: NSUserDefaultsDidChangeNotification
+                                                      object: defaults];
+  QuirkProbeDispatchEvents(0.2);
+  barFrame = [decoration convertRect: [bar bounds] fromView: bar];
+  toolbarFrame = [decoration convertRect: [toolbarView bounds] fromView: toolbarView];
+  contentFrame = [decoration convertRect: [[window contentView] bounds] fromView: [window contentView]];
+  if (fabs(NSMaxY(toolbarFrame) - NSMinY(barFrame)) > 1.5 || NSHeight(toolbarFrame) < 40.0
+      || fabs(NSMaxY(contentFrame) - NSMinY(toolbarFrame)) > 1.5)
+    {
+      [problems addObject: [NSString stringWithFormat: @"the toolbar %@ isn't a row under the menu bar %@ over the content %@",
+                                                       NSStringFromRect(toolbarFrame), NSStringFromRect(barFrame),
+                                                       NSStringFromRect(contentFrame)]];
+    }
+  if (NSEqualRects([window frame], windowFrame) == NO)
+    {
+      [problems addObject: [NSString stringWithFormat: @"the window moved from %@ to %@",
+                                                       NSStringFromRect(windowFrame), NSStringFromRect([window frame])]];
+    }
+  if (NSWidth(barFrame) < NSWidth([decoration bounds]) - 20.0)
+    {
+      [problems addObject: [NSString stringWithFormat: @"the menu bar is %.0fpt wide", NSWidth(barFrame)]];
+    }
+  if ([problems count] == 0)
+    {
+      [self pass: @"toolbar-in-menu-bar-off" detail: [NSString stringWithFormat:
+        @"a %.0fpt row of its own under the menu bar; the window kept its frame", NSHeight(toolbarFrame)]];
+    }
+  else
+    {
+      [self fail: @"toolbar-in-menu-bar-off" detail: [problems componentsJoinedByString: @"; "]];
+    }
+  [defaults removeObjectForKey: @"GSThemeToolbarInMenuBar"];
+  [[NSNotificationCenter defaultCenter] postNotificationName: NSUserDefaultsDidChangeNotification
+                                                      object: defaults];
+  [window setToolbar: nil];
+  [window setMenu: nil];
   [window orderOut: nil];
 }
 
@@ -10918,6 +11147,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkToolbarSeparator];
   [self checkDecorationFitsTallWindow];
   [self checkToolbarIconSize];
+  [self checkToolbarInMenuBar];
   [self checkScrollerEdge];
   [self checkTableHeader];
   [self checkTextAlignment];
