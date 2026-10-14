@@ -1800,6 +1800,18 @@ QuirkProbeDarkest(NSBitmapImageRep *rep)
   [window setToolbar: toolbar];
   RELEASE(toolbar);
   [window orderFront: nil];
+  if (fabs([window userSpaceScaleFactor] - 1.5) > 0.01
+      || QuirkProbeFindViewOfClass([[window contentView] superview], NSClassFromString(@"GSToolbarView")) == nil)
+    {
+      /* A per-monitor DPI aware backend takes the monitor's scale. */
+      [self skip: @"toolbar-flexible-space-scaled" detail: [NSString stringWithFormat:
+        @"the window draws at %.2f, not the 1.5 asked (the backend scales by the monitor), or has no toolbar view",
+        [window userSpaceScaleFactor]]];
+      [window setToolbar: nil];
+      [window orderOut: nil];
+      [defaults removeObjectForKey: @"GSScaleFactor"];
+      return;
+    }
   for (width = 400.0; width < 440.0; width += 1.0)
     {
       NSView *toolbarView = nil;
