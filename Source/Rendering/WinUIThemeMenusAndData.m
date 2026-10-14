@@ -2065,8 +2065,11 @@ WinUIThemeScreenUnderPointer(void)
         }
       asked = NSMakeSize(textSize.width + WinUIThemeToolTipGNUstepFudge + WinUIThemeToolTipGNUstepMargin,
                          textSize.height + WinUIThemeToolTipGNUstepFudge + WinUIThemeToolTipGNUstepMargin);
-      NSRect visible = [[window screen] != nil ? [window screen] : [NSScreen mainScreen] visibleFrame];
       NSScreen *pointerScreen = WinUIThemeScreenUnderPointer();
+      /* The tip stays on the screen the pointer is on: the panel's own
+         screen is where it last showed. */
+      NSRect visible = [(pointerScreen != nil ? pointerScreen
+                         : ([window screen] != nil ? [window screen] : [NSScreen mainScreen])) visibleFrame];
 
       if (fabs(NSWidth(frame) - asked.width) <= 1.0 && fabs(NSHeight(frame) - asked.height) <= 1.0)
         {
@@ -2085,7 +2088,8 @@ WinUIThemeScreenUnderPointer(void)
              window's frame, which is in pixels; on a scaled display the
              window draws its text at the screen's scale, so the padded
              size is scaled too. */
-          CGFloat scale = MAX(1.0, [window userSpaceScaleFactor]);
+          CGFloat scale = MAX(1.0, (pointerScreen != nil) ? [pointerScreen userSpaceScaleFactor]
+                                                          : [window userSpaceScaleFactor]);
           CGFloat width = (NSWidth(frame) - WinUIThemeToolTipGNUstepMargin
             + WinUIThemeToolTipPaddingLeft + WinUIThemeToolTipPaddingRight) * scale;
           CGFloat height = (NSHeight(frame) - WinUIThemeToolTipGNUstepMargin
