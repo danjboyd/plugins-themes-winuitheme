@@ -700,23 +700,23 @@ WinUIThemeToolbarApplyImage(NSButton *button, NSToolbarItem *item)
   if ([theme isKindOfClass: [WinUITheme class]] && [toolbarItem toolbar] != nil
       && WinUIThemeToolbarItemIsSpace(toolbarItem) == NO)
     {
+      NSRect fill = cellFrame;
+
+      /* In the menu bar's row, the row's line along the bottom stays. */
+      if (WinUIThemeToolbarIsInMenuBar([toolbarItem toolbar]))
+        {
+          fill.size.height -= 1.0;
+          if ([controlView isFlipped] == NO)
+            {
+              fill.origin.y += 1.0;
+            }
+        }
       if (WinUIThemeWindowShowsMica([controlView window]))
         {
-          NSRectFillUsingOperation(cellFrame, NSCompositeClear);
+          NSRectFillUsingOperation(fill, NSCompositeClear);
         }
       else
         {
-          NSRect fill = cellFrame;
-
-          /* In the menu bar's row, the row's line along the bottom stays. */
-          if (WinUIThemeToolbarIsInMenuBar([toolbarItem toolbar]))
-            {
-              fill.size.height -= 1.0;
-              if ([controlView isFlipped] == NO)
-                {
-                  fill.origin.y += 1.0;
-                }
-            }
           [[theme toolbarBackgroundColorForToolbar: [toolbarItem toolbar]] set];
           NSRectFill(fill);
         }
