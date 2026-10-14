@@ -163,6 +163,22 @@ QuirkProbeToolbarSymbolicImage(void)
 }
 
 /* Device pixels per point in a render of `view`. */
+/* NSTextAlignment's centre and right as the gui running the probe numbers
+   them: libs-gui after 0.32 numbers them as AppKit does (NSParagraphStyle's
+   version 4), so the constants the probe was compiled with from 0.32's
+   headers mean the other one there. */
+static NSTextAlignment
+QuirkProbeCenterAlignment(void)
+{
+  return ([NSParagraphStyle version] >= 4) ? 1 : 2;
+}
+
+static NSTextAlignment
+QuirkProbeRightAlignment(void)
+{
+  return ([NSParagraphStyle version] >= 4) ? 2 : 1;
+}
+
 static CGFloat
 QuirkProbeScale(NSBitmapImageRep *rep, NSView *view)
 {
@@ -4929,7 +4945,7 @@ QuirkProbeColumnTitleProblem(NSBitmapImageRep *rep, NSRect pixels, CGFloat scale
       [label setCell: AUTORELEASE([titleCellClass new])];
     }
   [label setFont: [NSFont boldSystemFontOfSize: 0]];
-  [label setAlignment: NSCenterTextAlignment];
+  [label setAlignment: QuirkProbeCenterAlignment()];
   [label setDrawsBackground: YES];
   [label setEditable: NO];
   [label setTextColor: [NSColor windowFrameTextColor]];
@@ -9168,7 +9184,7 @@ QuirkProbeInkIn(NSBitmapImageRep *rep, NSRect area, NSInteger fill, NSInteger th
   [trailing setButtonType: NSSwitchButton];
   [trailing setTitle: @"Release when closed"];
   [trailing setImagePosition: NSImageRight];
-  [trailing setAlignment: NSRightTextAlignment];
+  [trailing setAlignment: QuirkProbeRightAlignment()];
   [trailing setState: NSOnState];
   [radio setButtonType: NSRadioButton];
   [radio setTitle: @"Buffered"];
