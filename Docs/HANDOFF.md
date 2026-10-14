@@ -102,7 +102,7 @@ Phases A to J and these fixes are merged into `main`:
 | PR | Branch | Issues |
 | --- | --- | --- |
 | #124 | `handoff-2026-10-14` | the 10-14 handoff (this file's base) |
-| #125 (draft) | `parity-2026-10-15` | #91 (the toolbar in the menu bar's row), slider tick marks (#105), a probe fix for libs-gui master |
+| #125 (draft) | `parity-2026-10-15` | #91 (the toolbar in the menu bar's row), slider tick marks and paused/error progress (#105), the alpha4 scaled-toolbar regression, a probe fix for libs-gui master |
 | this one | `handoff-2026-10-15` | this file, on top of #124 |
 
 **Releases.** The owner approved the release process on 2026-10-08:
@@ -321,8 +321,8 @@ What still separates an app from a first-rate WinUI app:
    changed.
 4. **Motion:** ContentDialog's scale (a layered window's alpha can't
    scale it).
-5. **API decision:** paused and error progress (see "Paused and error
-   progress" below). Slider ticks needed no decision: NSSlider has
+5. **API decision:** paused and error progress: option 1 is in #125
+   for the owner to confirm (see "Paused and error progress" below). Slider ticks needed no decision: NSSlider has
    `-setNumberOfTickMarks:` and `-setTickMarkPosition:`, which libs-gui
    just doesn't draw. The theme draws them now (#125).
 6. **Chrome:** tabs on by default (#72); per-window compact metrics for
@@ -408,6 +408,28 @@ and draft PRs, but not merging. What was done:
   - At 486px wide, Read/Edit/Split (182pt) folds into ">>", which is
     correct.
 - **Slider tick marks** (#105, in #125), probe check `slider-ticks`.
+- **Paused and error progress** (#105, in #125): option 1 of the
+  proposal below, `-[NSProgressIndicator setGSThemeState:]`. It's an
+  API choice the owner reserved, so it's its own commit (`57abccd`), easy
+  to drop.
+- **An alpha4 regression, fixed in #125 (`4303574`).** The ScreenshotTool
+  session's alpha4 pin check found it: at 125% and 150% on
+  `carry-0.32.0.4`, ScreenshotTool's Copy (after a flexible space) went
+  into the toolbar's ">>" menu with the row half empty.
+  - libs-gui rounds the flexible space's frame to device pixels
+    (`-centerScanRect:`), a fraction of a point past the toolbar's width,
+    and its fit test (`-_visibleBackViews`) then fails.
+  - alpha3 didn't show it: its process was DPI-unaware, so the gui drew
+    at 1.0.
+  - QuirkProbe `toolbar-flexible-space-scaled` uses GSScaleFactor 1.5 at
+    40 widths.
+  - **ScreenshotTool's PR #198 (alpha4 + carry `.4`) is on hold** for a
+    release with this fix. Send the ScreenshotTool session the
+    alpha5 tag and commit once it's tagged.
+  - That session also saw posted quick clicks on the Open split button
+    not leave its menu open at 125% (they did at 100%), though the menu
+    opens on press. It may be the input simulation; worth one
+    real-mouse check.
 - **libs-gui master** (`fdc5cfe83`, built in the scratchpad's
   `gui-master`, not installed): the probe passed in light, dark, high
   contrast and light-150. The one failure first seen was the probe's
@@ -417,9 +439,15 @@ and draft PRs, but not merging. What was done:
   #105's "text width" item has been measured since #108.
 - **GCC builds** of the 10-14 libs-back commits and a squashed DPI
   branch (above).
-- **The ScreenshotTool session** asked for the desktop for about an hour
-  (display scale 100, 125, 150 and back to 100) for its alpha4 pin
-  check, and was given it. This session used no desktop while it had it.
+- **The ScreenshotTool session** borrowed the desktop three times: its
+  alpha4 pin check at 100/125/150% (set back to 100%), a clipboard
+  check, and its v0.1.2-rc1 check. This session used no desktop while
+  it had it.
+- **#125's head (`f1eab64`):**
+  - all 8 configurations: 0 failures on `carry-0.32.0.4`, and on stock
+    but for one "dusk" run that stalled at startup (no check had run)
+    and passed on a rerun;
+  - every commit clean-builds, theme and probe.
 
 Choices made without the owner, each a small revert:
 - In the menu bar's row:
@@ -492,15 +520,20 @@ NSProgressIndicator has neither, and Cocoa has no equivalent. Options:
    so on). No new API, but the meanings are invented.
 
 Recommendation: 1 now, with 2 proposed upstream later using the same
-values. The drawing is about 30 lines in `WinUIThemeControls.m`'s
-progress bar code.
+values. Option 1 is implemented in #125 (`57abccd`); drop that commit
+to choose differently.
 
 ### Suggested next five (the owner decides)
 
-1. **Review draft #125** (#91, slider ticks, the probe's alignment fix).
-   Then "push, PR, and merge" as usual. #91 is off unless an app declares
-   it, but ObjcMarkdown's Info.plist already does, so ObjcMarkdown gets
-   single-row chrome as soon as it moves to a theme with #125.
+1. **Review draft #125, then release 0.1.0-alpha5.**
+   - #125 has #91, slider ticks, paused/error progress (an API choice to
+     confirm), the alpha4 scaled-toolbar fix and the probe's alignment
+     fix.
+   - The toolbar fix matters for every app on the carried backend at
+     125% and above. ScreenshotTool's PR #198 waits on it.
+   - #91 is off unless an app declares it, but ObjcMarkdown's Info.plist
+     already does, so ObjcMarkdown gets single-row chrome as soon as it
+     moves to a release with #125.
 2. **Upstream:** review the four libs-back topic branches, using
    `win32-per-monitor-dpi-squashed` for the DPI one (GCC done; the X11
    build of `CairoFontInfo.m` is still owed). Also #246's FSF
@@ -508,13 +541,11 @@ progress bar code.
 3. **The second-monitor edges:** an OCI run with the logging described
    above. Then a fix in libs-back (offsets at the window's DPI) and in
    gnustep-gui or the theme (frames at the window's screen's scale).
-4. **Paused and error progress:** pick an API (below), then the drawing
-   is small.
-5. **ObjcMarkdown and ScreenshotTool on alpha4** with `carry-0.32.0.4`,
-   when their owners want it. On 10-14 night the ScreenshotTool session
-   took the desktop for its alpha4 pin check (its PR #198). #19's Gorm
-   drop test needs real input. TinyRetroPad is a Win32 assembly app,
-   not a GNUstep one, so it doesn't belong in #19.
+4. **A real-mouse check** of ScreenshotTool's Open split button at 125%
+   (quick clicks), and #19's Gorm drop test.
+5. **ObjcMarkdown and ScreenshotTool on alpha5** with `carry-0.32.0.4`,
+   when their owners want it. TinyRetroPad is a Win32 assembly app, not
+   a GNUstep one, so it doesn't belong in #19.
 
 ### Known gaps in finished work
 
