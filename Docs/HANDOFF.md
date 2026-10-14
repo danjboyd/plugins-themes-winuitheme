@@ -449,6 +449,23 @@ and draft PRs, but not merging. What was done:
     and passed on a rerun;
   - every commit clean-builds, theme and probe.
 
+- **A `/code-review` of #125** found ten candidates. Nine are fixed
+  in #125:
+  - the setting's domain order;
+  - defaults changes from other threads;
+  - a theme switch leaving toolbars in the row;
+  - libs-gui's own decoration views being touched;
+  - image-less items in the row;
+  - a baseline turned on while in the row;
+  - ticks from the unrounded track;
+  - the scaled check passing vacuously;
+  - copying every defaults domain on each change.
+
+  The tenth: the flexible-space rounding fix belongs in libs-gui
+  (`-[GSToolbarView _visibleBackViews]`, a half-device-pixel tolerance),
+  where it would help every theme. A candidate for a libs-gui carry
+  branch or upstream; the theme's fix stays meanwhile.
+
 Choices made without the owner, each a small revert:
 - In the menu bar's row:
   - toolbar items are 32pt with 16pt icons;
