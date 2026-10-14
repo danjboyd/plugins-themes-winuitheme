@@ -42,6 +42,10 @@ BOOL WinUIThemeToolbarIsInMenuBar(NSToolbar *toolbar);
    the menu bar's row, keeping their frames. */
 void WinUIThemeToolbarInMenuBarSettingChanged(void);
 
+/* The theme activating (YES) or deactivating (NO): toolbars move back
+   to rows of their own while it's inactive. */
+void WinUIThemeToolbarInMenuBarSetActive(BOOL active);
+
 /* Called by the theme's decoration views (WinUIThemeWindowIntegration.m)
    from their own overrides of GSWindowDecorationView's methods. Each
    returns NO, or the rect unchanged, when the toolbar isn't (going) in

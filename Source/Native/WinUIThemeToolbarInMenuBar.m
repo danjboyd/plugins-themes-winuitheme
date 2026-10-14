@@ -19,6 +19,7 @@
 */
 
 #import "WinUIThemeToolbarInMenuBar.h"
+#import "WinUIThemeWindowIntegration.h"
 #import "../WinUITheme.h"
 
 #import <AppKit/AppKit.h>
@@ -80,63 +81,68 @@ static const CGFloat WinUIThemeToolbarInMenuBarGap = 4.0;
    inset before its first title, about. */
 static const CGFloat WinUIThemeToolbarInMenuBarEndInset = 4.0;
 
-/* Asked in order: the user for this app (its defaults, or
-   -GSThemeToolbarInMenuBar on the command line); the app, when its
+/* NO while the theme isn't active: a theme switch puts toolbars back in
+   rows of their own. */
+static BOOL WinUIThemeToolbarInMenuBarActive = YES;
+
+/* The key's value in one domain, or nil when it has none. */
+static id
+WinUIThemeToolbarInMenuBarValue(NSDictionary *values)
+{
+  id value = [values objectForKey: @"GSThemeToolbarInMenuBar"];
+
+  return [value respondsToSelector: @selector(boolValue)] ? value : nil;
+}
+
+/* Asked in order: the user for this app (-GSThemeToolbarInMenuBar on
+   the command line, then the app's own defaults); the app, when its
    Info.plist says NO; the user for all apps (NSGlobalDomain); the app's
-   Info.plist or registered defaults. Off otherwise: the toolbar has to
-   suit the row (a few icons). As the Adwaita theme reads its
+   Info.plist; registered defaults. Other domains (GlobalDefaults, a
+   theme's) aren't asked. Off otherwise: the toolbar has to suit the row
+   (a few icons). As the Adwaita theme reads its
    GnomeThemeHeaderBarToolbar. */
 BOOL
 WinUIThemeToolbarInMenuBarEnabled(void)
 {
-  NSString *key = @"GSThemeToolbarInMenuBar";
+  static BOOL declaredRead = NO;
+  static id declared = nil;
   NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-  NSEnumerator *enumerator = [[defaults searchList] objectEnumerator];
-  NSString *domain = nil;
-  id global = nil;
-  id registered = nil;
-  id declared = [[[NSBundle mainBundle] infoDictionary] objectForKey: key];
+  id value = nil;
 
-  while ((domain = [enumerator nextObject]) != nil)
+  if (WinUIThemeToolbarInMenuBarActive == NO)
     {
-      NSDictionary *values = [defaults persistentDomainForName: domain];
-      id value = nil;
-
-      if (values == nil)
-        {
-          values = [defaults volatileDomainForName: domain];
-        }
-      value = [values objectForKey: key];
-      if ([value respondsToSelector: @selector(boolValue)] == NO)
-        {
-          continue;
-        }
-      if ([domain isEqualToString: NSGlobalDomain])
-        {
-          global = (global != nil) ? global : value;
-        }
-      else if ([domain isEqualToString: NSRegistrationDomain])
-        {
-          registered = (registered != nil) ? registered : value;
-        }
-      else
-        {
-          return [value boolValue];
-        }
+      return NO;
     }
-  if ([declared respondsToSelector: @selector(boolValue)] == NO)
+  if (declaredRead == NO)
     {
-      declared = nil;
+      declared = RETAIN(WinUIThemeToolbarInMenuBarValue([[NSBundle mainBundle] infoDictionary]));
+      declaredRead = YES;
+    }
+  value = WinUIThemeToolbarInMenuBarValue([defaults volatileDomainForName: NSArgumentDomain]);
+  if (value == nil)
+    {
+      value = WinUIThemeToolbarInMenuBarValue(
+        [defaults persistentDomainForName: [[NSProcessInfo processInfo] processName]]);
+    }
+  if (value != nil)
+    {
+      return [value boolValue];
     }
   if (declared != nil && [declared boolValue] == NO)
     {
       return NO;
     }
-  if (global != nil)
+  value = WinUIThemeToolbarInMenuBarValue([defaults persistentDomainForName: NSGlobalDomain]);
+  if (value != nil)
     {
-      return [global boolValue];
+      return [value boolValue];
     }
-  return [((declared != nil) ? declared : registered) boolValue];
+  if (declared != nil)
+    {
+      return YES;
+    }
+  value = WinUIThemeToolbarInMenuBarValue([defaults volatileDomainForName: NSRegistrationDomain]);
+  return [value boolValue];
 }
 
 static BOOL
@@ -202,6 +208,13 @@ WinUIThemeToolbarViewSetInMenuBar(GSToolbarView *toolbarView, BOOL inBar)
 
   if (laidOutInBar == inBar)
     {
+      /* The app may have asked for a baseline since (-setShowsBaselineSeparator:):
+         none in the menu bar's row. */
+      if (inBar && [toolbarView borderMask] != 0)
+        {
+          [toolbarView setBorderMask: 0];
+          [toolbarView _reload];
+        }
       return;
     }
   objc_setAssociatedObject(toolbarView, &WinUIThemeLaidOutInMenuBarKey,
@@ -457,8 +470,9 @@ WinUIThemeLayoutToolbarInMenuBar(GSWindowDecorationView *decoration, NSWindow *w
 
 @end
 
-/* Called whenever NSUserDefaults posts a change: only a change of the
-   setting itself moves toolbars. */
+/* Called whenever NSUserDefaults posts a change (on the main thread):
+   only a change of the setting itself moves toolbars, and only in the
+   theme's own decoration views, which carry them. */
 void
 WinUIThemeToolbarInMenuBarSettingChanged(void)
 {
@@ -477,9 +491,17 @@ WinUIThemeToolbarInMenuBarSettingChanged(void)
     {
       NSView *decoration = [[window contentView] superview];
 
-      if ([decoration isKindOfClass: [GSWindowDecorationView class]])
+      if ([decoration isKindOfClass: [WinUIThemeBackendWindowDecorationView class]]
+          || [decoration isKindOfClass: [WinUIThemeStandardWindowDecorationView class]])
         {
           [(GSWindowDecorationView *)decoration winUIThemePlaceToolbarForSetting];
         }
     }
+}
+
+void
+WinUIThemeToolbarInMenuBarSetActive(BOOL active)
+{
+  WinUIThemeToolbarInMenuBarActive = active;
+  WinUIThemeToolbarInMenuBarSettingChanged();
 }

@@ -217,6 +217,7 @@ WinUIThemeRightTextAlignment(void)
                                            selector: @selector(defaultsDidChange:)
                                                name: NSUserDefaultsDidChangeNotification
                                              object: nil];
+  WinUIThemeToolbarInMenuBarSetActive(YES);
   if ([self shouldUseWindowIntegration])
     {
       WinUIThemeWindowIntegrationActivate(self);
@@ -235,6 +236,7 @@ WinUIThemeRightTextAlignment(void)
   [center removeObserver: self name: NSWindowDidBecomeMainNotification object: nil];
   [center removeObserver: self name: NSApplicationDidFinishLaunchingNotification object: nil];
   [center removeObserver: self name: NSUserDefaultsDidChangeNotification object: nil];
+  WinUIThemeToolbarInMenuBarSetActive(NO);
   WinUIThemeWindowIntegrationDeactivate();
   [self removeRuntimeDefaults];
   _runtimeDefaultsApplied = NO;
@@ -246,6 +248,14 @@ WinUIThemeRightTextAlignment(void)
    toolbar in the menu bar's row (#91). */
 - (void) defaultsDidChange: (NSNotification *)notification
 {
+  /* Defaults may change on any thread; windows only on the main one. */
+  if ([NSThread isMainThread] == NO)
+    {
+      [self performSelectorOnMainThread: @selector(defaultsDidChange:)
+                             withObject: nil
+                          waitUntilDone: NO];
+      return;
+    }
   WinUIThemeToolbarInMenuBarSettingChanged();
 }
 

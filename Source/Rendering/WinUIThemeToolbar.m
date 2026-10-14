@@ -165,10 +165,16 @@ WinUIThemeToolbarShowsLabels(NSToolbar *toolbar)
   return [toolbar displayMode] != NSToolbarDisplayModeIconOnly;
 }
 
+/* A text button: in a label-only toolbar, and in the menu bar's row an
+   item with no image to show (#91). */
 static BOOL
 WinUIThemeToolbarTextItem(NSToolbarItem *item)
 {
-  return [[item toolbar] displayMode] == NSToolbarDisplayModeLabelOnly;
+  NSToolbar *toolbar = [item toolbar];
+
+  return [toolbar displayMode] == NSToolbarDisplayModeLabelOnly
+    || (WinUIThemeToolbarIsInMenuBar(toolbar) && [item image] == nil && [item view] == nil
+        && WinUIThemeToolbarItemIsSpace(item) == NO);
 }
 
 /* The label's font: the interface font for text buttons, WinUI's Caption
@@ -195,7 +201,8 @@ WinUIThemeToolbarLabelSize(NSToolbarItem *item)
   NSString *label = [item label];
   NSSize size;
 
-  if (WinUIThemeToolbarShowsLabels(toolbar) == NO || [label length] == 0)
+  if ((WinUIThemeToolbarShowsLabels(toolbar) == NO && WinUIThemeToolbarTextItem(item) == NO)
+      || [label length] == 0)
     {
       return NSZeroSize;
     }
@@ -707,11 +714,11 @@ WinUIThemeToolbarKeepFlexibleSpaceInside(NSView *toolbarView, NSToolbar *toolbar
         {
           WinUIThemeToolbarApplyImage(button, toolbarItem);
           [button setFont: WinUIThemeToolbarLabelFont(toolbar)];
-          /* In the menu bar's row (#91) an icon without its label. */
-          if (WinUIThemeToolbarIsInMenuBar(toolbar) && [toolbarItem image] != nil
-              && [toolbar displayMode] != NSToolbarDisplayModeLabelOnly)
+          /* In the menu bar's row (#91) an icon without its label, or a
+             label alone where there's no icon. */
+          if (WinUIThemeToolbarIsInMenuBar(toolbar) && [toolbar displayMode] != NSToolbarDisplayModeLabelOnly)
             {
-              [button setImagePosition: NSImageOnly];
+              [button setImagePosition: ([toolbarItem image] != nil) ? NSImageOnly : NSNoImage];
             }
           [button setFrameSize: NSMakeSize(WinUIThemeToolbarContentSize(toolbarItem).width
                                              + 2.0 * WinUIThemeToolbarSpacing,
