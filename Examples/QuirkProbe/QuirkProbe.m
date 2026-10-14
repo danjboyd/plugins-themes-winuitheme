@@ -3886,6 +3886,60 @@ QuirkProbeBrowser(QuirkProbe *probe, NSView *content, NSRect frame, NSInteger le
       }
   }
 
+  /* A row under the pointer: the selection's subtle fill without its pill,
+     cleared when the pointer moves to another row (#58, #105). libs-gui
+     drew no hover. The pointer is a mouse-moved event sent to the column. */
+  if (highContrast)
+    {
+      [self skip: @"browser-row-hover" detail: @"high contrast has no hover fill"];
+    }
+  else
+    {
+      NSRect first = [matrix cellFrameAtRow: 0 column: 0];
+      NSRect second = [matrix cellFrameAtRow: 1 column: 0];
+      NSRect firstPixels = QuirkProbePixelRect(column, [column convertRect: first fromView: matrix], scale);
+      NSRect secondPixels = QuirkProbePixelRect(column, [column convertRect: second fromView: matrix], scale);
+      NSInteger x = (NSInteger)(NSMinX(firstPixels) + NSWidth(firstPixels) * 0.6);
+      NSUInteger over, rest, after;
+      NSEvent *moved;
+
+      moved = [NSEvent mouseEventWithType: NSMouseMoved
+                                 location: [matrix convertPoint: NSMakePoint(NSMidX(first), NSMidY(first)) toView: nil]
+                            modifierFlags: 0 timestamp: 0 windowNumber: [window windowNumber]
+                                  context: nil eventNumber: 0 clickCount: 0 pressure: 0];
+      [matrix mouseMoved: moved];
+      [window display];
+      rep = QuirkProbeRender(column);
+      [self saveView: column named: @"browser-row-hover"];
+      QuirkProbePixel(rep, x, (NSInteger)(NSMinY(firstPixels) + 5 * scale), &red, &green, &blue);
+      over = red + green + blue;
+      QuirkProbePixel(rep, x, (NSInteger)(NSMinY(secondPixels) + 5 * scale), &red, &green, &blue);
+      rest = red + green + blue;
+
+      moved = [NSEvent mouseEventWithType: NSMouseMoved
+                                 location: [matrix convertPoint: NSMakePoint(NSMidX(second), NSMidY(second)) toView: nil]
+                            modifierFlags: 0 timestamp: 0 windowNumber: [window windowNumber]
+                                  context: nil eventNumber: 0 clickCount: 0 pressure: 0];
+      [matrix mouseMoved: moved];
+      [window display];
+      rep = QuirkProbeRender(column);
+      QuirkProbePixel(rep, x, (NSInteger)(NSMinY(firstPixels) + 5 * scale), &red, &green, &blue);
+      after = red + green + blue;
+      if (llabs((long long)over - (long long)rest) >= 3 && llabs((long long)over - (long long)rest) <= 60
+          && llabs((long long)after - (long long)rest) <= 2)
+        {
+          [self pass: @"browser-row-hover" detail: [NSString stringWithFormat:
+            @"the row under the pointer is %lu, others %lu (of 765), and it clears",
+            (unsigned long)over, (unsigned long)rest]];
+        }
+      else
+        {
+          [self fail: @"browser-row-hover" detail: [NSString stringWithFormat:
+            @"under the pointer %lu, another row %lu, the first row after moving on %lu (of 765)",
+            (unsigned long)over, (unsigned long)rest, (unsigned long)after]];
+        }
+    }
+
   /* Every column fits: no horizontal scroller, and the columns reach the
      browser's foot. */
   {

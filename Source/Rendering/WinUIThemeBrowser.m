@@ -153,6 +153,66 @@ WinUIThemeBrowserTitleFont(WinUITheme *theme, NSFont *font, CGFloat height)
   return (strong != nil) ? strong : font;
 }
 
+static char WinUIThemeBrowserHoverRowKey;
+/* The row the pointer left, while its fill fades out. */
+static char WinUIThemeBrowserHoverLastRowKey;
+static char WinUIThemeBrowserHoverInKey;
+static char WinUIThemeBrowserHoverOutKey;
+
+/* A browser column's matrix, or nil for any other view. */
+static NSMatrix *
+WinUIThemeBrowserColumnMatrix(NSView *view)
+{
+  return ([view isKindOfClass: [NSMatrix class]]
+          && WinUIThemeIsBrowserColumn([view enclosingScrollView]))
+    ? (NSMatrix *)view : nil;
+}
+
+/* How much of the hover fill a row shows, 0 to 1. As with tables (#28),
+   the matrix's window gets mouse-moved events, which -mouseMoved: turns
+   into the row, and the column's scroll view a tracking rect, whose exit
+   clears it. The row under the pointer fades in over WinUI's 83ms, and the
+   one it left fades out. */
+static CGFloat
+WinUIThemeBrowserRowHoverAmount(NSView *view, NSCell *cell)
+{
+  NSMatrix *matrix = WinUIThemeBrowserColumnMatrix(view);
+  NSScrollView *scrollView = nil;
+  NSNumber *stored = nil;
+  NSNumber *last = nil;
+  NSInteger row = -1;
+  NSInteger column = -1;
+  BOOL over;
+  CGFloat amountIn, amountOut;
+
+  if (matrix == nil || [matrix window] == nil
+      || [matrix getRow: &row column: &column ofCell: cell] == NO)
+    {
+      return 0.0;
+    }
+  scrollView = [matrix enclosingScrollView];
+  WinUIThemeTrackHover(scrollView);
+  if ([[matrix window] acceptsMouseMovedEvents] == NO)
+    {
+      [[matrix window] setAcceptsMouseMovedEvents: YES];
+    }
+
+  stored = objc_getAssociatedObject(matrix, &WinUIThemeBrowserHoverRowKey);
+  last = objc_getAssociatedObject(matrix, &WinUIThemeBrowserHoverLastRowKey);
+  over = (stored != nil && [stored integerValue] >= 0 && WinUIThemeViewIsHovered(scrollView));
+  amountIn = WinUIThemeAnimatedValue(matrix, &WinUIThemeBrowserHoverInKey, over ? 1.0 : 0.0, 0.083);
+  amountOut = WinUIThemeAnimatedValue(matrix, &WinUIThemeBrowserHoverOutKey, 0.0, 0.083);
+  if (stored != nil && [stored integerValue] == row)
+    {
+      return amountIn;
+    }
+  if (last != nil && [last integerValue] == row)
+    {
+      return amountOut;
+    }
+  return 0.0;
+}
+
 @implementation WinUITheme (Browser)
 
 - (CGFloat) browserColumnSeparation
@@ -270,6 +330,21 @@ WinUIThemeBrowserTitleFont(WinUITheme *theme, NSFont *font, CGFloat height)
   NSString *title = nil;
   NSSize titleSize;
 
+  /* A row under the pointer: the selection's fill, faded by its amount,
+     without the pill (#58, #105). High contrast has no hover fill. */
+  if (selected == NO && highContrast == NO && enabled)
+    {
+      CGFloat amount = WinUIThemeBrowserRowHoverAmount(controlView, cell);
+
+      if (amount > 0.0)
+        {
+          [WinUIThemeBlendColor(WinUIThemeBrowserCardColor(self),
+                                dark ? [NSColor whiteColor] : [NSColor blackColor],
+                                (dark ? 0.06 : 0.037) * amount) set];
+          [WinUIThemeRoundedPath(item, WinUIThemeControlCornerRadius(self)) fill];
+        }
+    }
+
   if (selected)
     {
       if (highContrast)
@@ -365,6 +440,61 @@ WinUIThemeBrowserTitleFont(WinUITheme *theme, NSFont *font, CGFloat height)
                                          ceil([font defaultLineHeightForFont]) + 12.0));
     }
   return size;
+}
+
+/* The row under the pointer in a browser column, for the hover fill.
+   NSMatrix has no -mouseMoved: of its own; NSResponder's passes the event
+   on, as before. */
+- (void) _overrideNSMatrixMethod_mouseMoved: (NSEvent *)event
+{
+  typedef void (*MouseMovedIMP)(id, SEL, NSEvent *);
+  MouseMovedIMP originalIMP = (MouseMovedIMP)WinUIThemeOriginalMethod(_cmd, self, [NSMatrix class]);
+  NSMatrix *matrix = WinUIThemeBrowserColumnMatrix((NSView *)self);
+
+  if (matrix != nil && WinUIThemeBrowserTheme() != nil)
+    {
+      NSPoint point = [matrix convertPoint: [event locationInWindow] fromView: nil];
+      NSInteger row = -1;
+      NSInteger column = -1;
+      NSNumber *old = objc_getAssociatedObject(matrix, &WinUIThemeBrowserHoverRowKey);
+
+      if ([matrix getRow: &row column: &column forPoint: point] == NO)
+        {
+          row = -1;
+        }
+      WinUIThemeSetViewHovered([matrix enclosingScrollView], YES);
+      if (old == nil || [old integerValue] != row)
+        {
+          if (old != nil && [old integerValue] >= 0 && [old integerValue] < [matrix numberOfRows])
+            {
+              [matrix setNeedsDisplayInRect: [matrix cellFrameAtRow: [old integerValue] column: 0]];
+            }
+          if (row >= 0)
+            {
+              [matrix setNeedsDisplayInRect: [matrix cellFrameAtRow: row column: 0]];
+            }
+          /* The old row's fill fades out from where it is; the new one's
+             fades in from nothing. */
+          if (old != nil && [old integerValue] >= 0)
+            {
+              CGFloat current = WinUIThemeAnimatedValue(matrix, &WinUIThemeBrowserHoverInKey, 1.0, 0.083);
+
+              objc_setAssociatedObject(matrix, &WinUIThemeBrowserHoverLastRowKey, old,
+                                       OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+              WinUIThemeAnimatedValue(matrix, &WinUIThemeBrowserHoverOutKey, current, 0.0);
+              WinUIThemeAnimatedValue(matrix, &WinUIThemeBrowserHoverOutKey, 0.0, 0.083);
+            }
+          WinUIThemeAnimatedValue(matrix, &WinUIThemeBrowserHoverInKey, 0.0, 0.0);
+          WinUIThemeAnimatedValue(matrix, &WinUIThemeBrowserHoverInKey, 1.0, 0.083);
+          objc_setAssociatedObject(matrix, &WinUIThemeBrowserHoverRowKey,
+                                   [NSNumber numberWithInteger: row],
+                                   OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+    }
+  if (originalIMP != NULL)
+    {
+      originalIMP(self, _cmd, event);
+    }
 }
 
 /* A browser column's scroll view, as libs-gui places it (its -tile sets
