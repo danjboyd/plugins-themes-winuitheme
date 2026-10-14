@@ -206,11 +206,23 @@ WinUIThemeMenuTextAttributes(NSFont *font,
                          nil];
 }
 
+/* A selection in a key window is active. So is one in a combo box's list:
+   libs-gui's GSComboWindow never becomes key, and it's open only while
+   its combo box tracks, where WinUI's drop-down shows the accent pill. */
 static BOOL
 WinUIThemeViewIsActive(NSView *view)
 {
+  static Class comboWindowClass = Nil;
   NSWindow *window = [view window];
 
+  if (comboWindowClass == Nil)
+    {
+      comboWindowClass = NSClassFromString(@"GSComboWindow");
+    }
+  if (window != nil && comboWindowClass != Nil && [window isKindOfClass: comboWindowClass])
+    {
+      return YES;
+    }
   return (window != nil ? [window isKeyWindow] : NO);
 }
 

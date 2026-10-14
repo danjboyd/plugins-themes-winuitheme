@@ -24,6 +24,7 @@
 #import <GNUstepGUI/GSDisplayServer.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <objc/runtime.h>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN 1
@@ -356,6 +357,16 @@ QuirkProbeModuleOfAddress(void *address)
 - (void) addTabbedWindow: (NSWindow *)window ordered: (NSWindowOrderingMode)ordered;
 - (NSArray *) tabbedWindows;
 - (void) selectNextTab: (id)sender;
+@end
+
+/* libs-gui's combo box list (GSComboWindow), private. */
+@interface NSComboBoxCell (QuirkProbeComboList)
+- (NSWindow *) _popUp;
+@end
+
+@interface NSWindow (QuirkProbeComboList)
+- (void) layoutWithComboBoxCell: (NSComboBoxCell *)comboBoxCell;
+- (void) positionWithComboBoxCell: (NSComboBoxCell *)comboBoxCell;
 @end
 
 @interface NSView (QuirkProbeTabBar)
@@ -7616,6 +7627,84 @@ QuirkProbeInkIn(NSBitmapImageRep *rep, NSRect area, NSInteger fill, NSInteger th
           (unsigned long)underline]];
       }
   }
+
+  /* The list a combo box opens: its selected item has WinUI's accent pill
+     (#105). The list's window (GSComboWindow) never becomes key, so the
+     pill was the inactive selection's grey. Laid out and shown as it
+     opens, without its modal loop. */
+  if (highContrast)
+    {
+      [self skip: @"combo-list-selection-accent" detail: @"high contrast keeps the system highlight"];
+    }
+  else
+    {
+      NSComboBoxCell *cell = [combo cell];
+      NSWindow *list = [cell respondsToSelector: @selector(_popUp)] ? [cell _popUp] : nil;
+      NSBox *box = nil;
+      NSTableView *table = nil;
+      /* The list takes its rows from the cell it pops up for, set only
+         while it's open. */
+      Ivar cellIvar = (list != nil) ? class_getInstanceVariable([list class], "_cell") : NULL;
+
+      [combo setEditable: NO];
+      if (list != nil && [list respondsToSelector: @selector(layoutWithComboBoxCell:)])
+        {
+          [list layoutWithComboBoxCell: cell];
+          [list positionWithComboBoxCell: cell];
+          if (cellIvar != NULL)
+            {
+              object_setIvar(list, cellIvar, cell);
+            }
+          box = [list contentView];
+          if ([box isKindOfClass: [NSBox class]] && [[box contentView] isKindOfClass: [NSScrollView class]])
+            {
+              table = [(NSScrollView *)[box contentView] documentView];
+              [table reloadData];
+            }
+        }
+      if ([table isKindOfClass: [NSTableView class]] == NO || [table numberOfRows] < 1)
+        {
+          [self fail: @"combo-list-selection-accent" detail: [NSString stringWithFormat:
+            @"no list to draw: window %@, content %@, inside it %@, document %@",
+            NSStringFromClass([list class]), NSStringFromClass([[list contentView] class]),
+            [[list contentView] isKindOfClass: [NSBox class]]
+              ? NSStringFromClass([[(NSBox *)[list contentView] contentView] class]) : @"-",
+            NSStringFromClass([table class])]];
+        }
+      else
+        {
+          NSRect first;
+          QuirkProbeInk accent;
+
+          [table selectRowIndexes: [NSIndexSet indexSetWithIndex: 0] byExtendingSelection: NO];
+          [list orderFront: nil];
+          [list display];
+          rep = QuirkProbeRender(table);
+          scale = QuirkProbeScale(rep, table);
+          [self saveView: table named: @"combo-list-selection"];
+          first = QuirkProbePixelRect(table, [table rectOfRow: 0], scale);
+          accent = QuirkProbeMeasureIn(rep, QuirkProbeIsAccentBlue,
+                                       NSMakeRect(NSMinX(first), NSMinY(first), 16 * scale, NSHeight(first)));
+          if (accent.count > 0 && accent.width <= ceil(3.0 * scale) + 1)
+            {
+              [self pass: @"combo-list-selection-accent" detail: [NSString stringWithFormat:
+                @"a %ldx%ld px accent pill on the selected item, in a list that isn't key",
+                (long)accent.width, (long)accent.height]];
+            }
+          else
+            {
+              [self fail: @"combo-list-selection-accent" detail: [NSString stringWithFormat:
+                @"%lu accent px (%ld wide) at the selected item's leading edge",
+                (unsigned long)accent.count, (long)accent.width]];
+            }
+          [table deselectAll: nil];
+        }
+      if (cellIvar != NULL)
+        {
+          object_setIvar(list, cellIvar, nil);
+        }
+      [list orderOut: nil];
+    }
   [window makeFirstResponder: window];
   [window orderOut: nil];
 }
