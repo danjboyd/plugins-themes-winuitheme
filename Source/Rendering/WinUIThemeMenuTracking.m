@@ -26,7 +26,8 @@
 /* Menu tracking as on Windows: a click on a menu bar title, a pop-up button
    or a context menu opens the menu, which stays open after the click's
    release; a click on an item picks it; press, drag and release onto an
-   item picks it too; a press outside the menus closes them and goes
+   item picks it too; a click on an item with a submenu opens the submenu
+   and leaves both open; a press outside the menus closes them and goes
    nowhere else; Escape closes them. Adapted from the Adwaita theme.
 
    libs-gui master (a84b42471) ignores the opening click's release itself.
@@ -160,6 +161,40 @@ WinUIThemeEventIsOutsideMenus(NSEvent *event)
   return YES;
 }
 
+/* YES for an event over an item with a submenu in one of the open menus,
+   not counting the menu bar, whose titles keep libs-gui's handling. */
+static BOOL
+WinUIThemeEventIsOnSubmenuItem(NSEvent *event)
+{
+  NSWindow *window = [event window];
+  NSPoint point = (window != nil)
+    ? [window convertBaseToScreen: [event locationInWindow]]
+    : [event locationInWindow];
+  NSMenuView *root = WinUIThemeTrackingRootView;
+  NSMenu *menu = [root menu];
+
+  if ([root isHorizontal])
+    {
+      menu = [menu attachedMenu];
+    }
+  while (menu != nil)
+    {
+      NSMenuView *menuView = (NSMenuView *)[menu menuRepresentation];
+      NSWindow *menuWindow = [menuView window];
+
+      if ([menuView isKindOfClass: [NSMenuView class]] && menuWindow != nil && [menuWindow isVisible]
+          && NSPointInRect(point, [menuWindow frame]))
+        {
+          NSPoint local = [menuView convertPoint: [menuWindow convertScreenToBase: point] fromView: nil];
+          NSInteger index = [menuView indexOfItemAtPoint: local];
+
+          return index >= 0 && index < [menu numberOfItems] && [[menu itemAtIndex: index] hasSubmenu];
+        }
+      menu = [menu attachedMenu];
+    }
+  return NO;
+}
+
 static BOOL
 WinUIThemeMenuTrackingEndsOnFirstRelease(void)
 {
@@ -227,6 +262,16 @@ WinUIThemeMenuIsOwnedByPopUp(NSMenu *menu)
           && (type == NSLeftMouseUp || type == NSRightMouseUp || type == NSOtherMouseUp))
         {
           WinUIThemeDropNextRelease = NO;
+          event = originalIMP(self, _cmd, mask, expiration, mode, flag);
+          continue;
+        }
+      /* A click on an item with a submenu opens the submenu and leaves
+         the menus open, as on Windows: libs-gui ends tracking on any
+         release over an item. */
+      if (WinUIThemeTrackingRootView != nil && [event windowNumber] != 0
+          && (type == NSLeftMouseUp || type == NSRightMouseUp || type == NSOtherMouseUp)
+          && WinUIThemeEventIsOnSubmenuItem(event))
+        {
           event = originalIMP(self, _cmd, mask, expiration, mode, flag);
           continue;
         }

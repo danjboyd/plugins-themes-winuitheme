@@ -88,6 +88,13 @@ CGFloat WinUIThemeCheckAmount(NSView *view, BOOL checked);
 void WinUIThemeFadeInWindow(NSWindow *window, NSTimeInterval duration);
 BOOL WinUIThemeWindowIsFadingIn(NSWindow *window);
 
+/* Text size changes reaching open windows (#105, WinUIThemeTextScale.m):
+   the theme's font sizes before a reload, and after it every open
+   window's fonts at those sizes moved to the new ones (YES if they
+   changed). */
+id WinUIThemeTextScaleSnapshotTake(WinUITheme *theme);
+BOOL WinUIThemeTextScaleApply(WinUITheme *theme, id snapshot);
+
 CGFloat WinUIThemeClamp(CGFloat value, CGFloat minimum, CGFloat maximum);
 NSColor *WinUIThemeColorFromTheme(WinUITheme *theme, NSString *key, NSColor *fallback);
 NSColor *WinUIThemeColorWithAlpha(NSColor *color, CGFloat alpha);

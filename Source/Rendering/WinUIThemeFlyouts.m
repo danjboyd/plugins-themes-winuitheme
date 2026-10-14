@@ -142,12 +142,15 @@ WinUIThemeWindowIsComboList(NSWindow *window)
     }
 
   /* As wide as the combo box, from its leading edge, on the side of the
-     field libs-gui chose. */
+     field libs-gui chose. The frame is in device pixels and the rows in
+     points: on a scaled display the list is that many points tall times
+     the main screen's factor, or its last row fell off. */
   frame = [window frame];
   field = [control convertRect: [control bounds] toView: nil];
   field.origin = [[control window] convertBaseToScreen: field.origin];
   below = (NSMaxY(frame) <= NSMidY(field));
-  height = rows * rowHeight + 2.0 * inset + 2.0;
+  height = (rows * rowHeight + 2.0 * inset + 2.0)
+    * MAX(1.0, [[NSScreen mainScreen] userSpaceScaleFactor]);
   frame = NSMakeRect(NSMinX(field),
                      below ? NSMinY(field) - 1.0 - height : NSMaxY(field) + 1.0,
                      NSWidth(field), height);

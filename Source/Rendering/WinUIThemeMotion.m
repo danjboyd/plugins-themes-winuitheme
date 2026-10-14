@@ -425,9 +425,7 @@ WinUIThemeWindowIsFadingIn(NSWindow *window)
     && NSMapGet(WinUIThemeWindowFades, window) != NULL;
 }
 
-/* The windows that fade in as they open: menus (MenuFlyout), tool tips
-   (ToolTip) and the popover panels drawn as flyouts. */
-static /* A combo box's list (libs-gui's GSComboWindow), which opens as a
+/* A combo box's list (libs-gui's GSComboWindow), which opens as a
    flyout. */
 static BOOL
 WinUIThemeWindowIsComboListPanel(NSWindow *window)
@@ -441,6 +439,8 @@ WinUIThemeWindowIsComboListPanel(NSWindow *window)
   return comboWindowClass != Nil && [window isKindOfClass: comboWindowClass];
 }
 
+/* The windows that fade in as they open: menus (MenuFlyout), tool tips
+   (ToolTip) and the popover panels drawn as flyouts. */
 BOOL
 WinUIThemeWindowFadesInWhenShown(NSWindow *window)
 {
@@ -515,6 +515,64 @@ WinUIThemeWindowSlideOffset(NSWindow *window)
   return NSMakeSize(0.0, distance);
 }
 
+/* A context menu opens with its top-left corner at the pointer
+   (-[NSMenu displayTransient]), wherever that puts it. As Windows' menus
+   and WinUI's MenuFlyout do, one that would run off the screen's right
+   edge opens to the left of the pointer, and one that would run off its
+   foot opens upwards from it; it then stays on the screen. A context menu
+   is a menu panel with no supermenu whose top-left corner is at the
+   pointer: pop-up lists and the menu bar's menus are placed elsewhere. */
+static void
+WinUIThemeFlipContextMenu(NSWindow *window)
+{
+  static Class menuPanelClass = Nil;
+  NSMenu *menu = nil;
+  NSRect frame = [window frame];
+  NSPoint pointer = [NSEvent mouseLocation];
+  NSRect visible;
+  NSPoint origin;
+
+  if (menuPanelClass == Nil)
+    {
+      menuPanelClass = NSClassFromString(@"NSMenuPanel");
+    }
+  if (menuPanelClass == Nil || [window isKindOfClass: menuPanelClass] == NO
+      || [window respondsToSelector: @selector(_menu)] == NO)
+    {
+      return;
+    }
+  menu = [window performSelector: @selector(_menu)];
+  if (menu == nil || [menu supermenu] != nil || menu == [NSApp mainMenu]
+      || fabs(NSMinX(frame) - pointer.x) > 2.0 || fabs(NSMaxY(frame) - pointer.y) > 2.0)
+    {
+      return;
+    }
+  visible = [[window screen] visibleFrame];
+  if (NSIsEmptyRect(visible))
+    {
+      visible = [[NSScreen mainScreen] visibleFrame];
+    }
+  if (NSIsEmptyRect(visible))
+    {
+      return;
+    }
+  origin = frame.origin;
+  if (NSMaxX(frame) > NSMaxX(visible))
+    {
+      origin.x = pointer.x - NSWidth(frame);
+    }
+  if (NSMinY(frame) < NSMinY(visible))
+    {
+      origin.y = pointer.y;
+    }
+  origin.x = MAX(NSMinX(visible), MIN(origin.x, NSMaxX(visible) - NSWidth(frame)));
+  origin.y = MAX(NSMinY(visible), MIN(origin.y, NSMaxY(visible) - NSHeight(frame)));
+  if (NSEqualPoints(origin, frame.origin) == NO)
+    {
+      [window setFrameOrigin: origin];
+    }
+}
+
 /* A dialog: an alert, as WinUI's ContentDialog fades in. */
 static BOOL
 WinUIThemeWindowIsDialog(NSWindow *window)
@@ -549,6 +607,8 @@ typedef void (*OrderWindowIMP)(id, SEL, NSWindowOrderingMode, NSInteger);
   if (place != NSWindowOut && [window isVisible] == NO
       && [[GSTheme theme] isKindOfClass: [WinUITheme class]])
     {
+      /* Before the slide, which comes from the side it opens on. */
+      WinUIThemeFlipContextMenu(window);
       if (WinUIThemeWindowFadesInWhenShown(window))
         {
           WinUIThemeOpenWindow(window, WinUIThemeOpenFadeDuration,

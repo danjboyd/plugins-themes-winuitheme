@@ -24,6 +24,7 @@
 #import <GNUstepGUI/GSDisplayServer.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <objc/runtime.h>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN 1
@@ -358,6 +359,16 @@ QuirkProbeModuleOfAddress(void *address)
 - (void) selectNextTab: (id)sender;
 @end
 
+/* libs-gui's combo box list (GSComboWindow), private. */
+@interface NSComboBoxCell (QuirkProbeComboList)
+- (NSWindow *) _popUp;
+@end
+
+@interface NSWindow (QuirkProbeComboList)
+- (void) layoutWithComboBoxCell: (NSComboBoxCell *)comboBoxCell;
+- (void) positionWithComboBoxCell: (NSComboBoxCell *)comboBoxCell;
+@end
+
 @interface NSView (QuirkProbeTabBar)
 - (NSUInteger) numberOfTabs;
 - (NSRect) rectForTabAtIndex: (NSUInteger)index;
@@ -476,6 +487,8 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkTheme;
 - (void) checkSubclassImageCell;
 - (void) checkToolbarImageItem;
+- (void) checkToolbarSeparator;
+- (void) checkDecorationFitsTallWindow;
 - (void) checkToolbarIconSize;
 - (void) checkScrollerEdge;
 - (void) checkTextAlignment;
@@ -511,6 +524,9 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkMetricsChoice;
 - (void) checkTableDefaults;
 - (void) checkLiveSettings;
+- (void) checkLiveTextSize;
+- (void) checkContextMenuEdges;
+- (void) checkSubmenuClick;
 - (void) checkIndicators;
 - (void) checkMenuFlyout;
 - (void) checkOverlayScrollers;
@@ -528,6 +544,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkHorizontalOnlyScroller;
 - (void) checkWindowTabs;
 - (void) checkClientCaption;
+- (void) checkClientCaptionScaled;
 - (void) checkDPIAwareness;
 - (void) checkMica;
 - (void) checkToolTipScaled;
@@ -1153,11 +1170,16 @@ static NSRect QuirkProbeOpenListRow;
 
 - (NSArray *) toolbarAllowedItemIdentifiers: (NSToolbar *)toolbar
 {
-  return [NSArray arrayWithObject: QuirkProbeImageItem];
+  return [NSArray arrayWithObjects: QuirkProbeImageItem, NSToolbarSeparatorItemIdentifier, nil];
 }
 
 - (NSArray *) toolbarDefaultItemIdentifiers: (NSToolbar *)toolbar
 {
+  if ([[toolbar identifier] isEqualToString: @"QuirkProbeSeparatorToolbar"])
+    {
+      return [NSArray arrayWithObjects: QuirkProbeImageItem, NSToolbarSeparatorItemIdentifier,
+                                        QuirkProbeImageItem, nil];
+    }
   return [NSArray arrayWithObject: QuirkProbeImageItem];
 }
 
@@ -1303,6 +1325,128 @@ objectValueForTableColumn: (NSTableColumn *)column
         [NSString stringWithFormat: @"an NSButtonCell subclass drew %lu px of its image",
                                     (unsigned long)ink.count]];
     }
+}
+
+/* A window as tall as the screen that gets a toolbar (#105): libs-gui
+   grows the window by the toolbar, sizing the decoration for the taller
+   frame first. The window can't grow past the screen, so its frame stayed
+   and the decoration kept the taller size: the caption lay above the
+   window and a gap opened above the content (ThemeDemo at 125% and
+   150%). The decoration matches the window's frame. */
+- (void) checkDecorationFitsTallWindow
+{
+  NSRect visible = [[NSScreen mainScreen] visibleFrame];
+  NSWindow *window = [self windowWithFrame: NSMakeRect(320, NSMinY(visible), 360, NSHeight(visible))
+                                     title: @"QuirkProbe Tall Window"];
+  NSToolbar *toolbar = [[NSToolbar alloc] initWithIdentifier: @"QuirkProbeTallToolbar"];
+  NSView *decoration = nil;
+  NSRect frame;
+
+  [window orderFront: nil];
+  [window display];
+  [toolbar setDelegate: self];
+  [toolbar setDisplayMode: NSToolbarDisplayModeIconOnly];
+  [window setToolbar: toolbar];
+  RELEASE(toolbar);
+  [window display];
+  QuirkProbeDispatchEvents(0.3);
+  decoration = [[window contentView] superview];
+  frame = [window frame];
+  if (fabs(NSHeight([decoration frame]) - NSHeight(frame)) <= 0.5
+      && fabs(NSWidth([decoration frame]) - NSWidth(frame)) <= 0.5)
+    {
+      [self pass: @"decoration-fits-tall-window" detail: [NSString stringWithFormat:
+        @"a %.0fpx window on a %.0fpx screen took a toolbar; the decoration is %.0fpx, the window's height",
+        NSHeight(frame), NSHeight(visible), NSHeight([decoration frame])]];
+    }
+  else
+    {
+      [self fail: @"decoration-fits-tall-window" detail: [NSString stringWithFormat:
+        @"a %.0fpx window on a %.0fpx screen took a toolbar; the decoration is %.0fpx",
+        NSHeight(frame), NSHeight(visible), NSHeight([decoration frame])]];
+    }
+  [window setToolbar: nil];
+  [window orderOut: nil];
+}
+
+/* A toolbar separator as WinUI's AppBarSeparator (#105): a solid 1px
+   line in the divider colour. libs-gui drew a dashed image. Looked for
+   as a column of faint, neutral pixels at least 16pt long between the two
+   items; a dash is a few pixels. */
+- (void) checkToolbarSeparator
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(320, 480, 360, 140)
+                                     title: @"QuirkProbe Toolbar Separator"];
+  NSToolbar *toolbar = [[NSToolbar alloc] initWithIdentifier: @"QuirkProbeSeparatorToolbar"];
+  NSView *toolbarView = nil;
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale;
+  NSInteger x, y, longest = 0, at = -1;
+  NSUInteger red, green, blue, background;
+
+  [toolbar setDelegate: self];
+  [toolbar setDisplayMode: NSToolbarDisplayModeIconOnly];
+  [window setToolbar: toolbar];
+  RELEASE(toolbar);
+  [window orderFront: nil];
+  [window display];
+  toolbarView = QuirkProbeFindViewOfClass([[window contentView] superview], NSClassFromString(@"GSToolbarView"));
+  if (toolbarView == nil)
+    {
+      [self fail: @"toolbar-separator" detail: @"no toolbar view"];
+      [window setToolbar: nil];
+      [window orderOut: nil];
+      return;
+    }
+  rep = QuirkProbeRender(toolbarView);
+  scale = QuirkProbeScale(rep, toolbarView);
+  [self saveView: toolbarView named: @"toolbar-separator"];
+  QuirkProbePixel(rep, [rep pixelsWide] - 2, [rep pixelsHigh] / 2, &red, &green, &blue);
+  background = red + green + blue;
+  for (x = 0; x < [rep pixelsWide]; x++)
+    {
+      NSInteger run = 0;
+
+      for (y = 0; y < [rep pixelsHigh]; y++)
+        {
+          NSInteger sum, difference;
+
+          QuirkProbePixel(rep, x, y, &red, &green, &blue);
+          sum = red + green + blue;
+          difference = llabs((long long)sum - (long long)background);
+          if (difference >= 6 && llabs((long long)red - (long long)green) <= 12
+              && llabs((long long)green - (long long)blue) <= 12)
+            {
+              run++;
+              if (run > longest)
+                {
+                  longest = run;
+                  at = x;
+                }
+            }
+          else
+            {
+              run = 0;
+            }
+        }
+    }
+  if (QuirkProbeHasArgument(@"--high-contrast", nil) == NO && longest >= 16 * scale)
+    {
+      [self pass: @"toolbar-separator" detail: [NSString stringWithFormat:
+        @"a solid line %.0fpt long at %.0fpt", longest / scale, at / scale]];
+    }
+  else if (QuirkProbeHasArgument(@"--high-contrast", nil) && longest >= 16 * scale)
+    {
+      [self pass: @"toolbar-separator" detail: [NSString stringWithFormat:
+        @"a solid line %.0fpt long in the text colour", longest / scale]];
+    }
+  else
+    {
+      [self fail: @"toolbar-separator" detail: [NSString stringWithFormat:
+        @"the longest neutral run is %.0fpt: no solid separator line", longest / scale]];
+    }
+  [window setToolbar: nil];
+  [window orderOut: nil];
 }
 
 /* An image toolbar item draws its image (issue #2): GSToolbarButtonCell is
@@ -2308,6 +2452,119 @@ static BOOL QuirkProbeContextItemChosen = NO;
         [NSString stringWithFormat: @"0.6s after each of 5 real right-clicks: %@; %@",
                   [seen componentsJoinedByString: @", "], chosen ? @"an item was picked" : @"nothing picked"]];
     }
+}
+
+/* The context menu's item with a submenu, clicked for real while the menu
+   tracks; then whether the menu and its submenu are open, and a click
+   away to close them. */
+- (void) clickSubmenuItem: (NSTimer *)timer
+{
+  NSMenu *menu = [timer userInfo];
+  NSMenuView *menuView = (NSMenuView *)[menu menuRepresentation];
+  NSWindow *menuWindow = [menuView window];
+  NSRect item = [menuView rectOfItemAtIndex: 1];
+  NSPoint point;
+
+  item = [menuView convertRect: item toView: nil];
+  point = [menuWindow convertBaseToScreen: NSMakePoint(NSMidX(item) - 20, NSMidY(item))];
+  QuirkProbeSetPointer(point);
+#ifdef _WIN32
+  Sleep(150);
+  mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0);
+  Sleep(30);
+  mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0);
+#endif
+}
+
+- (void) inspectSubmenuClick: (NSTimer *)timer
+{
+  NSDictionary *info = [timer userInfo];
+  NSMenu *menu = [info objectForKey: @"menu"];
+  NSMenu *submenu = [[menu itemAtIndex: 1] submenu];
+  NSWindow *window = [info objectForKey: @"window"];
+  NSPoint away = NSMakePoint(NSWidth([window frame]) - 20, 20);
+  BOOL menuOpen = [[[menu menuRepresentation] window] isVisible];
+  BOOL submenuOpen = [[[submenu menuRepresentation] window] isVisible];
+
+  ASSIGN(QuirkProbeMenuSeen, ([NSString stringWithFormat: @"menu %@, submenu %@",
+                                        menuOpen ? @"open" : @"closed", submenuOpen ? @"open" : @"closed"]));
+  QuirkProbeSetPointer([window convertBaseToScreen: away]);
+  [NSApp postEvent: [NSEvent mouseEventWithType: NSLeftMouseDown location: away modifierFlags: 0
+                                      timestamp: 0 windowNumber: [window windowNumber] context: nil
+                                    eventNumber: 0 clickCount: 1 pressure: 1]
+           atStart: NO];
+  [NSApp postEvent: [NSEvent mouseEventWithType: NSLeftMouseUp location: away modifierFlags: 0
+                                      timestamp: 0 windowNumber: [window windowNumber] context: nil
+                                    eventNumber: 0 clickCount: 1 pressure: 0]
+           atStart: NO];
+}
+
+/* A real click on a context menu's item with a submenu opens the submenu
+   and leaves both open, as Windows' menus do (#19, found in Gorm's Tools
+   menu). libs-gui ended tracking on the release, closing every menu.
+   Real clicks (SendInput): with -ProbeMovesPointer YES only. */
+- (void) checkSubmenuClick
+{
+  NSWindow *window = nil;
+  NSView *view = nil;
+  NSMenu *menu = nil;
+  NSMenu *submenu = nil;
+  NSTimer *click = nil;
+  NSTimer *inspect = nil;
+  NSDictionary *info = nil;
+
+  if ([[NSUserDefaults standardUserDefaults] boolForKey: @"ProbeMovesPointer"] == NO)
+    {
+      [self skip: @"menu-submenu-click-stays-open" detail: @"real clicks: needs -ProbeMovesPointer YES"];
+      return;
+    }
+#ifdef _WIN32
+  window = [self windowWithFrame: NSMakeRect(420, 300, 340, 220) title: @"QuirkProbe Submenu Click"];
+  view = AUTORELEASE([[NSView alloc] initWithFrame: [[window contentView] bounds]]);
+  [[window contentView] addSubview: view];
+  menu = AUTORELEASE([[NSMenu alloc] initWithTitle: @"Context"]);
+  submenu = AUTORELEASE([[NSMenu alloc] initWithTitle: @"More"]);
+  [[submenu addItemWithTitle: @"Deeper" action: @selector(contextItemChosen:) keyEquivalent: @""] setTarget: self];
+  [[menu addItemWithTitle: @"Cut" action: @selector(contextItemChosen:) keyEquivalent: @""] setTarget: self];
+  [[menu addItemWithTitle: @"More" action: NULL keyEquivalent: @""] setSubmenu: submenu];
+  [[menu addItemWithTitle: @"Copy" action: @selector(contextItemChosen:) keyEquivalent: @""] setTarget: self];
+  [view setMenu: menu];
+  [window makeKeyAndOrderFront: nil];
+  [window display];
+  QuirkProbeDispatchEvents(0.3);
+  QuirkProbeContextItemChosen = NO;
+  ASSIGN(QuirkProbeMenuSeen, @"never opened");
+  info = [NSDictionary dictionaryWithObjectsAndKeys: window, @"window", menu, @"menu", nil];
+  click = [NSTimer timerWithTimeInterval: 0.5 target: self selector: @selector(clickSubmenuItem:)
+                                userInfo: menu repeats: NO];
+  inspect = [NSTimer timerWithTimeInterval: 1.4 target: self selector: @selector(inspectSubmenuClick:)
+                                  userInfo: info repeats: NO];
+  [[NSRunLoop currentRunLoop] addTimer: click forMode: NSEventTrackingRunLoopMode];
+  [[NSRunLoop currentRunLoop] addTimer: inspect forMode: NSEventTrackingRunLoopMode];
+  /* And after tracking, if the click ended it. */
+  [[NSRunLoop currentRunLoop] addTimer: inspect forMode: NSDefaultRunLoopMode];
+  QuirkProbeSetPointer([window convertBaseToScreen: NSMakePoint(80, 160)]);
+  QuirkProbeDispatchEvents(0.1);
+  mouse_event(MOUSEEVENTF_RIGHTDOWN, 0, 0, 0, 0);
+  Sleep(30);
+  mouse_event(MOUSEEVENTF_RIGHTUP, 0, 0, 0, 0);
+  QuirkProbeDispatchEvents(2.2);
+  [click invalidate];
+  [inspect invalidate];
+  [view setMenu: nil];
+  [window orderOut: nil];
+  if ([QuirkProbeMenuSeen isEqualToString: @"menu open, submenu open"] && QuirkProbeContextItemChosen == NO)
+    {
+      [self pass: @"menu-submenu-click-stays-open" detail:
+        @"after a real click on the item with a submenu: menu open, submenu open; nothing picked"];
+    }
+  else
+    {
+      [self fail: @"menu-submenu-click-stays-open" detail: [NSString stringWithFormat:
+        @"after a real click on the item with a submenu: %@; %@", QuirkProbeMenuSeen,
+        QuirkProbeContextItemChosen ? @"an item was picked" : @"nothing picked"]];
+    }
+#endif
 }
 
 /* Whether the probe runs with `flag` (--mode dark, --high-contrast), as
@@ -3441,6 +3698,32 @@ QuirkProbeTwelveHourClock(void)
 
 /* Renders the date picker flyout while it's open, then accepts it with
    Enter (see checkDatePicker). */
+/* The flyout open on a scaled display: its frame, then Escape. */
+- (void) recordScaledDatePickerFlyout: (NSTimer *)timer
+{
+  NSEnumerator *enumerator = [[NSApp windows] objectEnumerator];
+  NSWindow *window;
+  NSWindow *owner = [timer userInfo];
+
+  while ((window = [enumerator nextObject]) != nil)
+    {
+      if ([window isVisible]
+          && [NSStringFromClass([[window contentView] class]) isEqualToString: @"WinUIThemeDatePickerFlyoutView"])
+        {
+          _scaledFlyoutFrame = [window frame];
+        }
+    }
+  [NSApp postEvent: [NSEvent keyEventWithType: NSKeyDown location: NSZeroPoint modifierFlags: 0
+                                    timestamp: 0 windowNumber: [owner windowNumber] context: nil
+                                   characters: @"\e" charactersIgnoringModifiers: @"\e"
+                                    isARepeat: NO keyCode: 0]
+           atStart: NO];
+  [NSApp postEvent: [NSEvent mouseEventWithType: NSLeftMouseUp location: NSMakePoint(80, 386)
+                                  modifierFlags: 0 timestamp: 0 windowNumber: [owner windowNumber]
+                                        context: nil eventNumber: 0 clickCount: 1 pressure: 0.0]
+           atStart: NO];
+}
+
 - (void) inspectDatePickerFlyout: (NSTimer *)timer
 {
   NSEnumerator *enumerator = [[NSApp windows] objectEnumerator];
@@ -3481,6 +3764,47 @@ QuirkProbeTwelveHourClock(void)
             @"accent %ldx%ld px centred %.0fpt down (expected the flyout's width, 36pt, at 180pt)",
             (long)band.width, (long)band.height, centre]];
         }
+
+      /* The column under the pointer shows LoopingSelector's up and down
+         buttons over its ends (#56): the top row's value gives way to an
+         8x4pt caret, centred in the column; the next column keeps its
+         value. A click on the day column's down button steps the day. */
+      {
+        NSWindow *panel = [flyout window];
+        NSEvent *moved = [NSEvent mouseEventWithType: NSMouseMoved
+                                            location: [flyout convertPoint: NSMakePoint(40, 12) toView: nil]
+                                       modifierFlags: 0 timestamp: 0 windowNumber: [panel windowNumber]
+                                             context: nil eventNumber: 0 clickCount: 0 pressure: 0];
+        NSRect top = NSMakeRect(4 * scale, 2 * scale, 120 * scale, 30 * scale);
+        QuirkProbeInk caret, next;
+        NSUInteger red, green, blue;
+
+        [flyout mouseMoved: moved];
+        [flyout display];
+        rep = QuirkProbeRender(flyout);
+        [self saveView: flyout named: @"date-picker-flyout-arrows"];
+        QuirkProbePixel(rep, 2 * scale, 2 * scale, &red, &green, &blue);
+        QuirkProbeInkBackground = red + green + blue;
+        caret = QuirkProbeMeasureIn(rep, QuirkProbeIsFaintInk, top);
+        next = QuirkProbeMeasureIn(rep, QuirkProbeIsFaintInk,
+                                   NSMakeRect(140 * scale, 2 * scale, 70 * scale, 30 * scale));
+        if (caret.count > 0 && caret.width / scale <= 10.0 && caret.height / scale <= 6.0 && next.count > 0)
+          {
+            [self pass: @"date-picker-flyout-arrows" detail: [NSString stringWithFormat:
+              @"a %.0fx%.0fpt caret over the hovered column's top row; the next column keeps its value",
+              caret.width / scale, caret.height / scale]];
+          }
+        else
+          {
+            [self fail: @"date-picker-flyout-arrows" detail: [NSString stringWithFormat:
+              @"ink %.0fx%.0fpt in the hovered column's top row, %lu px in the next column's",
+              caret.width / scale, caret.height / scale, (unsigned long)next.count]];
+          }
+        [flyout mouseDown: [NSEvent mouseEventWithType: NSLeftMouseDown
+                                              location: [flyout convertPoint: NSMakePoint(176, 340) toView: nil]
+                                         modifierFlags: 0 timestamp: 0 windowNumber: [panel windowNumber]
+                                               context: nil eventNumber: 0 clickCount: 1 pressure: 1.0]];
+      }
     }
   [NSApp postEvent: [NSEvent keyEventWithType: NSKeyDown
                                      location: NSZeroPoint
@@ -3671,8 +3995,106 @@ QuirkProbeTwelveHourClock(void)
         }
     }
 
-  /* The flyout: a click opens it over the field; Down moves the month on
-     and Enter accepts. inspectDatePickerFlyout: renders it while open. */
+  /* A date and a time in one picker: each field has its own pointer-over
+     fill (#56). They shared one, so both lit together. The pointer is a
+     mouse-moved event over the date field. */
+  {
+    NSDatePicker *both = AUTORELEASE([[NSDatePicker alloc] initWithFrame: NSMakeRect(20, 370, 600, 32)]);
+    NSEvent *moved;
+    NSUInteger dateFill, timeFill, rest;
+
+    [both setDatePickerElements: NSYearMonthDayDatePickerElementFlag | NSHourMinuteDatePickerElementFlag];
+    [both setDateValue: day];
+    [date setHidden: YES];
+    [time setHidden: YES];
+    [content addSubview: both];
+    [window display];
+    rep = QuirkProbeRender(both);
+    scale = QuirkProbeScale(rep, both);
+    QuirkProbePixel(rep, 100 * scale, 4 * scale, &red, &green, &blue);
+    rest = red + green + blue;
+    moved = [NSEvent mouseEventWithType: NSMouseMoved
+                               location: [both convertPoint: NSMakePoint(100, 16) toView: nil]
+                          modifierFlags: 0 timestamp: 0 windowNumber: [window windowNumber]
+                                context: nil eventNumber: 0 clickCount: 0 pressure: 0];
+    [both mouseMoved: moved];
+    [window display];
+    rep = QuirkProbeRender(both);
+    [self saveView: both named: @"date-picker-field-hover"];
+    QuirkProbePixel(rep, 100 * scale, 4 * scale, &red, &green, &blue);
+    dateFill = red + green + blue;
+    QuirkProbePixel(rep, 500 * scale, 4 * scale, &red, &green, &blue);
+    timeFill = red + green + blue;
+    if (highContrast)
+      {
+        [self skip: @"date-picker-field-hover" detail: @"high contrast's hover is a border"];
+      }
+    else if (dateFill != rest && llabs((long long)timeFill - (long long)rest) <= 2)
+      {
+        [self pass: @"date-picker-field-hover" detail: [NSString stringWithFormat:
+          @"the date field under the pointer is %lu, the time field stays %lu (of 765)",
+          (unsigned long)dateFill, (unsigned long)timeFill]];
+      }
+    else
+      {
+        [self fail: @"date-picker-field-hover" detail: [NSString stringWithFormat:
+          @"at rest %lu; with the pointer over the date field, it is %lu and the time field %lu",
+          (unsigned long)rest, (unsigned long)dateFill, (unsigned long)timeFill]];
+      }
+    [both removeFromSuperview];
+    [date setHidden: NO];
+    [time setHidden: NO];
+  }
+
+  /* A calendar-style picker with a time: a TimePicker field under the
+     calendar (#56), as WinUI pairs a CalendarView and a TimePicker. Only
+     the calendar showed. */
+  {
+    NSDatePicker *withTime = AUTORELEASE([[NSDatePicker alloc] initWithFrame: NSZeroRect]);
+    NSSize size;
+
+    [withTime setDatePickerStyle: NSClockAndCalendarDatePickerStyle];
+    [withTime setDatePickerElements: NSYearMonthDayDatePickerElementFlag | NSHourMinuteDatePickerElementFlag];
+    [withTime setDateValue: day];
+    size = [[withTime cell] cellSize];
+    [withTime setFrame: NSMakeRect(330, 0, size.width, size.height)];
+    [content addSubview: withTime];
+    [window display];
+    rep = QuirkProbeRender(withTime);
+    scale = QuirkProbeScale(rep, withTime);
+    [self saveView: withTime named: @"date-picker-calendar-time"];
+    {
+      NSInteger height = [rep pixelsHigh];
+      NSUInteger edgeRed, edgeGreen, edgeBlue;
+      NSUInteger dividers;
+
+      QuirkProbePixel(rep, [rep pixelsWide] - 2, height - 2, &red, &green, &blue);
+      QuirkProbeInkBackground = red + green + blue;
+      QuirkProbePixel(rep, 0, height - 16 * scale, &edgeRed, &edgeGreen, &edgeBlue);
+      dividers = QuirkProbeSolidColumns(rep, QuirkProbeIsFaintInk,
+                                        NSMakeRect(4 * scale, height - 28 * scale, 234 * scale, 24 * scale),
+                                        23 * scale, NULL);
+      if (fabs(size.height - 400.0) < 0.5 && dividers >= 1
+          && llabs((long long)(edgeRed + edgeGreen + edgeBlue) - (long long)QuirkProbeInkBackground) >= 12)
+        {
+          [self pass: @"date-picker-calendar-time" detail: [NSString stringWithFormat:
+            @"a %.0fpt picker: the calendar, and a TimePicker field with %lu divider columns under it",
+            size.height, (unsigned long)dividers]];
+        }
+      else
+        {
+          [self fail: @"date-picker-calendar-time" detail: [NSString stringWithFormat:
+            @"%.0fpt high (expected 360 + 8 + 32); %lu divider columns along the foot; edge %lu of %lu",
+            size.height, (unsigned long)dividers,
+            (unsigned long)(edgeRed + edgeGreen + edgeBlue), (unsigned long)QuirkProbeInkBackground]];
+        }
+    }
+    [withTime removeFromSuperview];
+  }
+
+  /* The flyout: a click opens it over the field; Down moves the month on,
+     the day column's down button steps the day, and Enter accepts.
+     inspectDatePickerFlyout: renders it and clicks while it's open. */
   if (highContrast)
     {
       [self skip: @"date-picker-flyout-band" detail: @"high contrast's highlight may not be blue"];
@@ -3715,17 +4137,60 @@ QuirkProbeTwelveHourClock(void)
 
     picked = [[date dateValue] dateWithCalendarFormat: nil
                                               timeZone: [NSTimeZone timeZoneWithName: @"America/Chicago"]];
-    if ([picked yearOfCommonEra] == 2026 && [picked monthOfYear] == 11 && [picked dayOfMonth] == 5
+    if ([picked yearOfCommonEra] == 2026 && [picked monthOfYear] == 11 && [picked dayOfMonth] == 6
         && _datePickerActions == 1)
       {
-        [self pass: @"date-picker-flyout-pick" detail: @"Down and Enter in the flyout picked November 5, and sent the action"];
+        [self pass: @"date-picker-flyout-pick" detail:
+          @"Down, the day's down button and Enter in the flyout picked November 6, and sent the action"];
       }
     else
       {
         [self fail: @"date-picker-flyout-pick" detail: [NSString stringWithFormat:
-          @"after Down and Enter the date is %@ (%lu actions); expected 2026-11-05",
+          @"after Down, the day's down button and Enter the date is %@ (%lu actions); expected 2026-11-06",
           [picked descriptionWithCalendarFormat: @"%Y-%m-%d %H:%M %z"],
           (unsigned long)_datePickerActions]];
+      }
+  }
+
+  /* On a scaled display (GSScaleFactor here) the flyout opens with its
+     band level with the field: the screen is in device pixels and the
+     flyout's view in points, and at 150% it opened about 110px too high.
+     Away from the screen's edges, so it isn't moved to fit. */
+  {
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    NSTimer *timer = [NSTimer timerWithTimeInterval: 0.3 target: self
+                                           selector: @selector(recordScaledDatePickerFlyout:)
+                                           userInfo: window repeats: NO];
+    NSEvent *click = [NSEvent mouseEventWithType: NSLeftMouseDown
+                                        location: [date convertPoint: NSMakePoint(60, 16) toView: nil]
+                                   modifierFlags: 0 timestamp: 0 windowNumber: [window windowNumber]
+                                         context: nil eventNumber: 0 clickCount: 1 pressure: 1.0];
+    NSRect field = [date convertRect: [date bounds] toView: nil];
+    CGFloat bandY;
+
+    [window setFrameOrigin: NSMakePoint(400, 300)];
+    field = [date convertRect: [date bounds] toView: nil];
+    field.origin = [window convertBaseToScreen: field.origin];
+    _scaledFlyoutFrame = NSZeroRect;
+    [defaults setObject: @"1.5" forKey: @"GSScaleFactor"];
+    [[NSRunLoop currentRunLoop] addTimer: timer forMode: NSEventTrackingRunLoopMode];
+    [date mouseDown: click];
+    [timer invalidate];
+    [defaults removeObjectForKey: @"GSScaleFactor"];
+    /* The band's middle, 180pt from the flyout's top, in pixels. */
+    bandY = NSMaxY(_scaledFlyoutFrame) - 180.0 * 1.5;
+    if (NSIsEmptyRect(_scaledFlyoutFrame) == NO && fabs(bandY - NSMidY(field)) <= 2.0
+        && fabs(NSHeight(_scaledFlyoutFrame) - 401.0 * 1.5) <= 2.0)
+      {
+        [self pass: @"date-picker-flyout-scaled" detail: [NSString stringWithFormat:
+          @"at 1.5 the band is %.0fpx from the field's middle, in a %.0fx%.0fpx flyout",
+          bandY - NSMidY(field), NSWidth(_scaledFlyoutFrame), NSHeight(_scaledFlyoutFrame)]];
+      }
+    else
+      {
+        [self fail: @"date-picker-flyout-scaled" detail: [NSString stringWithFormat:
+          @"at 1.5 the flyout is %@: its band %.0fpx from the field's middle (%@)",
+          NSStringFromRect(_scaledFlyoutFrame), bandY - NSMidY(field), NSStringFromRect(field)]];
       }
   }
   [window orderOut: nil];
@@ -3885,6 +4350,60 @@ QuirkProbeBrowser(QuirkProbe *probe, NSView *content, NSRect frame, NSInteger le
           (unsigned long)titleContrast, (unsigned long)leafInk.count]];
       }
   }
+
+  /* A row under the pointer: the selection's subtle fill without its pill,
+     cleared when the pointer moves to another row (#58, #105). libs-gui
+     drew no hover. The pointer is a mouse-moved event sent to the column. */
+  if (highContrast)
+    {
+      [self skip: @"browser-row-hover" detail: @"high contrast has no hover fill"];
+    }
+  else
+    {
+      NSRect first = [matrix cellFrameAtRow: 0 column: 0];
+      NSRect second = [matrix cellFrameAtRow: 1 column: 0];
+      NSRect firstPixels = QuirkProbePixelRect(column, [column convertRect: first fromView: matrix], scale);
+      NSRect secondPixels = QuirkProbePixelRect(column, [column convertRect: second fromView: matrix], scale);
+      NSInteger x = (NSInteger)(NSMinX(firstPixels) + NSWidth(firstPixels) * 0.6);
+      NSUInteger over, rest, after;
+      NSEvent *moved;
+
+      moved = [NSEvent mouseEventWithType: NSMouseMoved
+                                 location: [matrix convertPoint: NSMakePoint(NSMidX(first), NSMidY(first)) toView: nil]
+                            modifierFlags: 0 timestamp: 0 windowNumber: [window windowNumber]
+                                  context: nil eventNumber: 0 clickCount: 0 pressure: 0];
+      [matrix mouseMoved: moved];
+      [window display];
+      rep = QuirkProbeRender(column);
+      [self saveView: column named: @"browser-row-hover"];
+      QuirkProbePixel(rep, x, (NSInteger)(NSMinY(firstPixels) + 5 * scale), &red, &green, &blue);
+      over = red + green + blue;
+      QuirkProbePixel(rep, x, (NSInteger)(NSMinY(secondPixels) + 5 * scale), &red, &green, &blue);
+      rest = red + green + blue;
+
+      moved = [NSEvent mouseEventWithType: NSMouseMoved
+                                 location: [matrix convertPoint: NSMakePoint(NSMidX(second), NSMidY(second)) toView: nil]
+                            modifierFlags: 0 timestamp: 0 windowNumber: [window windowNumber]
+                                  context: nil eventNumber: 0 clickCount: 0 pressure: 0];
+      [matrix mouseMoved: moved];
+      [window display];
+      rep = QuirkProbeRender(column);
+      QuirkProbePixel(rep, x, (NSInteger)(NSMinY(firstPixels) + 5 * scale), &red, &green, &blue);
+      after = red + green + blue;
+      if (llabs((long long)over - (long long)rest) >= 3 && llabs((long long)over - (long long)rest) <= 60
+          && llabs((long long)after - (long long)rest) <= 2)
+        {
+          [self pass: @"browser-row-hover" detail: [NSString stringWithFormat:
+            @"the row under the pointer is %lu, others %lu (of 765), and it clears",
+            (unsigned long)over, (unsigned long)rest]];
+        }
+      else
+        {
+          [self fail: @"browser-row-hover" detail: [NSString stringWithFormat:
+            @"under the pointer %lu, another row %lu, the first row after moving on %lu (of 765)",
+            (unsigned long)over, (unsigned long)rest, (unsigned long)after]];
+        }
+    }
 
   /* Every column fits: no horizontal scroller, and the columns reach the
      browser's foot. */
@@ -4505,6 +5024,32 @@ QuirkProbeSumAt(NSBitmapImageRep *rep, NSInteger x, NSInteger y)
         (title.minX - cardLeft) / scale, title.width / scale, (title.minY + title.height - cardTop) / scale,
         (unsigned long)title.count]];
     }
+
+  /* The title in WinUI's BodyStrong: the body size, semibold, with a title
+     rect tall enough for it. libs-gui gave every box the small system
+     font, so the title stayed smaller than WinUI's. */
+  {
+    NSFont *font = [box titleFont];
+    CGFloat body = [NSFont systemFontSize];
+    NSString *name = [[font fontName] lowercaseString];
+    BOOL semibold = ([name rangeOfString: @"semibold"].location != NSNotFound
+                     || [name rangeOfString: @"bold"].location != NSNotFound);
+    CGFloat lineHeight = [font defaultLineHeightForFont];
+
+    if (fabs([font pointSize] - body) < 0.01 && semibold
+        && NSHeight([box titleRect]) + 0.5 >= floor(lineHeight))
+      {
+        [self pass: @"box-title-size" detail: [NSString stringWithFormat:
+          @"%@ at %.1fpt, the body size, in a %.0fpt title rect",
+          [font fontName], [font pointSize], NSHeight([box titleRect])]];
+      }
+    else
+      {
+        [self fail: @"box-title-size" detail: [NSString stringWithFormat:
+          @"%@ at %.1fpt (the body size is %.1fpt), a %.0fpt title rect for a %.0fpt line",
+          [font fontName], [font pointSize], body, NSHeight([box titleRect]), lineHeight]];
+      }
+  }
 
   /* The separator: DividerStrokeColorDefault, faint (libs-gui's
      controlShadowColor is twice as strong); the text colour in high
@@ -5419,6 +5964,156 @@ QuirkProbeFindListener(HWND hwnd, LPARAM found)
 #endif
 }
 
+/* A context menu at the pointer: its top-left corner there, and near the
+   screen's bottom right corner flipped to open up and to the left of the
+   pointer, on the screen, as Windows' menus do (#105). libs-gui put the
+   top-left corner at the pointer wherever that was, so the menu ran off
+   the screen. -displayTransient places it from the real pointer. */
+- (void) checkContextMenuEdges
+{
+  NSMenu *menu = nil;
+  NSRect visible = [[NSScreen mainScreen] visibleFrame];
+  NSPoint middle = NSMakePoint(floor(NSMidX(visible)), floor(NSMidY(visible)));
+  NSPoint corner = NSMakePoint(floor(NSMaxX(visible) - 20.0), floor(NSMinY(visible) + 20.0));
+  NSRect atMiddle, atCorner;
+  NSInteger i;
+
+  if ([[NSUserDefaults standardUserDefaults] boolForKey: @"ProbeMovesPointer"] == NO)
+    {
+      [self skip: @"context-menu-edges" detail: @"moves the pointer: needs -ProbeMovesPointer YES"];
+      return;
+    }
+  menu = AUTORELEASE([[NSMenu alloc] initWithTitle: @"Context"]);
+  for (i = 0; i < 6; i++)
+    {
+      [menu addItemWithTitle: [NSString stringWithFormat: @"Context item %ld", (long)i]
+                      action: NULL
+               keyEquivalent: @""];
+    }
+  [[menu menuRepresentation] sizeToFit];
+
+  QuirkProbeSetPointer(middle);
+  QuirkProbeDispatchEvents(0.2);
+  [menu displayTransient];
+  atMiddle = [[[menu menuRepresentation] window] frame];
+  [menu closeTransient];
+
+  QuirkProbeSetPointer(corner);
+  QuirkProbeDispatchEvents(0.2);
+  [menu displayTransient];
+  atCorner = [[[menu menuRepresentation] window] frame];
+  [menu closeTransient];
+  QuirkProbeSetPointer(NSMakePoint(-40, -40));
+  QuirkProbeDispatchEvents(0.2);
+
+  if (fabs(NSMinX(atMiddle) - middle.x) <= 2.0 && fabs(NSMaxY(atMiddle) - middle.y) <= 2.0
+      && fabs(NSMaxX(atCorner) - corner.x) <= 2.0 && fabs(NSMinY(atCorner) - corner.y) <= 2.0
+      && NSContainsRect(NSInsetRect(visible, -1.0, -1.0), atCorner))
+    {
+      [self pass: @"context-menu-edges" detail: [NSString stringWithFormat:
+        @"top-left at the pointer mid-screen; at the bottom right corner it opens up and left, %@",
+        NSStringFromRect(atCorner)]];
+    }
+  else
+    {
+      [self fail: @"context-menu-edges" detail: [NSString stringWithFormat:
+        @"mid-screen %@ for the pointer at %@; at the corner %@ for %@, on a screen of %@",
+        NSStringFromRect(atMiddle), NSStringFromPoint(middle), NSStringFromRect(atCorner),
+        NSStringFromPoint(corner), NSStringFromRect(visible)]];
+    }
+}
+
+/* A text size change reaching windows already open (#105): a button, a
+   table's cells and a box's title made before the change take the new
+   size, and go back with it. libs-gui's cells kept the font they were
+   made with, so only controls made afterwards changed. The probe stands
+   in a text size (WinUIThemeTextScaleFactor) for Settings'. */
+- (void) checkLiveTextSize
+{
+#ifdef _WIN32
+  NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+  NSWindow *window = [self windowWithFrame: NSMakeRect(300, 300, 320, 200)
+                                     title: @"QuirkProbe Text Size"];
+  NSButton *button = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(20, 150, 140, 32)]);
+  NSTableView *table = AUTORELEASE([[NSTableView alloc] initWithFrame: NSMakeRect(20, 20, 280, 60)]);
+  NSTableColumn *column = AUTORELEASE([[NSTableColumn alloc] initWithIdentifier: @"name"]);
+  NSBox *box = AUTORELEASE([[NSBox alloc] initWithFrame: NSMakeRect(170, 90, 130, 100)]);
+  NSMutableArray *searchList = nil;
+  HWND listener = NULL;
+  CGFloat body = [NSFont systemFontSize];
+  CGFloat before[3], during[3], after[3];
+  CGFloat bodyDuring;
+  NSString *scale = (QuirkProbeHasArgument(@"-WinUIThemeTextScaleFactor", nil)
+                     || [defaults floatForKey: @"WinUIThemeTextScaleFactor"] >= 125.0) ? @"100" : @"150";
+  int i;
+
+  EnumThreadWindows(GetCurrentThreadId(), QuirkProbeFindListener, (LPARAM)&listener);
+  if (listener == NULL)
+    {
+      [self fail: @"live-text-size" detail: @"the theme has no settings listener window"];
+      return;
+    }
+  [button setTitle: @"Button"];
+  [table addTableColumn: column];
+  [box setTitle: @"Box"];
+  [[window contentView] addSubview: button];
+  [[window contentView] addSubview: table];
+  [[window contentView] addSubview: box];
+  [window orderFront: nil];
+  [window display];
+  before[0] = [[button font] pointSize];
+  before[1] = [[[column dataCell] font] pointSize];
+  before[2] = [[box titleFont] pointSize];
+
+  [defaults setVolatileDomain: [NSDictionary dictionaryWithObject: scale
+                                                           forKey: @"WinUIThemeTextScaleFactor"]
+                      forName: @"QuirkProbeLiveText"];
+  searchList = AUTORELEASE([[defaults searchList] mutableCopy]);
+  [searchList insertObject: @"QuirkProbeLiveText" atIndex: 0];
+  [defaults setSearchList: searchList];
+  SendMessageW(listener, WM_SETTINGCHANGE, 0, (LPARAM)L"ImmersiveColorSet");
+  QuirkProbeDispatchEvents(0.6);
+  bodyDuring = [NSFont systemFontSize];
+  during[0] = [[button font] pointSize];
+  during[1] = [[[column dataCell] font] pointSize];
+  during[2] = [[box titleFont] pointSize];
+
+  [searchList removeObject: @"QuirkProbeLiveText"];
+  [defaults setSearchList: searchList];
+  [defaults removeVolatileDomainForName: @"QuirkProbeLiveText"];
+  SendMessageW(listener, WM_SETTINGCHANGE, 0, (LPARAM)L"ImmersiveColorSet");
+  QuirkProbeDispatchEvents(0.6);
+  after[0] = [[button font] pointSize];
+  after[1] = [[[column dataCell] font] pointSize];
+  after[2] = [[box titleFont] pointSize];
+  [window orderOut: nil];
+
+  for (i = 0; i < 3; i++)
+    {
+      if (fabs(before[i] - body) > 0.01 || fabs(during[i] - bodyDuring) > 0.01
+          || fabs(after[i] - before[i]) > 0.01)
+        {
+          break;
+        }
+    }
+  if (i == 3 && fabs(bodyDuring - body) > 0.5)
+    {
+      [self pass: @"live-text-size" detail: [NSString stringWithFormat:
+        @"a button, a table's cells and a box title went from %.0fpt to %.0fpt at %@%% and back",
+        body, bodyDuring, scale]];
+    }
+  else
+    {
+      [self fail: @"live-text-size" detail: [NSString stringWithFormat:
+        @"body %.0fpt then %.0fpt at %@%%; button %.0f/%.0f/%.0f, cells %.0f/%.0f/%.0f, box %.0f/%.0f/%.0f",
+        body, bodyDuring, scale, before[0], during[0], after[0], before[1], during[1], after[1],
+        before[2], during[2], after[2]]];
+    }
+#else
+  [self skip: @"live-text-size" detail: @"Windows only"];
+#endif
+}
+
 /* WinUI's CheckBox and RadioButton (issue #5): a 20px indicator, and a
    checked radio's accent ring around a 12px centre dot. The theme drew
    18px indicators and an 8px dot. */
@@ -6264,6 +6959,59 @@ QuirkProbeCloseButtonInkOnScreen(HWND hwnd)
   else
     {
       [self fail: @"dpi-per-monitor-aware" detail: [problems componentsJoinedByString: @"; "]];
+    }
+}
+
+/* The theme's caption on a scaled display: the gui draws a DPI-aware
+   window at the screen's scale (GSScaleFactor here) and lays its content
+   out in points from offsets in pixels. The content, menu bar and toolbar
+   stay under the caption row. At 150% the caption's 32pt went in as
+   32px, so the content's top half covered the caption's lower half
+   (found on a 150% monitor). */
+- (void) checkClientCaptionScaled
+{
+  NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+  GSDisplayServer *server = GSCurrentServer();
+  NSWindow *window = nil;
+  NSView *row = nil;
+  NSString *detail = nil;
+  CGFloat contentTop, rowBottom;
+
+  if ([server respondsToSelector: @selector(clientDrawsCaptions)] == NO
+      || [server clientDrawsCaptions] == NO)
+    {
+      [self skip: @"client-caption-row-scaled" detail: @"the backend draws the caption (stock libs-back)"];
+      return;
+    }
+  [defaults setObject: @"1.5" forKey: @"GSScaleFactor"];
+  window = [[NSWindow alloc] initWithContentRect: NSMakeRect(300, 300, 320, 160)
+                                       styleMask: (NSTitledWindowMask | NSClosableWindowMask
+                                                   | NSMiniaturizableWindowMask
+                                                   | NSResizableWindowMask)
+                                         backing: NSBackingStoreBuffered
+                                           defer: NO];
+  [window setTitle: @"QuirkProbe Scaled Caption"];
+  [window setReleasedWhenClosed: NO];
+  [_windows addObject: window];
+  RELEASE(window);
+  [window orderFront: nil];
+  [window display];
+  row = QuirkProbeFindViewOfClass([[window contentView] superview],
+                                  NSClassFromString(@"WinUIThemeCaptionView"));
+  contentTop = NSMaxY([[window contentView] frame]);
+  rowBottom = (row != nil) ? NSMinY([row frame]) : -1.0;
+  detail = [NSString stringWithFormat: @"at 1.5: caption row %@, content top %.1fpt, %.0fpt content asked",
+                                       row ? NSStringFromRect([row frame]) : @"missing", contentTop,
+                                       NSHeight([[window contentView] frame])];
+  [window orderOut: nil];
+  [defaults removeObjectForKey: @"GSScaleFactor"];
+  if (row != nil && contentTop <= rowBottom + 0.5)
+    {
+      [self pass: @"client-caption-row-scaled" detail: detail];
+    }
+  else
+    {
+      [self fail: @"client-caption-row-scaled" detail: detail];
     }
 }
 
@@ -7536,6 +8284,115 @@ QuirkProbeInkIn(NSBitmapImageRep *rep, NSRect area, NSInteger fill, NSInteger th
           (unsigned long)underline]];
       }
   }
+
+  /* The list a combo box opens: its selected item has WinUI's accent pill
+     (#105). The list's window (GSComboWindow) never becomes key, so the
+     pill was the inactive selection's grey. Laid out and shown as it
+     opens, without its modal loop. */
+  if (highContrast)
+    {
+      [self skip: @"combo-list-selection-accent" detail: @"high contrast keeps the system highlight"];
+    }
+  else
+    {
+      NSComboBoxCell *cell = [combo cell];
+      NSWindow *list = [cell respondsToSelector: @selector(_popUp)] ? [cell _popUp] : nil;
+      NSBox *box = nil;
+      NSTableView *table = nil;
+      /* The list takes its rows from the cell it pops up for, set only
+         while it's open. */
+      Ivar cellIvar = (list != nil) ? class_getInstanceVariable([list class], "_cell") : NULL;
+
+      [combo setEditable: NO];
+      if (list != nil && [list respondsToSelector: @selector(layoutWithComboBoxCell:)])
+        {
+          [list layoutWithComboBoxCell: cell];
+          [list positionWithComboBoxCell: cell];
+          if (cellIvar != NULL)
+            {
+              object_setIvar(list, cellIvar, cell);
+            }
+          box = [list contentView];
+          if ([box isKindOfClass: [NSBox class]] && [[box contentView] isKindOfClass: [NSScrollView class]])
+            {
+              table = [(NSScrollView *)[box contentView] documentView];
+              [table reloadData];
+            }
+        }
+      if ([table isKindOfClass: [NSTableView class]] == NO || [table numberOfRows] < 1)
+        {
+          [self fail: @"combo-list-selection-accent" detail: [NSString stringWithFormat:
+            @"no list to draw: window %@, content %@, inside it %@, document %@",
+            NSStringFromClass([list class]), NSStringFromClass([[list contentView] class]),
+            [[list contentView] isKindOfClass: [NSBox class]]
+              ? NSStringFromClass([[(NSBox *)[list contentView] contentView] class]) : @"-",
+            NSStringFromClass([table class])]];
+        }
+      else
+        {
+          NSRect first;
+          QuirkProbeInk accent;
+
+          [table selectRowIndexes: [NSIndexSet indexSetWithIndex: 0] byExtendingSelection: NO];
+          [list orderFront: nil];
+          [list display];
+          rep = QuirkProbeRender(table);
+          scale = QuirkProbeScale(rep, table);
+          [self saveView: table named: @"combo-list-selection"];
+          first = QuirkProbePixelRect(table, [table rectOfRow: 0], scale);
+          accent = QuirkProbeMeasureIn(rep, QuirkProbeIsAccentBlue,
+                                       NSMakeRect(NSMinX(first), NSMinY(first), 16 * scale, NSHeight(first)));
+          if (accent.count > 0 && accent.width <= ceil(3.0 * scale) + 1)
+            {
+              [self pass: @"combo-list-selection-accent" detail: [NSString stringWithFormat:
+                @"a %ldx%ld px accent pill on the selected item, in a list that isn't key",
+                (long)accent.width, (long)accent.height]];
+            }
+          else
+            {
+              [self fail: @"combo-list-selection-accent" detail: [NSString stringWithFormat:
+                @"%lu accent px (%ld wide) at the selected item's leading edge",
+                (unsigned long)accent.count, (long)accent.width]];
+            }
+          [table deselectAll: nil];
+        }
+
+      /* On a scaled display (GSScaleFactor here) the list is tall enough
+         for its rows: its frame is in device pixels and its rows in
+         points, and at 150% it showed 2 of its 3 rows. */
+      if ([table isKindOfClass: [NSTableView class]] && [table numberOfRows] > 0)
+        {
+          NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+          NSScrollView *scroll = [table enclosingScrollView];
+          CGFloat shown, needed;
+
+          [defaults setObject: @"1.5" forKey: @"GSScaleFactor"];
+          [list orderOut: nil];
+          [list positionWithComboBoxCell: cell];
+          [list orderFront: nil];
+          [list display];
+          shown = NSHeight([scroll documentVisibleRect]);
+          needed = NSHeight([table frame]);
+          [defaults removeObjectForKey: @"GSScaleFactor"];
+          if (shown + 0.5 >= needed)
+            {
+              [self pass: @"combo-list-scaled" detail: [NSString stringWithFormat:
+                @"at 1.5 the list shows its %ld rows: %.0fpt of %.0fpt, a %.0fpx window",
+                (long)[table numberOfRows], shown, needed, NSHeight([list frame])]];
+            }
+          else
+            {
+              [self fail: @"combo-list-scaled" detail: [NSString stringWithFormat:
+                @"at 1.5 the list shows %.0fpt of its rows' %.0fpt in a %.0fpx window",
+                shown, needed, NSHeight([list frame])]];
+            }
+        }
+      if (cellIvar != NULL)
+        {
+          object_setIvar(list, cellIvar, nil);
+        }
+      [list orderOut: nil];
+    }
   [window makeFirstResponder: window];
   [window orderOut: nil];
 }
@@ -10058,6 +10915,8 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkAccentColor];
   [self checkSubclassImageCell];
   [self checkToolbarImageItem];
+  [self checkToolbarSeparator];
+  [self checkDecorationFitsTallWindow];
   [self checkToolbarIconSize];
   [self checkScrollerEdge];
   [self checkTableHeader];
@@ -10088,6 +10947,9 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkMetricsChoice];
   [self checkTableDefaults];
   [self checkLiveSettings];
+  [self checkLiveTextSize];
+  [self checkContextMenuEdges];
+  [self checkSubmenuClick];
   [self checkIndicators];
   [self checkMenuFlyout];
   [self checkOverlayScrollers];
@@ -10106,6 +10968,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkHorizontalOnlyScroller];
   [self checkWindowTabs];
   [self checkClientCaption];
+  [self checkClientCaptionScaled];
   [self checkDPIAwareness];
   [self checkMica];
   [self checkPopUpClick];
