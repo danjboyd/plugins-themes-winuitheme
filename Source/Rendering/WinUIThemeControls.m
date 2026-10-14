@@ -1560,7 +1560,8 @@ WinUIThemeDrawSliderTicks(WinUITheme *theme, NSSliderCell *cell, NSRect rect,
       [sliderCell setKnobThickness: thumb];
     }
   knobRect = [sliderCell knobRectFlipped: flipped];
-  WinUIThemeDrawSliderTicks(self, sliderCell, rect, trackRect, horizontal, flipped);
+  /* From the track as it's drawn (-drawSliderBorderAndBackground:...). */
+  WinUIThemeDrawSliderTicks(self, sliderCell, rect, NSIntegralRect(trackRect), horizontal, flipped);
 
   if (horizontal)
     {
