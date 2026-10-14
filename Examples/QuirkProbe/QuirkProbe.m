@@ -487,6 +487,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkTheme;
 - (void) checkSubclassImageCell;
 - (void) checkToolbarImageItem;
+- (void) checkToolbarSeparator;
 - (void) checkDecorationFitsTallWindow;
 - (void) checkToolbarIconSize;
 - (void) checkScrollerEdge;
@@ -1169,11 +1170,16 @@ static NSRect QuirkProbeOpenListRow;
 
 - (NSArray *) toolbarAllowedItemIdentifiers: (NSToolbar *)toolbar
 {
-  return [NSArray arrayWithObject: QuirkProbeImageItem];
+  return [NSArray arrayWithObjects: QuirkProbeImageItem, NSToolbarSeparatorItemIdentifier, nil];
 }
 
 - (NSArray *) toolbarDefaultItemIdentifiers: (NSToolbar *)toolbar
 {
+  if ([[toolbar identifier] isEqualToString: @"QuirkProbeSeparatorToolbar"])
+    {
+      return [NSArray arrayWithObjects: QuirkProbeImageItem, NSToolbarSeparatorItemIdentifier,
+                                        QuirkProbeImageItem, nil];
+    }
   return [NSArray arrayWithObject: QuirkProbeImageItem];
 }
 
@@ -1358,6 +1364,86 @@ objectValueForTableColumn: (NSTableColumn *)column
       [self fail: @"decoration-fits-tall-window" detail: [NSString stringWithFormat:
         @"a %.0fpx window on a %.0fpx screen took a toolbar; the decoration is %.0fpx",
         NSHeight(frame), NSHeight(visible), NSHeight([decoration frame])]];
+    }
+  [window setToolbar: nil];
+  [window orderOut: nil];
+}
+
+/* A toolbar separator as WinUI's AppBarSeparator (#105): a solid 1px
+   line in the divider colour. libs-gui drew a dashed image. Looked for
+   as a column of faint, neutral pixels at least 16pt long between the two
+   items; a dash is a few pixels. */
+- (void) checkToolbarSeparator
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(320, 480, 360, 140)
+                                     title: @"QuirkProbe Toolbar Separator"];
+  NSToolbar *toolbar = [[NSToolbar alloc] initWithIdentifier: @"QuirkProbeSeparatorToolbar"];
+  NSView *toolbarView = nil;
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale;
+  NSInteger x, y, longest = 0, at = -1;
+  NSUInteger red, green, blue, background;
+
+  [toolbar setDelegate: self];
+  [toolbar setDisplayMode: NSToolbarDisplayModeIconOnly];
+  [window setToolbar: toolbar];
+  RELEASE(toolbar);
+  [window orderFront: nil];
+  [window display];
+  toolbarView = QuirkProbeFindViewOfClass([[window contentView] superview], NSClassFromString(@"GSToolbarView"));
+  if (toolbarView == nil)
+    {
+      [self fail: @"toolbar-separator" detail: @"no toolbar view"];
+      [window setToolbar: nil];
+      [window orderOut: nil];
+      return;
+    }
+  rep = QuirkProbeRender(toolbarView);
+  scale = QuirkProbeScale(rep, toolbarView);
+  [self saveView: toolbarView named: @"toolbar-separator"];
+  QuirkProbePixel(rep, [rep pixelsWide] - 2, [rep pixelsHigh] / 2, &red, &green, &blue);
+  background = red + green + blue;
+  for (x = 0; x < [rep pixelsWide]; x++)
+    {
+      NSInteger run = 0;
+
+      for (y = 0; y < [rep pixelsHigh]; y++)
+        {
+          NSInteger sum, difference;
+
+          QuirkProbePixel(rep, x, y, &red, &green, &blue);
+          sum = red + green + blue;
+          difference = llabs((long long)sum - (long long)background);
+          if (difference >= 6 && llabs((long long)red - (long long)green) <= 12
+              && llabs((long long)green - (long long)blue) <= 12)
+            {
+              run++;
+              if (run > longest)
+                {
+                  longest = run;
+                  at = x;
+                }
+            }
+          else
+            {
+              run = 0;
+            }
+        }
+    }
+  if (QuirkProbeHasArgument(@"--high-contrast", nil) == NO && longest >= 16 * scale)
+    {
+      [self pass: @"toolbar-separator" detail: [NSString stringWithFormat:
+        @"a solid line %.0fpt long at %.0fpt", longest / scale, at / scale]];
+    }
+  else if (QuirkProbeHasArgument(@"--high-contrast", nil) && longest >= 16 * scale)
+    {
+      [self pass: @"toolbar-separator" detail: [NSString stringWithFormat:
+        @"a solid line %.0fpt long in the text colour", longest / scale]];
+    }
+  else
+    {
+      [self fail: @"toolbar-separator" detail: [NSString stringWithFormat:
+        @"the longest neutral run is %.0fpt: no solid separator line", longest / scale]];
     }
   [window setToolbar: nil];
   [window orderOut: nil];
@@ -10829,6 +10915,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkAccentColor];
   [self checkSubclassImageCell];
   [self checkToolbarImageItem];
+  [self checkToolbarSeparator];
   [self checkDecorationFitsTallWindow];
   [self checkToolbarIconSize];
   [self checkScrollerEdge];

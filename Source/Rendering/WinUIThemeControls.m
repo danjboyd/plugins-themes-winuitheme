@@ -2533,6 +2533,14 @@ static const CGFloat WinUIThemeSearchDeleteWidth = 28.0;
     }
 }
 
+/* libs-gui's toolbar separator image, at its size or a sized copy of it. */
+static BOOL
+WinUIThemeImageIsToolbarSeparator(NSImage *image)
+{
+  return [[image name] isEqualToString: @"common_ToolbarSeparatorItem"]
+    || [[WinUIThemeSizedImageSource(image) name] isEqualToString: @"common_ToolbarSeparatorItem"];
+}
+
 - (void) _overrideNSButtonCellMethod_drawImage: (NSImage *)imageToDisplay
                                       withFrame: (NSRect)imageFrame
                                          inView: (NSView *)controlView
@@ -2552,6 +2560,20 @@ static const CGFloat WinUIThemeSearchDeleteWidth = 28.0;
                                              imageFrame,
                                              controlView,
                                              radio);
+      return;
+    }
+
+  /* A toolbar separator as WinUI's AppBarSeparator: a 1px line in
+     DividerStrokeColorDefault (the text colour in high contrast), 8px
+     short of the item's top and foot. libs-gui drew a dashed image. */
+  if (theme != nil && WinUIThemeImageIsToolbarSeparator(imageToDisplay))
+    {
+      NSRect span = (controlView != nil) ? [controlView bounds] : imageFrame;
+      CGFloat margin = MIN(8.0, floor(NSHeight(span) / 4.0));
+
+      [WinUIThemeDividerColor(theme) set];
+      NSRectFill(NSMakeRect(floor(NSMidX(imageFrame)), NSMinY(span) + margin,
+                            1.0, MAX(0.0, NSHeight(span) - 2.0 * margin)));
       return;
     }
 
