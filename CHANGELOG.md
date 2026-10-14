@@ -35,6 +35,42 @@ Apps that bundle the theme should pin a tag, not `main`.
   fill at once; one whose window moved or resized under the pointer (a
   caption button as the window restores) loses it (#105). QuirkProbe
   `hover-appears-under-pointer`.
+- The combo box list's selected item has the accent pill: the list's
+  window never becomes key, so the pill was the inactive grey (#105).
+  QuirkProbe `combo-list-selection-accent`.
+- Browser rows get the hover fill under the pointer, fading in and out
+  over 83ms, as lists do (#58, #105). QuirkProbe `browser-row-hover`.
+- Box titles are WinUI's BodyStrong at the body size (14px times the
+  text size), and the box lays its title out for it; libs-gui gave every
+  box the small system font. An app's own title font stays (#27, #105).
+  QuirkProbe `box-title-size`.
+- **Date picker** (#56, #105):
+  - a picker with a date and a time gives each field its own pointer-over
+    and pressed state; they lit together;
+  - the flyout's column under the pointer shows LoopingSelector's up and
+    down buttons over its ends (34px, an 8px caret), a step each;
+  - a calendar-style picker with time elements has a TimePicker field
+    under the calendar; only the calendar showed.
+  - QuirkProbe `date-picker-field-hover`, `date-picker-flyout-arrows`,
+    `date-picker-calendar-time`.
+- Toolbar separators are WinUI's AppBarSeparator, a solid 1px divider
+  line; libs-gui drew a dashed image (#105). QuirkProbe
+  `toolbar-separator`.
+- **A Windows text size change reaches open windows**: controls, table
+  cells, box titles, tab views and plain text views at the theme's sizes
+  take the new ones, tables at the theme's row height the new height, and
+  menus resize. Only controls made afterwards changed. Fonts and sizes an
+  app chose stay, as do frames (#105). QuirkProbe `live-text-size`.
+
+**Menus**
+- **Context menus flip at the screen's edges**, as Windows' do: one that
+  would run off the right edge opens to the left of the pointer, one that
+  would run off the foot opens upwards, sliding in from that side (#105).
+  QuirkProbe `context-menu-edges` (with `-Pointer`).
+- **A click on an item with a submenu** opens the submenu and leaves the
+  menus open, as on Windows; libs-gui closed every menu. Found with real
+  clicks in Gorm's Tools > Palettes (#19). QuirkProbe
+  `menu-submenu-click-stays-open` (real clicks, with `-Pointer`).
 
 **Windows**
 - **Context menus stay open after a right-click**, as Windows' do, and
@@ -82,6 +118,37 @@ Apps that bundle the theme should pin a tag, not `main`.
   tip's size in points as its frame, in pixels, so the padded tip was
   too small by the scale and clipped its text. QuirkProbe
   `tooltip-scaled`.
+- **The theme's title bar on a scaled display** (found on a two-monitor
+  VM at 125% and 150%): the menu bar and content started half a caption
+  too high, over the title and caption buttons, and the top of the menu
+  titles dragged the window. The caption's height (points) now counts in
+  the window's offsets (pixels) at the screen's scale, and the content
+  meets the caption's foot exactly (#105). QuirkProbe
+  `client-caption-row-scaled`.
+- **Flyouts on a scaled display:** the date picker's flyout opened about
+  110px too high at 150%, and a combo box's list showed 2 of its 3 rows;
+  both are now placed in pixels from their size in points (#105).
+  QuirkProbe `date-picker-flyout-scaled`, `combo-list-scaled`.
+- **A window that fills the screen keeps its caption** when it gets a
+  menu bar or toolbar: libs-gui sized the decoration for a taller window
+  that the screen didn't allow, so the caption lay above the window and a
+  gap opened above the content (ThemeDemo at 125% and 150%, any window
+  as tall as the screen at 100%). QuirkProbe
+  `decoration-fits-tall-window`.
+- **A second monitor:**
+  - tool tips open on the monitor the pointer is on; libs-gui kept them
+    on the main screen;
+  - with the carried libs-back `carry-0.32.0.4`, each monitor's frame is
+    flipped against the primary's height, as window coordinates are, so
+    on a monitor shorter than the primary (or not level with it) windows
+    find their screen and its scale; menus and pop-up lists drew at the
+    primary's scale there;
+  - `carry-0.32.0.4` also keeps a window the gui moved to another monitor
+    at the size the gui gave it, where `WM_DPICHANGED` shrank reused menu
+    panels by the ratio of the scales (menu text cut off);
+  - and turns hinted glyph metrics off for a DPI-aware app, as libs-back
+    already did under `GSScaleFactor`: text views at 125% and 150%
+    spaced some words unevenly.
 
 **Testing**
 - `Invoke-QuirkProbe.ps1 -Backend DIR` and `Invoke-ThemeDemoScript.ps1
