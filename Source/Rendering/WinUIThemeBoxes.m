@@ -72,8 +72,9 @@ WinUIThemeDrawBoxCard(WinUITheme *theme, NSRect frame)
                                      WinUIThemeCardStrokeColor(theme), 1.0);
 }
 
-/* The title in BodyStrong (semibold at the title's size, which the box was
-   laid out for), starting at `x`, centred in the title's rect. Drawn as a
+/* The title semibold at its font's size, which the box was laid out for
+   (BodyStrong unless the app chose one), starting at `x`, centred in the
+   title's rect. Drawn as a
    string, so it reads the right way up in a box that isn't flipped. */
 static void
 WinUIThemeDrawBoxTitle(WinUITheme *theme, NSBox *box, CGFloat x)
@@ -129,7 +130,58 @@ WinUIThemeDrawSplitViewDivider(NSSplitView *splitView, NSRect rect)
   NSRectFill(line);
 }
 
+/* libs-gui's title font for every box, which an app hasn't chosen: the
+   system font at the small size. */
+static BOOL
+WinUIThemeIsDefaultBoxTitleFont(NSFont *font)
+{
+  NSFont *small = [NSFont systemFontOfSize: [NSFont smallSystemFontSize]];
+
+  return font != nil && fabs([font pointSize] - [small pointSize]) < 0.01
+    && [[font familyName] isEqualToString: [small familyName]];
+}
+
+/* WinUI's BodyStrong: the body size, semibold. */
+static NSFont *
+WinUIThemeBoxTitleFont(void)
+{
+  return WinUIThemeSemiboldFont([NSFont systemFontOfSize: 0], [NSFont systemFontSize]);
+}
+
 @implementation WinUITheme (Boxes)
+
+/* A box's title in BodyStrong (#27), so the box lays its title out for
+   it: libs-gui sets the small system font, at -initWithFrame: and when a
+   box without a title cell is decoded. An app's own font stays. */
+- (void) _overrideNSBoxMethod_setTitleFont: (NSFont *)font
+{
+  typedef void (*FontIMP)(id, SEL, NSFont *);
+  FontIMP originalIMP = (FontIMP)WinUIThemeOriginalMethod(_cmd, self, [NSBox class]);
+
+  if (WinUIThemeBoxTheme() != nil && WinUIThemeIsDefaultBoxTitleFont(font))
+    {
+      font = WinUIThemeBoxTitleFont();
+    }
+  if (originalIMP != NULL)
+    {
+      originalIMP(self, _cmd, font);
+    }
+}
+
+/* A decoded box's title cell keeps the font it was archived with; a box
+   saved with libs-gui's default gets BodyStrong too. */
+- (id) _overrideNSBoxMethod_initWithCoder: (NSCoder *)coder
+{
+  typedef id (*CoderIMP)(id, SEL, NSCoder *);
+  CoderIMP originalIMP = (CoderIMP)WinUIThemeOriginalMethod(_cmd, self, [NSBox class]);
+  NSBox *box = (originalIMP != NULL) ? originalIMP(self, _cmd, coder) : nil;
+
+  if (box != nil && WinUIThemeBoxTheme() != nil && WinUIThemeIsDefaultBoxTitleFont([box titleFont]))
+    {
+      [box setTitleFont: WinUIThemeBoxTitleFont()];
+    }
+  return box;
+}
 
 /* Only the card is drawn, with rounded corners, so what's under the box
    (the window, or a card it sits in) shows round it. */

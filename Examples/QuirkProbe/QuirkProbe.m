@@ -4560,6 +4560,32 @@ QuirkProbeSumAt(NSBitmapImageRep *rep, NSInteger x, NSInteger y)
         (unsigned long)title.count]];
     }
 
+  /* The title in WinUI's BodyStrong: the body size, semibold, with a title
+     rect tall enough for it. libs-gui gave every box the small system
+     font, so the title stayed smaller than WinUI's. */
+  {
+    NSFont *font = [box titleFont];
+    CGFloat body = [NSFont systemFontSize];
+    NSString *name = [[font fontName] lowercaseString];
+    BOOL semibold = ([name rangeOfString: @"semibold"].location != NSNotFound
+                     || [name rangeOfString: @"bold"].location != NSNotFound);
+    CGFloat lineHeight = [font defaultLineHeightForFont];
+
+    if (fabs([font pointSize] - body) < 0.01 && semibold
+        && NSHeight([box titleRect]) + 0.5 >= floor(lineHeight))
+      {
+        [self pass: @"box-title-size" detail: [NSString stringWithFormat:
+          @"%@ at %.1fpt, the body size, in a %.0fpt title rect",
+          [font fontName], [font pointSize], NSHeight([box titleRect])]];
+      }
+    else
+      {
+        [self fail: @"box-title-size" detail: [NSString stringWithFormat:
+          @"%@ at %.1fpt (the body size is %.1fpt), a %.0fpt title rect for a %.0fpt line",
+          [font fontName], [font pointSize], body, NSHeight([box titleRect]), lineHeight]];
+      }
+  }
+
   /* The separator: DividerStrokeColorDefault, faint (libs-gui's
      controlShadowColor is twice as strong); the text colour in high
      contrast. */
