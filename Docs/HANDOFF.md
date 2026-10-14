@@ -474,14 +474,26 @@ It first hung: the probe's synthetic clicks took window coordinates (device
 pixels at 1.5) as points, and a press landed on a button whose tracking
 loop waited forever. Fixed in #125.
 
-It now ends at 174 passed, 14 failed. The renders of the switches (25pt
-runs at both scales), boxes, form fields and menu bar are right, so
-nearly all failures are checks sampling at offsets meant for 1.0
-(`switch-*`, `box-*`, `form-entry-textbox`, `toolbar-icon-size`,
-`slider-thumb-size`, `split-view-thick-divider`, `motion-*`, and
-`menu-bar-overflow`, which narrows the window in pixels). Possibly real
-and small: `scroller-hidden-at-rest`, a 5px indicator over the content
-right after the first display.
+On the stock backend it now runs clean: 186 passed, 0 failed, 3 known.
+- **Probe fixes (#125):**
+  - at a fractional scale the backing-store read leaves up to 6px
+    transparent along a render's top and right, which checks took for
+    black; `QuirkProbeRender` fills it;
+  - `menu-bar-overflow` narrows its window in device pixels;
+  - two checks allow a pixel of rounding at a fractional scale only.
+- **Known at 1.5, causes not found:**
+  - a checkbox's and a radio's antialiased edges after their animations
+    differ from a static draw. The tick and dot are complete, and the
+    corner pixels differ by up to 212 (sum of channels). Marking the
+    motion clock's views' opaque ancestors for display instead was tried
+    and didn't help.
+  - a 5px scroll indicator just after a scroll view's first display.
+- **On the carried backend** the forced factor contradicts per-monitor
+  DPI on a 100% monitor (`dpi-per-monitor-aware` and the caption hit
+  tests fail). A real check there needs the monitor at 150%.
+
+Suggested: add `scaled-150` to the default list, or at least run it
+before each release.
 
 ObjcMarkdown at `-GSScaleFactor 1.5` on the carried backend looks right:
 one chrome row, Read/Edit/Split at the end, no stray indicator. Making
