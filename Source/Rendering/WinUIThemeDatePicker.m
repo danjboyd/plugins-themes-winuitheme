@@ -44,7 +44,13 @@
      accept and dismiss buttons.
    - The calendar style draws a CalendarView: the month with previous and
      next buttons, the weekdays, and a grid of days; today is filled with
-     the accent, the picked day outlined. Clicking a day picks it.
+     the accent, the picked day outlined. Clicking a day picks it. With
+     time elements, a TimePicker field sits under the calendar, as WinUI
+     pairs the two.
+   - Each field has its own pointer-over and pressed state, as two WinUI
+     controls side by side would.
+   - As on WinUI's DatePicker, the keyboard opens the flyout (Space or
+     Enter) and steps its columns there; the field itself doesn't step.
 
    The theme handles the clicks on gui 0.32, which has no editing, and on
    later libs-gui, whose own field selection and stepper wouldn't line up
@@ -79,6 +85,9 @@ static const CGFloat WinUIThemeDatePickerTextInset = 12.0;
 static const CGFloat WinUIThemePickerRowHeight = 40.0;
 static const NSInteger WinUIThemePickerVisibleRows = 9;
 static const CGFloat WinUIThemePickerFooterHeight = 40.0;
+/* LoopingSelector's up and down buttons, at the ends of the column under
+   the pointer (LoopingSelectorUpDownButtonHeight). */
+static const CGFloat WinUIThemePickerArrowHeight = 34.0;
 /* CalendarView: 300x360, a 40px header and a 32px weekday row. */
 static const CGFloat WinUIThemeCalendarWidth = 300.0;
 static const CGFloat WinUIThemeCalendarHeight = 360.0;
@@ -562,15 +571,42 @@ WinUIThemeDatePartWidths(WinUIThemeDatePartList list, CGFloat width, CGFloat *wi
     }
 }
 
-/* The DatePicker and TimePicker fields in `frame`; either may be empty. */
+/* The DatePicker and TimePicker fields in `frame`; either may be empty.
+   The calendar style has a CalendarView in `calendarRect` (may be NULL)
+   instead of a DatePicker, and the TimePicker under it. */
 static void
-WinUIThemeDatePickerFields(NSDatePickerCell *cell, NSRect frame, NSRect *dateField, NSRect *timeField)
+WinUIThemeDatePickerFields(NSDatePickerCell *cell, NSRect frame, BOOL flipped,
+                           NSRect *dateField, NSRect *timeField, NSRect *calendarRect)
 {
   BOOL date = WinUIThemeDatePickerShowsDate(cell);
   BOOL time = WinUIThemeDatePickerShowsTime(cell);
 
   *dateField = NSZeroRect;
   *timeField = NSZeroRect;
+  if (calendarRect != NULL)
+    {
+      *calendarRect = NSZeroRect;
+    }
+  if (WinUIThemeDatePickerShowsCalendar(cell))
+    {
+      NSRect calendar = frame;
+
+      if (time)
+        {
+          NSRect strip, gap;
+
+          NSDivideRect(frame, &strip, &calendar, WinUIThemeDatePickerHeight, flipped ? NSMaxYEdge : NSMinYEdge);
+          NSDivideRect(calendar, &gap, &calendar, MIN(WinUIThemeDatePickerGap, NSHeight(calendar)),
+                       flipped ? NSMaxYEdge : NSMinYEdge);
+          *timeField = NSMakeRect(NSMinX(strip), NSMinY(strip),
+                                  MIN(NSWidth(strip), WinUIThemeTimePickerWidth), NSHeight(strip));
+        }
+      if (calendarRect != NULL)
+        {
+          *calendarRect = calendar;
+        }
+      return;
+    }
   if (date && time)
     {
       CGFloat dateWidth = floor((NSWidth(frame) - WinUIThemeDatePickerGap) * WinUIThemeDatePickerWidth
@@ -918,7 +954,10 @@ WinUIThemeDrawCalendar(WinUITheme *theme, NSDatePickerCell *cell, NSRect frame, 
 
 /* WinUI's DatePickerFlyout and TimePickerFlyout: a column per part, nine
    40px rows of each, the value in an accent band across the middle, and
-   accept and dismiss buttons under them. Run by
+   accept and dismiss buttons under them. The column under the pointer
+   shows LoopingSelector's up and down buttons over its ends: 34px, the
+   flyout's background, an 8px caret in the secondary text colour (the
+   primary under the pointer), each a step. Run by
    WinUIThemeRunPickerFlyout(). */
 @interface WinUIThemeDatePickerFlyoutView : NSView
 {
@@ -930,6 +969,10 @@ WinUIThemeDrawCalendar(WinUITheme *theme, NSDatePickerCell *cell, NSRect frame, 
   NSInteger _focused;
   NSInteger _result;
   NSInteger _hoverButton;
+  /* The column under the pointer, and its up (0) or down (1) button
+     under it; -1 for none. */
+  NSInteger _hoverColumn;
+  NSInteger _hoverArrow;
 }
 - (id) initWithTheme: (WinUITheme *)theme
                parts: (WinUIThemeDatePartList)list
@@ -986,6 +1029,8 @@ WinUIThemeDrawCalendar(WinUITheme *theme, NSDatePickerCell *cell, NSRect frame, 
   ASSIGN(_font, font);
   _columns = [NSMutableArray new];
   _hoverButton = -1;
+  _hoverColumn = -1;
+  _hoverArrow = -1;
   for (index = 0; index < list.count; index++)
     {
       WinUIThemePickerColumn *column = AUTORELEASE([WinUIThemePickerColumn new]);
@@ -1182,6 +1227,27 @@ WinUIThemeDrawCalendar(WinUITheme *theme, NSDatePickerCell *cell, NSRect frame, 
                     button == 0 ? half : NSWidth([self bounds]) - half, WinUIThemePickerFooterHeight);
 }
 
+/* The up (0) or down (1) button over column `index`'s ends. */
+- (NSRect) arrowRect: (NSInteger)arrow ofColumn: (NSInteger)index
+{
+  CGFloat x = 0.0;
+  NSInteger i;
+
+  if (index < 0 || index >= (NSInteger)[_columns count])
+    {
+      return NSZeroRect;
+    }
+  for (i = 0; i < index; i++)
+    {
+      x += ((WinUIThemePickerColumn *)[_columns objectAtIndex: i])->width;
+    }
+  /* Inside the flyout's border. */
+  return NSIntersectionRect(NSMakeRect(x, arrow == 0 ? 1.0 : NSMaxY([self rowsRect]) - WinUIThemePickerArrowHeight,
+                                       ((WinUIThemePickerColumn *)[_columns objectAtIndex: index])->width,
+                                       WinUIThemePickerArrowHeight - 1.0),
+                            NSInsetRect([self bounds], 1.0, 1.0));
+}
+
 - (void) drawRect: (NSRect)rect
 {
   WinUITheme *theme = _theme;
@@ -1230,6 +1296,43 @@ WinUIThemeDrawCalendar(WinUITheme *theme, NSDatePickerCell *cell, NSRect frame, 
                                      (row == middle) ? picked : plain);
         }
       x += column->width;
+    }
+
+  /* The column under the pointer: its up and down buttons, over the rows
+     at its ends. */
+  if (_hoverColumn >= 0)
+    {
+      NSColor *secondary = WinUIThemeColorFromTheme(theme, @"secondaryLabelColor", text);
+      NSInteger arrow;
+
+      for (arrow = 0; arrow < 2; arrow++)
+        {
+          NSRect button = [self arrowRect: arrow ofColumn: _hoverColumn];
+          NSRect glyph = WinUIThemeCenteredRect(button, 8.0, 4.0);
+          NSBezierPath *caret = [NSBezierPath bezierPath];
+
+          if (NSIsEmptyRect(button) == NO)
+            {
+              [background set];
+              NSRectFill(button);
+            }
+          /* The view is flipped: the up caret's point is at the top. */
+          if (arrow == 0)
+            {
+              [caret moveToPoint: NSMakePoint(NSMinX(glyph), NSMaxY(glyph))];
+              [caret lineToPoint: NSMakePoint(NSMidX(glyph), NSMinY(glyph))];
+              [caret lineToPoint: NSMakePoint(NSMaxX(glyph), NSMaxY(glyph))];
+            }
+          else
+            {
+              [caret moveToPoint: NSMakePoint(NSMinX(glyph), NSMinY(glyph))];
+              [caret lineToPoint: NSMakePoint(NSMidX(glyph), NSMaxY(glyph))];
+              [caret lineToPoint: NSMakePoint(NSMaxX(glyph), NSMinY(glyph))];
+            }
+          [caret closePath];
+          [(arrow == _hoverArrow ? text : secondary) set];
+          [caret fill];
+        }
     }
 
   /* The button bar, under a divider. */
@@ -1299,6 +1402,19 @@ WinUIThemeDrawCalendar(WinUITheme *theme, NSDatePickerCell *cell, NSRect frame, 
       _result = -1;
       return;
     }
+  /* The column's up and down buttons: a step each. */
+  if (column >= 0 && NSPointInRect(point, [self arrowRect: 0 ofColumn: column]))
+    {
+      _focused = column;
+      [self moveColumn: column by: -1];
+      return;
+    }
+  if (column >= 0 && NSPointInRect(point, [self arrowRect: 1 ofColumn: column]))
+    {
+      _focused = column;
+      [self moveColumn: column by: 1];
+      return;
+    }
   if (column >= 0 && NSPointInRect(point, [self rowsRect]))
     {
       NSInteger row = (NSInteger)floor(point.y / WinUIThemePickerRowHeight);
@@ -1313,10 +1429,15 @@ WinUIThemeDrawCalendar(WinUITheme *theme, NSDatePickerCell *cell, NSRect frame, 
   NSPoint point = [self convertPoint: [event locationInWindow] fromView: nil];
   NSInteger hover = NSPointInRect(point, [self buttonRect: 0]) ? 0
     : (NSPointInRect(point, [self buttonRect: 1]) ? 1 : -1);
+  NSInteger column = NSPointInRect(point, [self rowsRect]) ? [self columnAtX: point.x] : -1;
+  NSInteger arrow = NSPointInRect(point, [self arrowRect: 0 ofColumn: column]) ? 0
+    : (NSPointInRect(point, [self arrowRect: 1 ofColumn: column]) ? 1 : -1);
 
-  if (hover != _hoverButton)
+  if (hover != _hoverButton || column != _hoverColumn || arrow != _hoverArrow)
     {
       _hoverButton = hover;
+      _hoverColumn = column;
+      _hoverArrow = arrow;
       [self setNeedsDisplay: YES];
     }
 }
@@ -1566,7 +1687,7 @@ WinUIThemeDatePickerOpenField(WinUITheme *theme, NSDatePicker *picker, BOOL want
   NSRect dateField, timeField;
   NSDateComponents *picked = nil;
 
-  WinUIThemeDatePickerFields(cell, [picker bounds], &dateField, &timeField);
+  WinUIThemeDatePickerFields(cell, [picker bounds], [picker isFlipped], &dateField, &timeField, NULL);
   picked = WinUIThemeRunPickerFlyout(theme, picker, wantsTime ? timeField : dateField,
                                      wantsTime ? WinUIThemeTimeParts() : WinUIThemeDateParts(cell),
                                      components, calendar);
@@ -1581,13 +1702,13 @@ WinUIThemeDatePickerOpenField(WinUITheme *theme, NSDatePicker *picker, BOOL want
 /* A click in the calendar: the previous and next buttons change the month
    shown, a day picks it, keeping the time of day. */
 static void
-WinUIThemeCalendarClick(NSDatePicker *picker, NSPoint point)
+WinUIThemeCalendarClick(NSDatePicker *picker, NSRect frame, NSPoint point)
 {
   NSDatePickerCell *cell = [picker cell];
   BOOL flipped = [picker isFlipped];
   NSCalendar *calendar = WinUIThemeDatePickerCalendar(cell);
   NSDateComponents *month = WinUIThemeCalendarShownMonth(cell, calendar);
-  WinUIThemeCalendarLayout layout = WinUIThemeCalendarLayoutForFrame([picker bounds], flipped);
+  WinUIThemeCalendarLayout layout = WinUIThemeCalendarLayoutForFrame(frame, flipped);
   NSDate *firstCell = WinUIThemeCalendarFirstCellDate(calendar, month);
   NSInteger index;
 
@@ -1620,6 +1741,25 @@ WinUIThemeCalendarClick(NSDatePicker *picker, NSPoint point)
     }
 }
 
+/* Which field a press is on (0 the date, 1 the time), and which the
+   pointer was last over (-1 neither), so each field has its own pressed
+   and pointer-over state. */
+static char WinUIThemeDatePickerPressedFieldKey;
+static char WinUIThemeDatePickerHoverFieldKey;
+
+static NSInteger
+WinUIThemeDatePickerFieldAt(NSDatePickerCell *cell, NSView *view, NSRect frame, NSPoint point)
+{
+  NSRect dateField, timeField;
+
+  WinUIThemeDatePickerFields(cell, frame, [view isFlipped], &dateField, &timeField, NULL);
+  if (NSPointInRect(point, dateField))
+    {
+      return 0;
+    }
+  return NSPointInRect(point, timeField) ? 1 : -1;
+}
+
 #pragma mark Overrides
 
 @implementation WinUITheme (DatePicker)
@@ -1633,8 +1773,10 @@ WinUIThemeCalendarClick(NSDatePicker *picker, NSPoint point)
   NSDatePickerCell *cell = (NSDatePickerCell *)self;
   NSCalendar *calendar = nil;
   NSDateComponents *components = nil;
-  NSRect dateField, timeField;
+  NSRect dateField, timeField, calendarRect;
   NSFont *font = nil;
+  NSNumber *pressedField = nil;
+  NSInteger hoverField = -1;
   BOOL enabled, hover = NO;
 
   if (theme == nil)
@@ -1645,10 +1787,14 @@ WinUIThemeCalendarClick(NSDatePicker *picker, NSPoint point)
         }
       return;
     }
+  WinUIThemeDatePickerFields(cell, cellFrame, [controlView isFlipped], &dateField, &timeField, &calendarRect);
   if (WinUIThemeDatePickerShowsCalendar(cell))
     {
-      WinUIThemeDrawCalendar(theme, cell, cellFrame, controlView);
-      return;
+      WinUIThemeDrawCalendar(theme, cell, calendarRect, controlView);
+      if (NSIsEmptyRect(timeField))
+        {
+          return;
+        }
     }
 
   enabled = [cell isEnabled];
@@ -1656,15 +1802,47 @@ WinUIThemeCalendarClick(NSDatePicker *picker, NSPoint point)
     {
       WinUIThemeTrackHover(controlView);
       hover = WinUIThemeViewIsHovered(controlView);
+      /* The field under the pointer: where it came in, then as
+         -mouseMoved: follows it. Forgotten when it leaves. */
+      if (hover && [controlView window] != nil)
+        {
+          NSNumber *stored = objc_getAssociatedObject(controlView, &WinUIThemeDatePickerHoverFieldKey);
+
+          if (stored != nil)
+            {
+              hoverField = [stored integerValue];
+            }
+          else
+            {
+              NSPoint point = [controlView convertPoint: [[controlView window] mouseLocationOutsideOfEventStream]
+                                               fromView: nil];
+
+              hoverField = WinUIThemeDatePickerFieldAt(cell, controlView, cellFrame, point);
+              objc_setAssociatedObject(controlView, &WinUIThemeDatePickerHoverFieldKey,
+                                       [NSNumber numberWithInteger: hoverField],
+                                       OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            }
+          if ([[controlView window] acceptsMouseMovedEvents] == NO)
+            {
+              [[controlView window] setAcceptsMouseMovedEvents: YES];
+            }
+        }
+      else
+        {
+          objc_setAssociatedObject(controlView, &WinUIThemeDatePickerHoverFieldKey, nil,
+                                   OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
     }
+  pressedField = [cell isHighlighted] ? objc_getAssociatedObject(cell, &WinUIThemeDatePickerPressedFieldKey) : nil;
   calendar = WinUIThemeDatePickerCalendar(cell);
   components = [calendar components: WinUIThemeDateUnits fromDate: WinUIThemeDatePickerDate(cell)];
   font = WinUIThemePreferredControlFont(theme, [cell font], NO);
-  WinUIThemeDatePickerFields(cell, cellFrame, &dateField, &timeField);
   WinUIThemeDrawPickerField(theme, controlView, dateField, WinUIThemeDateParts(cell), components, font,
-                            enabled, [cell isHighlighted], hover);
+                            enabled, [cell isHighlighted] && (pressedField == nil || [pressedField integerValue] == 0),
+                            hoverField == 0);
   WinUIThemeDrawPickerField(theme, controlView, timeField, WinUIThemeTimeParts(), components, font,
-                            enabled, [cell isHighlighted], hover);
+                            enabled, [cell isHighlighted] && (pressedField == nil || [pressedField integerValue] == 1),
+                            hoverField == 1);
 }
 
 - (NSSize) _overrideNSDatePickerCellMethod_cellSize
@@ -1680,7 +1858,9 @@ WinUIThemeCalendarClick(NSDatePicker *picker, NSPoint point)
     }
   if (WinUIThemeDatePickerShowsCalendar(cell))
     {
-      return NSMakeSize(WinUIThemeCalendarWidth, WinUIThemeCalendarHeight);
+      return NSMakeSize(WinUIThemeCalendarWidth, WinUIThemeCalendarHeight
+                        + (WinUIThemeDatePickerShowsTime(cell)
+                           ? WinUIThemeDatePickerGap + WinUIThemeDatePickerHeight : 0.0));
     }
   if (WinUIThemeDatePickerShowsDate(cell))
     {
@@ -1701,7 +1881,7 @@ WinUIThemeCalendarClick(NSDatePicker *picker, NSPoint point)
   NSDatePicker *picker = (NSDatePicker *)self;
   NSDatePickerCell *cell = [picker cell];
   NSPoint point = [picker convertPoint: [event locationInWindow] fromView: nil];
-  NSRect dateField, timeField;
+  NSRect dateField, timeField, calendarRect;
 
   if (theme == nil || [cell isKindOfClass: [NSDatePickerCell class]] == NO)
     {
@@ -1719,18 +1899,21 @@ WinUIThemeCalendarClick(NSDatePicker *picker, NSPoint point)
     {
       [[picker window] makeFirstResponder: picker];
     }
-  if (WinUIThemeDatePickerShowsCalendar(cell))
+  WinUIThemeDatePickerFields(cell, [picker bounds], [picker isFlipped], &dateField, &timeField, &calendarRect);
+  if (WinUIThemeDatePickerShowsCalendar(cell) && NSPointInRect(point, calendarRect))
     {
-      WinUIThemeCalendarClick(picker, point);
+      WinUIThemeCalendarClick(picker, calendarRect, point);
       return;
     }
 
-  WinUIThemeDatePickerFields(cell, [picker bounds], &dateField, &timeField);
   if (NSPointInRect(point, dateField) == NO && NSPointInRect(point, timeField) == NO)
     {
       return;
     }
-  /* Pressed until the flyout opens. */
+  /* That field pressed until the flyout opens. */
+  objc_setAssociatedObject(cell, &WinUIThemeDatePickerPressedFieldKey,
+                           [NSNumber numberWithInteger: NSPointInRect(point, timeField) ? 1 : 0],
+                           OBJC_ASSOCIATION_RETAIN_NONATOMIC);
   [cell setHighlighted: YES];
   [picker display];
   [cell setHighlighted: NO];
@@ -1750,12 +1933,43 @@ WinUIThemeCalendarClick(NSDatePicker *picker, NSPoint point)
   unichar key = ([characters length] > 0) ? [characters characterAtIndex: 0] : 0;
 
   if (theme != nil && [picker isEnabled] && [[picker cell] isKindOfClass: [NSDatePickerCell class]]
-      && WinUIThemeDatePickerShowsCalendar([picker cell]) == NO
+      && (WinUIThemeDatePickerShowsCalendar([picker cell]) == NO
+          || WinUIThemeDatePickerShowsTime([picker cell]))
       && (key == ' ' || key == NSCarriageReturnCharacter || key == NSEnterCharacter))
     {
+      /* Under a calendar, the TimePicker is the field. */
       WinUIThemeDatePickerOpenField(theme, picker,
-                                    WinUIThemeDatePickerShowsDate([picker cell]) == NO);
+                                    WinUIThemeDatePickerShowsDate([picker cell]) == NO
+                                    || WinUIThemeDatePickerShowsCalendar([picker cell]));
       return;
+    }
+  if (originalIMP != NULL)
+    {
+      originalIMP(self, _cmd, event);
+    }
+}
+
+/* The pointer moving from one field to the other: each has its own
+   pointer-over state. */
+- (void) _overrideNSDatePickerMethod_mouseMoved: (NSEvent *)event
+{
+  typedef void (*MouseIMP)(id, SEL, NSEvent *);
+  MouseIMP originalIMP = (MouseIMP)WinUIThemeOriginalMethod(_cmd, self, [NSDatePicker class]);
+  NSDatePicker *picker = (NSDatePicker *)self;
+
+  if (WinUIThemeDatePickerTheme() != nil && [[picker cell] isKindOfClass: [NSDatePickerCell class]])
+    {
+      NSPoint point = [picker convertPoint: [event locationInWindow] fromView: nil];
+      NSInteger field = WinUIThemeDatePickerFieldAt([picker cell], picker, [picker bounds], point);
+      NSNumber *last = objc_getAssociatedObject(picker, &WinUIThemeDatePickerHoverFieldKey);
+
+      if (last == nil || [last integerValue] != field)
+        {
+          objc_setAssociatedObject(picker, &WinUIThemeDatePickerHoverFieldKey,
+                                   [NSNumber numberWithInteger: field], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+          WinUIThemeSetViewHovered(picker, YES);
+          [picker setNeedsDisplay: YES];
+        }
     }
   if (originalIMP != NULL)
     {

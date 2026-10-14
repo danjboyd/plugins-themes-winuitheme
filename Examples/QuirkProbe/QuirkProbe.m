@@ -3493,6 +3493,47 @@ QuirkProbeTwelveHourClock(void)
             @"accent %ldx%ld px centred %.0fpt down (expected the flyout's width, 36pt, at 180pt)",
             (long)band.width, (long)band.height, centre]];
         }
+
+      /* The column under the pointer shows LoopingSelector's up and down
+         buttons over its ends (#56): the top row's value gives way to an
+         8x4pt caret, centred in the column; the next column keeps its
+         value. A click on the day column's down button steps the day. */
+      {
+        NSWindow *panel = [flyout window];
+        NSEvent *moved = [NSEvent mouseEventWithType: NSMouseMoved
+                                            location: [flyout convertPoint: NSMakePoint(40, 12) toView: nil]
+                                       modifierFlags: 0 timestamp: 0 windowNumber: [panel windowNumber]
+                                             context: nil eventNumber: 0 clickCount: 0 pressure: 0];
+        NSRect top = NSMakeRect(4 * scale, 2 * scale, 120 * scale, 30 * scale);
+        QuirkProbeInk caret, next;
+        NSUInteger red, green, blue;
+
+        [flyout mouseMoved: moved];
+        [flyout display];
+        rep = QuirkProbeRender(flyout);
+        [self saveView: flyout named: @"date-picker-flyout-arrows"];
+        QuirkProbePixel(rep, 2 * scale, 2 * scale, &red, &green, &blue);
+        QuirkProbeInkBackground = red + green + blue;
+        caret = QuirkProbeMeasureIn(rep, QuirkProbeIsFaintInk, top);
+        next = QuirkProbeMeasureIn(rep, QuirkProbeIsFaintInk,
+                                   NSMakeRect(140 * scale, 2 * scale, 70 * scale, 30 * scale));
+        if (caret.count > 0 && caret.width / scale <= 10.0 && caret.height / scale <= 6.0 && next.count > 0)
+          {
+            [self pass: @"date-picker-flyout-arrows" detail: [NSString stringWithFormat:
+              @"a %.0fx%.0fpt caret over the hovered column's top row; the next column keeps its value",
+              caret.width / scale, caret.height / scale]];
+          }
+        else
+          {
+            [self fail: @"date-picker-flyout-arrows" detail: [NSString stringWithFormat:
+              @"ink %.0fx%.0fpt in the hovered column's top row, %lu px in the next column's",
+              caret.width / scale, caret.height / scale, (unsigned long)next.count]];
+          }
+        [flyout mouseDown: [NSEvent mouseEventWithType: NSLeftMouseDown
+                                              location: [flyout convertPoint: NSMakePoint(176, 340) toView: nil]
+                                         modifierFlags: 0 timestamp: 0 windowNumber: [panel windowNumber]
+                                               context: nil eventNumber: 0 clickCount: 1 pressure: 1.0]];
+      }
     }
   [NSApp postEvent: [NSEvent keyEventWithType: NSKeyDown
                                      location: NSZeroPoint
@@ -3683,8 +3724,106 @@ QuirkProbeTwelveHourClock(void)
         }
     }
 
-  /* The flyout: a click opens it over the field; Down moves the month on
-     and Enter accepts. inspectDatePickerFlyout: renders it while open. */
+  /* A date and a time in one picker: each field has its own pointer-over
+     fill (#56). They shared one, so both lit together. The pointer is a
+     mouse-moved event over the date field. */
+  {
+    NSDatePicker *both = AUTORELEASE([[NSDatePicker alloc] initWithFrame: NSMakeRect(20, 370, 600, 32)]);
+    NSEvent *moved;
+    NSUInteger dateFill, timeFill, rest;
+
+    [both setDatePickerElements: NSYearMonthDayDatePickerElementFlag | NSHourMinuteDatePickerElementFlag];
+    [both setDateValue: day];
+    [date setHidden: YES];
+    [time setHidden: YES];
+    [content addSubview: both];
+    [window display];
+    rep = QuirkProbeRender(both);
+    scale = QuirkProbeScale(rep, both);
+    QuirkProbePixel(rep, 100 * scale, 4 * scale, &red, &green, &blue);
+    rest = red + green + blue;
+    moved = [NSEvent mouseEventWithType: NSMouseMoved
+                               location: [both convertPoint: NSMakePoint(100, 16) toView: nil]
+                          modifierFlags: 0 timestamp: 0 windowNumber: [window windowNumber]
+                                context: nil eventNumber: 0 clickCount: 0 pressure: 0];
+    [both mouseMoved: moved];
+    [window display];
+    rep = QuirkProbeRender(both);
+    [self saveView: both named: @"date-picker-field-hover"];
+    QuirkProbePixel(rep, 100 * scale, 4 * scale, &red, &green, &blue);
+    dateFill = red + green + blue;
+    QuirkProbePixel(rep, 500 * scale, 4 * scale, &red, &green, &blue);
+    timeFill = red + green + blue;
+    if (highContrast)
+      {
+        [self skip: @"date-picker-field-hover" detail: @"high contrast's hover is a border"];
+      }
+    else if (dateFill != rest && llabs((long long)timeFill - (long long)rest) <= 2)
+      {
+        [self pass: @"date-picker-field-hover" detail: [NSString stringWithFormat:
+          @"the date field under the pointer is %lu, the time field stays %lu (of 765)",
+          (unsigned long)dateFill, (unsigned long)timeFill]];
+      }
+    else
+      {
+        [self fail: @"date-picker-field-hover" detail: [NSString stringWithFormat:
+          @"at rest %lu; with the pointer over the date field, it is %lu and the time field %lu",
+          (unsigned long)rest, (unsigned long)dateFill, (unsigned long)timeFill]];
+      }
+    [both removeFromSuperview];
+    [date setHidden: NO];
+    [time setHidden: NO];
+  }
+
+  /* A calendar-style picker with a time: a TimePicker field under the
+     calendar (#56), as WinUI pairs a CalendarView and a TimePicker. Only
+     the calendar showed. */
+  {
+    NSDatePicker *withTime = AUTORELEASE([[NSDatePicker alloc] initWithFrame: NSZeroRect]);
+    NSSize size;
+
+    [withTime setDatePickerStyle: NSClockAndCalendarDatePickerStyle];
+    [withTime setDatePickerElements: NSYearMonthDayDatePickerElementFlag | NSHourMinuteDatePickerElementFlag];
+    [withTime setDateValue: day];
+    size = [[withTime cell] cellSize];
+    [withTime setFrame: NSMakeRect(330, 0, size.width, size.height)];
+    [content addSubview: withTime];
+    [window display];
+    rep = QuirkProbeRender(withTime);
+    scale = QuirkProbeScale(rep, withTime);
+    [self saveView: withTime named: @"date-picker-calendar-time"];
+    {
+      NSInteger height = [rep pixelsHigh];
+      NSUInteger edgeRed, edgeGreen, edgeBlue;
+      NSUInteger dividers;
+
+      QuirkProbePixel(rep, [rep pixelsWide] - 2, height - 2, &red, &green, &blue);
+      QuirkProbeInkBackground = red + green + blue;
+      QuirkProbePixel(rep, 0, height - 16 * scale, &edgeRed, &edgeGreen, &edgeBlue);
+      dividers = QuirkProbeSolidColumns(rep, QuirkProbeIsFaintInk,
+                                        NSMakeRect(4 * scale, height - 28 * scale, 234 * scale, 24 * scale),
+                                        23 * scale, NULL);
+      if (fabs(size.height - 400.0) < 0.5 && dividers >= 1
+          && llabs((long long)(edgeRed + edgeGreen + edgeBlue) - (long long)QuirkProbeInkBackground) >= 12)
+        {
+          [self pass: @"date-picker-calendar-time" detail: [NSString stringWithFormat:
+            @"a %.0fpt picker: the calendar, and a TimePicker field with %lu divider columns under it",
+            size.height, (unsigned long)dividers]];
+        }
+      else
+        {
+          [self fail: @"date-picker-calendar-time" detail: [NSString stringWithFormat:
+            @"%.0fpt high (expected 360 + 8 + 32); %lu divider columns along the foot; edge %lu of %lu",
+            size.height, (unsigned long)dividers,
+            (unsigned long)(edgeRed + edgeGreen + edgeBlue), (unsigned long)QuirkProbeInkBackground]];
+        }
+    }
+    [withTime removeFromSuperview];
+  }
+
+  /* The flyout: a click opens it over the field; Down moves the month on,
+     the day column's down button steps the day, and Enter accepts.
+     inspectDatePickerFlyout: renders it and clicks while it's open. */
   if (highContrast)
     {
       [self skip: @"date-picker-flyout-band" detail: @"high contrast's highlight may not be blue"];
@@ -3727,15 +3866,16 @@ QuirkProbeTwelveHourClock(void)
 
     picked = [[date dateValue] dateWithCalendarFormat: nil
                                               timeZone: [NSTimeZone timeZoneWithName: @"America/Chicago"]];
-    if ([picked yearOfCommonEra] == 2026 && [picked monthOfYear] == 11 && [picked dayOfMonth] == 5
+    if ([picked yearOfCommonEra] == 2026 && [picked monthOfYear] == 11 && [picked dayOfMonth] == 6
         && _datePickerActions == 1)
       {
-        [self pass: @"date-picker-flyout-pick" detail: @"Down and Enter in the flyout picked November 5, and sent the action"];
+        [self pass: @"date-picker-flyout-pick" detail:
+          @"Down, the day's down button and Enter in the flyout picked November 6, and sent the action"];
       }
     else
       {
         [self fail: @"date-picker-flyout-pick" detail: [NSString stringWithFormat:
-          @"after Down and Enter the date is %@ (%lu actions); expected 2026-11-05",
+          @"after Down, the day's down button and Enter the date is %@ (%lu actions); expected 2026-11-06",
           [picked descriptionWithCalendarFormat: @"%Y-%m-%d %H:%M %z"],
           (unsigned long)_datePickerActions]];
       }
