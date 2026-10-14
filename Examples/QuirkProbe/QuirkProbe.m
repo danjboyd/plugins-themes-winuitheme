@@ -524,6 +524,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkLiveSettings;
 - (void) checkLiveTextSize;
 - (void) checkContextMenuEdges;
+- (void) checkSubmenuClick;
 - (void) checkIndicators;
 - (void) checkMenuFlyout;
 - (void) checkOverlayScrollers;
@@ -2321,6 +2322,119 @@ static BOOL QuirkProbeContextItemChosen = NO;
         [NSString stringWithFormat: @"0.6s after each of 5 real right-clicks: %@; %@",
                   [seen componentsJoinedByString: @", "], chosen ? @"an item was picked" : @"nothing picked"]];
     }
+}
+
+/* The context menu's item with a submenu, clicked for real while the menu
+   tracks; then whether the menu and its submenu are open, and a click
+   away to close them. */
+- (void) clickSubmenuItem: (NSTimer *)timer
+{
+  NSMenu *menu = [timer userInfo];
+  NSMenuView *menuView = (NSMenuView *)[menu menuRepresentation];
+  NSWindow *menuWindow = [menuView window];
+  NSRect item = [menuView rectOfItemAtIndex: 1];
+  NSPoint point;
+
+  item = [menuView convertRect: item toView: nil];
+  point = [menuWindow convertBaseToScreen: NSMakePoint(NSMidX(item) - 20, NSMidY(item))];
+  QuirkProbeSetPointer(point);
+#ifdef _WIN32
+  Sleep(150);
+  mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0);
+  Sleep(30);
+  mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0);
+#endif
+}
+
+- (void) inspectSubmenuClick: (NSTimer *)timer
+{
+  NSDictionary *info = [timer userInfo];
+  NSMenu *menu = [info objectForKey: @"menu"];
+  NSMenu *submenu = [[menu itemAtIndex: 1] submenu];
+  NSWindow *window = [info objectForKey: @"window"];
+  NSPoint away = NSMakePoint(NSWidth([window frame]) - 20, 20);
+  BOOL menuOpen = [[[menu menuRepresentation] window] isVisible];
+  BOOL submenuOpen = [[[submenu menuRepresentation] window] isVisible];
+
+  ASSIGN(QuirkProbeMenuSeen, ([NSString stringWithFormat: @"menu %@, submenu %@",
+                                        menuOpen ? @"open" : @"closed", submenuOpen ? @"open" : @"closed"]));
+  QuirkProbeSetPointer([window convertBaseToScreen: away]);
+  [NSApp postEvent: [NSEvent mouseEventWithType: NSLeftMouseDown location: away modifierFlags: 0
+                                      timestamp: 0 windowNumber: [window windowNumber] context: nil
+                                    eventNumber: 0 clickCount: 1 pressure: 1]
+           atStart: NO];
+  [NSApp postEvent: [NSEvent mouseEventWithType: NSLeftMouseUp location: away modifierFlags: 0
+                                      timestamp: 0 windowNumber: [window windowNumber] context: nil
+                                    eventNumber: 0 clickCount: 1 pressure: 0]
+           atStart: NO];
+}
+
+/* A real click on a context menu's item with a submenu opens the submenu
+   and leaves both open, as Windows' menus do (#19, found in Gorm's Tools
+   menu). libs-gui ended tracking on the release, closing every menu.
+   Real clicks (SendInput): with -ProbeMovesPointer YES only. */
+- (void) checkSubmenuClick
+{
+  NSWindow *window = nil;
+  NSView *view = nil;
+  NSMenu *menu = nil;
+  NSMenu *submenu = nil;
+  NSTimer *click = nil;
+  NSTimer *inspect = nil;
+  NSDictionary *info = nil;
+
+  if ([[NSUserDefaults standardUserDefaults] boolForKey: @"ProbeMovesPointer"] == NO)
+    {
+      [self skip: @"menu-submenu-click-stays-open" detail: @"real clicks: needs -ProbeMovesPointer YES"];
+      return;
+    }
+#ifdef _WIN32
+  window = [self windowWithFrame: NSMakeRect(420, 300, 340, 220) title: @"QuirkProbe Submenu Click"];
+  view = AUTORELEASE([[NSView alloc] initWithFrame: [[window contentView] bounds]]);
+  [[window contentView] addSubview: view];
+  menu = AUTORELEASE([[NSMenu alloc] initWithTitle: @"Context"]);
+  submenu = AUTORELEASE([[NSMenu alloc] initWithTitle: @"More"]);
+  [[submenu addItemWithTitle: @"Deeper" action: @selector(contextItemChosen:) keyEquivalent: @""] setTarget: self];
+  [[menu addItemWithTitle: @"Cut" action: @selector(contextItemChosen:) keyEquivalent: @""] setTarget: self];
+  [[menu addItemWithTitle: @"More" action: NULL keyEquivalent: @""] setSubmenu: submenu];
+  [[menu addItemWithTitle: @"Copy" action: @selector(contextItemChosen:) keyEquivalent: @""] setTarget: self];
+  [view setMenu: menu];
+  [window makeKeyAndOrderFront: nil];
+  [window display];
+  QuirkProbeDispatchEvents(0.3);
+  QuirkProbeContextItemChosen = NO;
+  ASSIGN(QuirkProbeMenuSeen, @"never opened");
+  info = [NSDictionary dictionaryWithObjectsAndKeys: window, @"window", menu, @"menu", nil];
+  click = [NSTimer timerWithTimeInterval: 0.5 target: self selector: @selector(clickSubmenuItem:)
+                                userInfo: menu repeats: NO];
+  inspect = [NSTimer timerWithTimeInterval: 1.4 target: self selector: @selector(inspectSubmenuClick:)
+                                  userInfo: info repeats: NO];
+  [[NSRunLoop currentRunLoop] addTimer: click forMode: NSEventTrackingRunLoopMode];
+  [[NSRunLoop currentRunLoop] addTimer: inspect forMode: NSEventTrackingRunLoopMode];
+  /* And after tracking, if the click ended it. */
+  [[NSRunLoop currentRunLoop] addTimer: inspect forMode: NSDefaultRunLoopMode];
+  QuirkProbeSetPointer([window convertBaseToScreen: NSMakePoint(80, 160)]);
+  QuirkProbeDispatchEvents(0.1);
+  mouse_event(MOUSEEVENTF_RIGHTDOWN, 0, 0, 0, 0);
+  Sleep(30);
+  mouse_event(MOUSEEVENTF_RIGHTUP, 0, 0, 0, 0);
+  QuirkProbeDispatchEvents(2.2);
+  [click invalidate];
+  [inspect invalidate];
+  [view setMenu: nil];
+  [window orderOut: nil];
+  if ([QuirkProbeMenuSeen isEqualToString: @"menu open, submenu open"] && QuirkProbeContextItemChosen == NO)
+    {
+      [self pass: @"menu-submenu-click-stays-open" detail:
+        @"after a real click on the item with a submenu: menu open, submenu open; nothing picked"];
+    }
+  else
+    {
+      [self fail: @"menu-submenu-click-stays-open" detail: [NSString stringWithFormat:
+        @"after a real click on the item with a submenu: %@; %@", QuirkProbeMenuSeen,
+        QuirkProbeContextItemChosen ? @"an item was picked" : @"nothing picked"]];
+    }
+#endif
 }
 
 /* Whether the probe runs with `flag` (--mode dark, --high-contrast), as
@@ -10551,6 +10665,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkLiveSettings];
   [self checkLiveTextSize];
   [self checkContextMenuEdges];
+  [self checkSubmenuClick];
   [self checkIndicators];
   [self checkMenuFlyout];
   [self checkOverlayScrollers];
