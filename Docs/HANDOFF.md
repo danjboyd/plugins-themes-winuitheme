@@ -461,6 +461,34 @@ Choices made without the owner, each a small revert:
 - The DPI squash's commit message is new: one description covering
   the five commits.
 
+### A real 1.5 scale in the probe (`scaled-150`, in #125)
+
+The alpha4 toolbar regression showed only with the gui drawing at 1.5,
+which no configuration covered: `light-150` scales the theme's metrics,
+not the gui. `-Configuration scaled-150` adds `-GSScaleFactor 1.5`. It's
+opt-in, not in the default list.
+
+It first hung: the probe's synthetic clicks took window coordinates (device
+pixels at 1.5) as points, and a press landed on a button whose tracking
+loop waited forever. Fixed in #125.
+
+It now ends at 171 passed, 15 failed. The renders of the switches, boxes,
+form fields and menu bar are right, so most failures are checks sampling
+at offsets meant for 1.0 (`switch-*`, `box-*`, `form-entry-textbox`,
+`toolbar-icon-size`, `split-view-thick-divider`, `motion-*`, and
+`menu-bar-overflow`, which narrows the window in pixels). Possibly real
+and small:
+- `scroller-hidden-at-rest`: an indicator over the content right after
+  the first display;
+- `toolbar-in-menu-bar`: the content 1pt shorter (199pt) after the
+  toolbar moves into the row;
+- `slider-track`: the value part 10px deep where 9px is expected.
+
+ObjcMarkdown at `-GSScaleFactor 1.5` on the carried backend looks right:
+one chrome row, Read/Edit/Split at the end, no stray indicator. Making
+scaled-150 pass, by fixing the checks to measure in points, would make
+it a regression gate for the DPI-aware backend.
+
 ### The second-monitor edges: what the code says
 
 Nothing was changed: none of this shows without a second monitor at
