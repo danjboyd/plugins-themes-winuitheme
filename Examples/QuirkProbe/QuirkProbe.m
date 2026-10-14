@@ -487,6 +487,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkTheme;
 - (void) checkSubclassImageCell;
 - (void) checkToolbarImageItem;
+- (void) checkDecorationFitsTallWindow;
 - (void) checkToolbarIconSize;
 - (void) checkScrollerEdge;
 - (void) checkTextAlignment;
@@ -1318,6 +1319,48 @@ objectValueForTableColumn: (NSTableColumn *)column
         [NSString stringWithFormat: @"an NSButtonCell subclass drew %lu px of its image",
                                     (unsigned long)ink.count]];
     }
+}
+
+/* A window as tall as the screen that gets a toolbar (#105): libs-gui
+   grows the window by the toolbar, sizing the decoration for the taller
+   frame first. The window can't grow past the screen, so its frame stayed
+   and the decoration kept the taller size: the caption lay above the
+   window and a gap opened above the content (ThemeDemo at 125% and
+   150%). The decoration matches the window's frame. */
+- (void) checkDecorationFitsTallWindow
+{
+  NSRect visible = [[NSScreen mainScreen] visibleFrame];
+  NSWindow *window = [self windowWithFrame: NSMakeRect(320, NSMinY(visible), 360, NSHeight(visible))
+                                     title: @"QuirkProbe Tall Window"];
+  NSToolbar *toolbar = [[NSToolbar alloc] initWithIdentifier: @"QuirkProbeTallToolbar"];
+  NSView *decoration = nil;
+  NSRect frame;
+
+  [window orderFront: nil];
+  [window display];
+  [toolbar setDelegate: self];
+  [toolbar setDisplayMode: NSToolbarDisplayModeIconOnly];
+  [window setToolbar: toolbar];
+  RELEASE(toolbar);
+  [window display];
+  QuirkProbeDispatchEvents(0.3);
+  decoration = [[window contentView] superview];
+  frame = [window frame];
+  if (fabs(NSHeight([decoration frame]) - NSHeight(frame)) <= 0.5
+      && fabs(NSWidth([decoration frame]) - NSWidth(frame)) <= 0.5)
+    {
+      [self pass: @"decoration-fits-tall-window" detail: [NSString stringWithFormat:
+        @"a %.0fpx window on a %.0fpx screen took a toolbar; the decoration is %.0fpx, the window's height",
+        NSHeight(frame), NSHeight(visible), NSHeight([decoration frame])]];
+    }
+  else
+    {
+      [self fail: @"decoration-fits-tall-window" detail: [NSString stringWithFormat:
+        @"a %.0fpx window on a %.0fpx screen took a toolbar; the decoration is %.0fpx",
+        NSHeight(frame), NSHeight(visible), NSHeight([decoration frame])]];
+    }
+  [window setToolbar: nil];
+  [window orderOut: nil];
 }
 
 /* An image toolbar item draws its image (issue #2): GSToolbarButtonCell is
@@ -10786,6 +10829,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkAccentColor];
   [self checkSubclassImageCell];
   [self checkToolbarImageItem];
+  [self checkDecorationFitsTallWindow];
   [self checkToolbarIconSize];
   [self checkScrollerEdge];
   [self checkTableHeader];
