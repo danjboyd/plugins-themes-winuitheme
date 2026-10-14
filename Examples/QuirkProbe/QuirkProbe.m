@@ -515,6 +515,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkSizeToFit;
 - (void) checkTypography;
 - (void) checkSlider;
+- (void) checkSliderTicks;
 - (void) checkProgress;
 - (void) checkLevelIndicator;
 - (void) checkDatePicker;
@@ -3514,6 +3515,95 @@ QuirkProbeColumnCount(NSBitmapImageRep *rep, QuirkProbePixelTest test,
    and a 22px thumb centred on it around an accent dot, 10px at rest and
    8px pressed, as measured in WinUI 3 (Compare-Reference.ps1). The theme
    drew a plain circle on a 6px bordered track. */
+/* Slider tick marks (#105): libs-gui keeps -setNumberOfTickMarks: but
+   draws nothing. WinUI's TickBar: a 1px mark per tick, 4px long, 4px out
+   from the track on the side the slider asks for, under the thumb's
+   centre at each tick's value. Looked for in the columns where the
+   marks go, on both sides of the track, and between them. */
+- (void) checkSliderTicks
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(420, 300, 280, 80)
+                                     title: @"QuirkProbe Slider Ticks"];
+  NSSlider *slider = AUTORELEASE([[NSSlider alloc] initWithFrame: NSMakeRect(20, 24, 240, 32)]);
+  NSMutableArray *problems = [NSMutableArray array];
+  CGFloat desktop = QuirkProbeDesktopScale();
+  NSInteger pass;
+
+  [slider setMinValue: 0.0];
+  [slider setMaxValue: 100.0];
+  [slider setDoubleValue: 0.0];
+  [slider setNumberOfTickMarks: 5];
+  [[window contentView] addSubview: slider];
+  [window orderFront: nil];
+  for (pass = 0; pass < 2; pass++)
+    {
+      BOOL below = (pass == 0);
+      NSBitmapImageRep *rep = nil;
+      CGFloat scale, knob, width, middle, markY, otherY;
+      NSInteger background, index;
+
+      [slider setTickMarkPosition: below ? NSTickMarkBelow : NSTickMarkAbove];
+      [window display];
+      rep = QuirkProbeRender(slider);
+      scale = QuirkProbeScale(rep, slider);
+      knob = [[slider cell] knobThickness];
+      width = NSWidth([slider bounds]);
+      /* Points from the top; the track is centred. */
+      middle = NSHeight([slider bounds]) / 2.0;
+      markY = middle + (below ? 1.0 : -1.0) * 8.0 * desktop;
+      otherY = middle - (below ? 1.0 : -1.0) * 8.0 * desktop;
+      background = QuirkProbeBrightnessAt(rep, scale, 4.0, 2.0);
+      if (pass == 0)
+        {
+          [self saveView: slider named: @"slider-ticks"];
+        }
+      /* The first tick is under the thumb, at 0. */
+      for (index = 1; index < 5; index++)
+        {
+          CGFloat x = floor(knob / 2.0 + (width - knob) * index / 4.0) + 0.5;
+          CGFloat between = x - (width - knob) / 8.0;
+          NSInteger mark = background;
+          CGFloat dx;
+
+          /* Within 2pt: the theme's drawing rect may be a point in. */
+          for (dx = -2.0; dx <= 2.0; dx += 1.0)
+            {
+              NSInteger ink = QuirkProbeBrightnessAt(rep, scale, x + dx, markY);
+
+              if (labs((long)(ink - background)) > labs((long)(mark - background)))
+                {
+                  mark = ink;
+                }
+            }
+          NSInteger opposite = QuirkProbeBrightnessAt(rep, scale, x, otherY);
+          NSInteger gap = QuirkProbeBrightnessAt(rep, scale, between, markY);
+
+          if (labs((long)(mark - background)) < 60)
+            {
+              [problems addObject: [NSString stringWithFormat: @"%@: no mark at %.0fpt (%ld, background %ld)",
+                                                               below ? @"below" : @"above", x,
+                                                               (long)mark, (long)background]];
+            }
+          if (labs((long)(opposite - background)) >= 60 || labs((long)(gap - background)) >= 60)
+            {
+              [problems addObject: [NSString stringWithFormat: @"%@: ink across the track (%ld) or between marks (%ld) at %.0fpt",
+                                                               below ? @"below" : @"above",
+                                                               (long)opposite, (long)gap, x]];
+            }
+        }
+    }
+  if ([problems count] == 0)
+    {
+      [self pass: @"slider-ticks" detail: @"five marks below the track, then above it, at the thumb's positions"];
+    }
+  else
+    {
+      [self fail: @"slider-ticks" detail: [problems componentsJoinedByString: @"; "]];
+    }
+  [slider removeFromSuperview];
+  [window orderOut: nil];
+}
+
 - (void) checkSlider
 {
   NSWindow *window = [self windowWithFrame: NSMakeRect(420, 300, 280, 80)
@@ -11162,6 +11252,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkSizeToFit];
   [self checkTypography];
   [self checkSlider];
+  [self checkSliderTicks];
   [self checkProgress];
   [self checkLevelIndicator];
   [self checkDatePicker];

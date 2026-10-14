@@ -1412,6 +1412,64 @@ WinUIThemeSwitchOnAmount(NSControlStateValue value)
     }
 }
 
+/* Tick marks (#105), which libs-gui keeps (-setNumberOfTickMarks:,
+   -setTickMarkPosition:) but never draws: WinUI's TickBar, 1px marks
+   4px long in SliderTickBarFill (the track's colour), 4px out from the
+   track on the side the slider gives, where the thumb's centre is at each
+   tick's value. The thumb, drawn after, covers the one under it. */
+static void
+WinUIThemeDrawSliderTicks(WinUITheme *theme, NSSliderCell *cell, NSRect rect,
+                          NSRect trackRect, BOOL horizontal, BOOL flipped)
+{
+  NSInteger count = [cell numberOfTickMarks];
+  CGFloat scale = MAX(1.0, [[theme settings] desktopScaleFactor]);
+  CGFloat length = round(4.0 * scale);
+  CGFloat gap = round(4.0 * scale);
+  CGFloat knob = [cell knobThickness];
+  double minValue = [cell minValue];
+  double range = [cell maxValue] - minValue;
+  /* Below, or right of a vertical slider; above, or left. */
+  BOOL after = ([cell tickMarkPosition] == NSTickMarkBelow);
+  NSColor *color = nil;
+  NSInteger index;
+
+  if (count <= 0 || range <= 0.0)
+    {
+      return;
+    }
+  WinUIThemeRangeColors(theme, WinUIThemeControlEnabled(cell), &color, NULL, NULL, NULL, NULL);
+  [color set];
+  for (index = 0; index < count; index++)
+    {
+      double fraction = ([cell tickMarkValueAtIndex: index] - minValue) / range;
+      NSRect mark;
+
+      if (horizontal)
+        {
+          CGFloat x = floor(NSMinX(rect) + knob / 2.0 + (NSWidth(rect) - knob) * fraction);
+          /* Below is down the screen: up the y axis when flipped. */
+          BOOL down = (after != flipped);
+          CGFloat y = down ? NSMinY(trackRect) - gap - length : NSMaxY(trackRect) + gap;
+
+          mark = NSMakeRect(x, y, 1.0, length);
+        }
+      else
+        {
+          CGFloat y;
+
+          /* The knob runs the other way in a flipped view (-knobRectFlipped:). */
+          if (flipped)
+            {
+              fraction = 1.0 - fraction;
+            }
+          y = floor(NSMinY(rect) + knob / 2.0 + (NSHeight(rect) - knob) * fraction);
+          mark = NSMakeRect(after ? NSMaxX(trackRect) + gap : NSMinX(trackRect) - gap - length,
+                            y, length, 1.0);
+        }
+      NSRectFill(mark);
+    }
+}
+
 /* WinUI's Slider (#41): a 4px track in ControlStrongFill, the value part
    in the accent, under the thumb. */
 - (void) drawSliderBorderAndBackground: (NSBorderType)aType
@@ -1459,6 +1517,7 @@ WinUIThemeSwitchOnAmount(NSControlStateValue value)
       [sliderCell setKnobThickness: thumb];
     }
   knobRect = [sliderCell knobRectFlipped: flipped];
+  WinUIThemeDrawSliderTicks(self, sliderCell, rect, trackRect, horizontal, flipped);
 
   if (horizontal)
     {
