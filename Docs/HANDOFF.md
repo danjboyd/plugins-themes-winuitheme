@@ -1,6 +1,6 @@
 # Handoff: Adwaita parity work
 
-State as of 2026-10-14 (late afternoon), for picking the work up in a fresh session. The goal
+State as of 2026-10-15 (morning, after an unattended overnight session), for picking the work up in a fresh session. The goal
 (tracking issue #50): unmodified GNUstep apps look like first-rate WinUI 3
 apps under this theme, at parity with what the Adwaita theme
 (`C:\Users\Support\git\plugins-themes-Adwaita`) does for GNOME. The audit
@@ -97,6 +97,14 @@ Phases A to J and these fixes are merged into `main`:
 | #122 | `controls-105` | the rest of #105's controls (browser hover, box titles, the combo pill, toolbar separators, text size reaching open windows), #56's gaps, context menus at the screen's edges, submenu clicks (#19, found in Gorm), the scaled-display and second-monitor fixes from the OCI runs |
 | #123 | `version-0.1.0-alpha4` | the fourth release |
 
+**Open, not merged:**
+
+| PR | Branch | Issues |
+| --- | --- | --- |
+| #124 | `handoff-2026-10-14` | the 10-14 handoff (this file's base) |
+| #125 (draft) | `parity-2026-10-15` | #91 (the toolbar in the menu bar's row), slider tick marks (#105), a probe fix for libs-gui master |
+| this one | `handoff-2026-10-15` | this file, on top of #124 |
+
 **Releases.** The owner approved the release process on 2026-10-08:
 - semver pre-release tags (`0.1.0-alphaN`);
 - a "Version X" commit that sets `GSThemeVersion` in `WinUIThemeInfo.plist`
@@ -150,7 +158,27 @@ remaining warnings in the changed lines are the file's existing
 `(HWND)winNum` casts; the DPI branch now has master's 95 warnings. None
 is sent upstream; the owner reviews first.
 
-The 2026-10-14 commits (`win32-monitor-frames`' `216b061`, and
+**GCC builds of the 10-14 commits (2026-10-14 night):** both pass. The
+script is `gcc/build-back.sh` in the 10-14 night session's scratchpad
+(`d551d6d3-...`); it builds a clone of the local libs-back in that
+scratchpad against `C:\gsgcc`:
+- `win32-monitor-frames` (`216b061`): GCC build OK, master's 95
+  `WIN32Server.m` warnings.
+- `win32-per-monitor-dpi-squashed` (`38c77f2`): GCC build OK, 96. The
+  extra warning is the `(int)hwnd` cast in the new `WM_DPICHANGED`
+  resize event, written as the file writes it 19 times already.
+  `CairoFontInfo.m` has none.
+
+`win32-per-monitor-dpi-squashed` is a new **local** branch (worktree
+`libs-back-dpi-squashed`): `6f253fd`, `dcced43`, `85a0bc8`, `da386e8`
+and `1d753ca` squashed into one commit. Its tree is identical to
+`win32-per-monitor-dpi`'s, and it has one message covering all of it. It
+isn't pushed and nothing was posted. The X11 build of `da386e8`'s
+`CairoFontInfo.m` is still unchecked: no Linux here. On reading,
+`windows_are_scaled()` only uses `GSDisplayServer.h` and
+`-respondsToSelector:`, both on every platform.
+
+Older notes: the 2026-10-14 commits (`win32-monitor-frames`' `216b061`, and
 `85a0bc8`, `da386e8` and `1d753ca` on `win32-per-monitor-dpi`, the last
 three worth squashing into the DPI commit too) were built with clang
 only: **build them with GCC (`C:\gsgcc`) before posting**. `da386e8`
@@ -263,7 +291,7 @@ app closes.
 | --- | --- |
 | Tracking | #105 remaining WinUI gaps (checklist below); #50 Adwaita parity |
 | Windows | #72 tabs on by default (draft PR #97, phase 2 of the shared code, awaits the owner's review) |
-| Fidelity | #91 single-row chrome (`GSThemeToolbarInMenuBar`) |
+| Fidelity | #91 single-row chrome: done in draft #125, awaiting the owner's review |
 | System | #47 Mica: implemented (#117), the blurred backdrop unchecked on a GPU |
 | Testing | #19 real-app backlog |
 
@@ -285,16 +313,23 @@ What still separates an app from a first-rate WinUI app:
    show a dark strip until it reopens (the panel's first screen is screen
    0); a pop-up list on a monitor at another scale than it last opened on
    is narrower than its button (sized at the previous scale); a window
-   grows about 6px per round trip between monitors.
+   grows about 6px per round trip between monitors. The likely causes
+   are under "The second-monitor edges" below.
 3. **Minimum and maximum sizes:** `-setMinSize:` in points is taken as
    pixels on a scaled display (gnustep-gui's frame sizes are device
    pixels; `-setContentMinSize:` is scaled). A libs-gui question, not
    changed.
 4. **Motion:** ContentDialog's scale (a layered window's alpha can't
    scale it).
-5. **API decisions:** paused and error progress, slider ticks.
-6. **Chrome:** single-row chrome (#91); tabs on by default (#72);
-   per-window compact metrics for nib windows.
+5. **API decision:** paused and error progress (see "Paused and error
+   progress" below). Slider ticks needed no decision: NSSlider has
+   `-setNumberOfTickMarks:` and `-setTickMarkPosition:`, which libs-gui
+   just doesn't draw. The theme draws them now (#125).
+6. **Chrome:** tabs on by default (#72); per-window compact metrics for
+   nib windows. That's a design question (how to tell a nib window from
+   a code-built one); Adwaita doesn't do it either, despite #105's note
+   (its HANDOFF_OPEN_ISSUES #24 lists it as open). Single-row chrome
+   (#91) is in #125.
 7. **Upstreaming** the carried libs-back changes (GCC, then the owner's
    review).
 
@@ -352,22 +387,134 @@ frames flipped against the wrong height; reused menus shrunk and laid
 out at the old scale; tool tips on the wrong monitor; text views spaced
 unevenly (hinted metrics).
 
+### Overnight, 2026-10-14 to 15 (unattended)
+
+The owner asked for work without check-ins and allowed pushing branches
+and draft PRs, but not merging. What was done:
+- **#91, the toolbar in the menu bar's row** (draft #125). An app
+  declares `GSThemeToolbarInMenuBar`; README "Toolbar in the Menu Bar"
+  has the details.
+  - The code is in `Source/Native/WinUIThemeToolbarInMenuBar.m`, a
+    category on GSWindowDecorationView that the theme's two decoration
+    views call.
+  - Probe checks: `toolbar-in-menu-bar` and `toolbar-in-menu-bar-off`.
+  - All 8 configurations pass on both backends.
+  - ObjcMarkdown's viewer (dev build 20261009, which declares the key)
+    shows two chrome rows in light, dark and high contrast, with
+    Read/Edit/Split at the row's end. Captured with PrintWindow; no
+    input was used, and the window was widened with `MoveWindow`.
+  - That run found the row's line missing under buttons over Mica,
+    fixed in #125 (the probe runs without Mica).
+  - At 486px wide, Read/Edit/Split (182pt) folds into ">>", which is
+    correct.
+- **Slider tick marks** (#105, in #125), probe check `slider-ticks`.
+- **libs-gui master** (`fdc5cfe83`, built in the scratchpad's
+  `gui-master`, not installed): the probe passed in light, dark, high
+  contrast and light-150. The one failure first seen was the probe's
+  own: master renumbers NSTextAlignment as AppKit does. Fixed in #125.
+- **Compare-Reference** on #125: 0 out of tolerance in light and dark.
+  That includes the body text's width (277 vs WinUI's 274px), so
+  #105's "text width" item has been measured since #108.
+- **GCC builds** of the 10-14 libs-back commits and a squashed DPI
+  branch (above).
+- **The ScreenshotTool session** asked for the desktop for about an hour
+  (display scale 100, 125, 150 and back to 100) for its alpha4 pin
+  check, and was given it. This session used no desktop while it had it.
+
+Choices made without the owner, each a small revert:
+- In the menu bar's row:
+  - toolbar items are 32pt with 16pt icons;
+  - there's 4pt between the menus and the commands, and 4pt at the
+    row's end;
+  - the toolbar keeps at least 60pt before the menus fold;
+  - the row has the menu bar's background and line.
+- Ticks are 4pt out from the track, under the thumb, rather than in
+  rows of their own.
+- The DPI squash's commit message is new: one description covering
+  the five commits.
+
+### The second-monitor edges: what the code says
+
+Nothing was changed: none of this shows without a second monitor at
+another scale, so a fix would go out unchecked. What reading the code
+found, for the next OCI run:
+
+- **Frames are converted at the key window's scale.**
+  - gnustep-gui's `+[GSWindowDecorationView
+    contentRectForFrameRect:styleMask:]` and
+    `+frameRectForContentRect:styleMask:` scale by `[[NSScreen
+    mainScreen] userSpaceScaleFactor]`. Their own FIXME says they should
+    take a screen. `[NSScreen mainScreen]` is the key window's screen.
+  - A window is drawn at `[window userSpaceScaleFactor]`, its own
+    `_screen`'s.
+  - So a menu panel or pop-up list opened from a key window on one
+    monitor and shown on the other is sized at the first one's scale
+    and drawn at the second's:
+    - sized at 125% and drawn at 150%, it's narrower than its button;
+    - sized at 150% and drawn at 125%, it's wider than what's drawn in
+      it, leaving a dark strip on its right. A new panel's `_screen` is
+      screen 0, the 150% primary, until it's first placed.
+  - The proper fix is gnustep-gui's: give the conversions the window's
+    screen. The instance methods could; the class methods can't.
+  - The theme could size its own pop-up lists and flyouts from the
+    target screen, as the date flyout and combo list already do. Menus
+    the gui draws still go through the class methods.
+- **The 6px growth per round trip** is likely the frame offsets.
+  - libs-back's `-styleoffsets::::` asks `AdjustWindowRectEx`. In a
+    per-monitor-aware process that gives the primary's (the system
+    DPI's) border sizes.
+  - On the 125% monitor the real resize border is a pixel or two
+    thinner each side.
+  - Each move converts frame to content with one and content to frame
+    with the other, about 3px a move.
+  - To check: log `-styleoffsets` against `AdjustWindowRectExForDpi(...,
+    GetDpiForWindow(hwnd))` on the 125% monitor.
+  - If they differ: convert with the window's own DPI where the backend
+    has the window (`WM_SIZE`, `-placewindow::`), or report offsets for
+    the monitor the window is on.
+
+### Paused and error progress: a proposal
+
+WinUI's ProgressBar has `ShowPaused` (a yellow bar,
+SystemFillColorCaution) and `ShowError` (red, SystemFillColorCritical).
+For an indeterminate bar, both stop the animation and show a full bar.
+NSProgressIndicator has neither, and Cocoa has no equivalent. Options:
+
+1. **A theme-neutral informal property** that apps set and any theme
+   may read, like `GSThemeToolbarInMenuBar`: a category declared by the
+   app, `-[NSProgressIndicator setGSThemeState:]` taking `@"paused"`,
+   `@"error"` or nil, stored with `objc_setAssociatedObject`. The theme
+   draws it. Other themes and AppKit ignore it, and apps can call it
+   behind `-respondsToSelector:`.
+2. **Upstream in libs-gui**: a real `GSProgressIndicatorState` property.
+   Cleanest, but it waits on GNUstep.
+3. **Reuse `-setControlTint:`** (NSGraphiteControlTint as paused, and
+   so on). No new API, but the meanings are invented.
+
+Recommendation: 1 now, with 2 proposed upstream later using the same
+values. The drawing is about 30 lines in `WinUIThemeControls.m`'s
+progress bar code.
+
 ### Suggested next five (the owner decides)
 
-1. **Upstream:** GCC builds of the 2026-10-14 libs-back commits, squash
-   `dcced43`, `85a0bc8`, `da386e8` and `1d753ca` into the DPI commit,
-   then the owner's review of the four topic branches (and #246's FSF
-   assignment question) before posting.
-2. **The second-monitor edges:** the first menu's dark strip and the
-   pop-up list's width on a monitor at another scale (both the gui
-   sizing a reused panel at its previous screen's scale), and the 6px
-   growth per round trip. Needs an OCI run to check.
-3. **ObjcMarkdown and ScreenshotTool on alpha4** with `carry-0.32.0.4`,
-   when their owners want it; the Markdown Viewer session waits on the
-   owner for 0.2.2 or 0.2.3.
-4. **#19 continued:** drop controls into a real .gorm file in Gorm;
-   TinyRetroPad.
-5. **#91 single-row chrome**, or the motion and API items in #105.
+1. **Review draft #125** (#91, slider ticks, the probe's alignment fix).
+   Then "push, PR, and merge" as usual. #91 is off unless an app declares
+   it, but ObjcMarkdown's Info.plist already does, so ObjcMarkdown gets
+   single-row chrome as soon as it moves to a theme with #125.
+2. **Upstream:** review the four libs-back topic branches, using
+   `win32-per-monitor-dpi-squashed` for the DPI one (GCC done; the X11
+   build of `CairoFontInfo.m` is still owed). Also #246's FSF
+   assignment question.
+3. **The second-monitor edges:** an OCI run with the logging described
+   above. Then a fix in libs-back (offsets at the window's DPI) and in
+   gnustep-gui or the theme (frames at the window's screen's scale).
+4. **Paused and error progress:** pick an API (below), then the drawing
+   is small.
+5. **ObjcMarkdown and ScreenshotTool on alpha4** with `carry-0.32.0.4`,
+   when their owners want it. On 10-14 night the ScreenshotTool session
+   took the desktop for its alpha4 pin check (its PR #198). #19's Gorm
+   drop test needs real input. TinyRetroPad is a Win32 assembly app,
+   not a GNUstep one, so it doesn't belong in #19.
 
 ### Known gaps in finished work
 
