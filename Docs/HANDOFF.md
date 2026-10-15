@@ -119,8 +119,8 @@ Phases A to J and these fixes are merged into `main`:
 | #124 | `handoff-2026-10-14` | the 10-14 handoff (this file's base) |
 | #97 (draft) | `window-tabs-phase-2-review` | phase 2 of the shared window tabbing code; awaits the owner's review (#72) |
 | #135 | `alpha7-tabs` | alpha7: #133, #72 (tabs on), #134, #136-#141 (see "alpha7" below) |
-| #143 (draft) | `gsthemestyle-accent` | #142, `-setGSThemeStyle: @"accent"`, stacked on #135; waits on the owner's yes to the name |
-| (no PR yet) | `version-0.1.0-alpha7` | the Version commit `9134e99`, on top of #135 |
+| #143 (draft) | `gsthemestyle-accent` | #142, `-setGSThemeStyle: @"accent"` (`be2543e`), stacked on #135; the owner's yes reached us only secondhand (via ScreenshotTool Windows), so confirm before merging; Adwaita matches it and waits too |
+| (no PR yet) | `version-0.1.0-alpha7` | the Version commit `47fb29d`, on top of #135 |
 | #126 (this one) | `handoff-2026-10-15` | this file, on top of #124; `main` (alpha6) merged in |
 
 **Releases.** The owner approved the release process on 2026-10-08:
@@ -382,14 +382,14 @@ release URL and the tag's commit SHA.
 - #140: in the single row, view items (segmented controls, push buttons)
   are compact 24pt controls, centred, segment icons 16pt.
 
-Every new check fails on the build before its fix. Full matrix (8
-configurations, both backends): see the PR for the last run.
+Every new check fails on the build before its fix. Full matrix at
+`47fb29d` (8 configurations, both backends): 0 failures.
 
 **Release prep (ready):**
-- `version-0.1.0-alpha7` (`9134e99`), the Version commit on #135's head;
-- the zip, built from `9134e99`:
+- `version-0.1.0-alpha7` (`47fb29d`), the Version commit on #135's head;
+- the zip, built from `47fb29d`:
   `WinUITheme-0.1.0-alpha7-msys2-clang64.zip`, SHA-256
-  `c8e67d70fbd0b5cd85bc46f1773930545df2bf6d1796fcb4c796ff732f47932c`, in
+  `815b48fa9ca4ae3c873398768992a8a76e1baff0c51eca17a9f17e36c7a883a0`, in
   the 10-15 session's scratchpad (`rel7`); rebuild it if anything moves.
 - **To release:**
   1. the owner merges #135 (and #143 if he says yes to the accent API; then
