@@ -1760,14 +1760,6 @@ QuirkProbeDarkest(NSBitmapImageRep *rep)
   [window orderOut: nil];
 }
 
-/* Single-row chrome (#91): with GSThemeToolbarInMenuBar the toolbar
-   shares the menu bar's row, the menu titles first, then the items, the
-   flexible space putting the last item at the row's end; icon-only 32pt
-   buttons named by tool tips; the content takes the toolbar's row back
-   and keeps its size. Hiding the toolbar leaves the menu bar the row; the
-   setting turned off puts the toolbar back in a row of its own with the
-   window's frame kept, as a window of an app that doesn't declare it
-   has. */
 /* A flexible space at a window scale other than 1: libs-gui
    gives it the rest of the toolbar's width, then rounds its frame to
    device pixels (-centerScanRect:), which can take it past the toolbar's
@@ -1847,6 +1839,14 @@ QuirkProbeDarkest(NSBitmapImageRep *rep)
     }
 }
 
+/* Single-row chrome (#91): with GSThemeToolbarInMenuBar the toolbar
+   shares the menu bar's row, the menu titles first, then the items, the
+   flexible space putting the last item at the row's end; icon-only 32pt
+   buttons named by tool tips; the content takes the toolbar's row back
+   and keeps its size. Hiding the toolbar leaves the menu bar the row; the
+   setting turned off puts the toolbar back in a row of its own with the
+   window's frame kept, as a window of an app that doesn't declare it
+   has. */
 - (void) checkToolbarInMenuBar
 {
   NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
