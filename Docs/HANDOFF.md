@@ -509,20 +509,29 @@ It first hung: the probe's synthetic clicks took window coordinates (device
 pixels at 1.5) as points, and a press landed on a button whose tracking
 loop waited forever. Fixed in #125.
 
-On the stock backend it now runs clean: 186 passed, 0 failed, 3 known.
+On the stock backend it now runs clean: 187 passed, 0 failed, 2 known.
 - **Probe fixes (#125):**
   - at a fractional scale the backing-store read leaves up to 6px
     transparent along a render's top and right, which checks took for
     black; `QuirkProbeRender` fills it;
   - `menu-bar-overflow` narrows its window in device pixels;
   - two checks allow a pixel of rounding at a fractional scale only.
-- **Known at 1.5, causes not found:**
-  - a checkbox's and a radio's antialiased edges after their animations
-    differ from a static draw. The tick and dot are complete, and the
-    corner pixels differ by up to 212 (sum of channels). Marking the
-    motion clock's views' opaque ancestors for display instead was tried
-    and didn't help.
-  - a 5px scroll indicator just after a scroll view's first display.
+- **A theme fix (#125):** the overlay scroll bar showed its indicator over
+  content at rest. The clip view's sub-pixel snap was taken for a
+  scroll.
+- **Known at 1.5:** a checkbox's and a radio's edges after their
+  animations.
+  - The cause, measured against a full window redraw: any non-opaque
+    control redrawn from `-setNeedsDisplay:` differs at its antialiased
+    edges (a button 24px, a switch 92, a checkbox about 95). libs-gui
+    draws it again over its old pixels, without what's behind it;
+    animations do that once a frame.
+  - It's barely visible at 1.0, plainly at 1.5.
+  - The fix belongs in libs-gui: redraw the opaque ancestor's area for
+    a non-opaque view, as Cocoa does. A candidate for a libs-gui carry
+    branch.
+  - Marking the motion clock's views' opaque ancestors from the theme
+    was tried and didn't settle it.
 - **On the carried backend** the forced factor contradicts per-monitor
   DPI on a 100% monitor (`dpi-per-monitor-aware` and the caption hit
   tests fail). A real check there needs the monitor at 150%.
