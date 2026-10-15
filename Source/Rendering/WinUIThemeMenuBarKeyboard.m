@@ -19,6 +19,7 @@
 */
 
 #import "WinUIThemeDrawing.h"
+#import "../Native/WinUIThemeToolbarInMenuBar.h"
 
 #import <AppKit/AppKit.h>
 #import <GNUstepGUI/GSTheme.h>
@@ -40,7 +41,9 @@
    window's bar shows the same main menu, so the menu is left as it is (key
    equivalents and validation keep working): a folded title gets an empty
    rect, which nothing draws or hits, and the overflow menu is a copy made
-   each time it opens. From the Adwaita theme (its #25).
+   each time it opens. From the Adwaita theme (its #25). With
+   WinUIThemeMenuStyle `more` (#130) every title folds, so the bar is the
+   button alone, as Edge and File Explorer have no menu bar.
 
    libs-gui's menu tracking follows only the pointer, so a session of the
    theme's own runs the menus opened from the keyboard or the overflow
@@ -56,7 +59,8 @@ typedef struct
 } WinUIThemeMenuBarFold;
 
 /* WinUI's AppBarButton is 40px wide in a CommandBar's compact row. */
-static const CGFloat WinUIThemeOverflowButtonWidth = 40.0;
+const CGFloat WinUIThemeMenuBarOverflowButtonWidth = 40.0;
+#define WinUIThemeOverflowButtonWidth WinUIThemeMenuBarOverflowButtonWidth
 
 @interface NSMenu (WinUIThemeMenuBarKeyboardPrivate)
 - (BOOL) _ownedByPopUp;
@@ -96,6 +100,14 @@ WinUIThemeMenuBarFolding(NSMenuView *bar)
       return fold;
     }
   first = originalIMP(bar, selector, 0);
+  if (WinUIThemeMenuStyleIsMore())
+    {
+      /* Every title folds: the button at the bar's end. */
+      start = MAX(NSMinX(visible), NSMaxX(visible) - MAX(0.0, NSMinX(first)) - WinUIThemeOverflowButtonWidth);
+      fold.overflow = NSMakeRect(start, NSMinY(first), WinUIThemeOverflowButtonWidth, NSHeight(first));
+      fold.folded = 0;
+      return fold;
+    }
   if (NSMaxX(originalIMP(bar, selector, count - 1)) <= NSMaxX(visible))
     {
       return fold;
@@ -277,6 +289,20 @@ WinUIThemeMenuAccessKeysVisible(void)
 {
   return ((WinUIThemeSessionBar != nil && WinUIThemeSessionAccessKeys)
           || (WinUIThemeAltHeld && WinUIThemeAltBar != nil));
+}
+
+CGFloat
+WinUIThemeMenuBarFirstTitleInset(NSMenuView *bar)
+{
+  typedef NSRect (*RectIMP)(id, SEL, NSInteger);
+  SEL selector = @selector(rectOfItemAtIndex:);
+  RectIMP originalIMP = (RectIMP)WinUIThemeOriginalMethod(selector, bar, [NSMenuView class]);
+
+  if (originalIMP == NULL || [[bar menu] numberOfItems] == 0)
+    {
+      return 0.0;
+    }
+  return MAX(0.0, NSMinX(originalIMP(bar, selector, 0)));
 }
 
 NSRect

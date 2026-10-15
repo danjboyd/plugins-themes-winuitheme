@@ -268,6 +268,11 @@ NSRange WinUIThemeMenuAccessKeyRange(NSString *title);
 /* The overflow button of a bar too narrow for its titles (empty when they
    fit), and whether it's selected. */
 NSRect WinUIThemeMenuBarOverflowRect(NSMenuView *bar);
+/* The overflow button's width, and the inset before a bar's first title
+   (libs-gui's layout): WinUIThemeMenuStyle `more` sizes the bar from
+   them in the toolbar's row. */
+extern const CGFloat WinUIThemeMenuBarOverflowButtonWidth;
+CGFloat WinUIThemeMenuBarFirstTitleInset(NSMenuView *bar);
 BOOL WinUIThemeMenuBarOverflowSelected(NSMenuView *bar);
 
 #endif

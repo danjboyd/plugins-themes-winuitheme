@@ -33,6 +33,13 @@
    or for all apps overrides it. */
 BOOL WinUIThemeToolbarInMenuBarEnabled(void);
 
+/* WinUIThemeMenuStyle (#130): `menubar` (the default) or `more`. With
+   `more` a window's menu bar shows no titles, only its "..." See more
+   button (CommandBar's), whose flyout holds the menus, as Edge and File
+   Explorer have no menu bar; the toolbar goes in the row too, before
+   the button. Read as GSThemeToolbarInMenuBar is. */
+BOOL WinUIThemeMenuStyleIsMore(void);
+
 /* Whether the toolbar is shown in a menu bar's row now. Its items are
    then icon-only CommandBar buttons at the row's height, their labels
    tool tips. */
