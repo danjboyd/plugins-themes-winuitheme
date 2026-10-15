@@ -671,6 +671,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
                       target: (NSInteger)target;
 - (void) checkWindowTabSwitchShowsFirst;
 - (void) checkSegmentLabelCentred;
+- (void) checkButtonStyleAccent;
 - (void) checkThemeSwitchRestoresMethods;
 - (void) finish;
 @end
@@ -11242,6 +11243,80 @@ QuirkProbeSendMove(NSWindow *window, NSPoint location)
   [window orderOut: nil];
 }
 
+/* -setGSThemeStyle: @"accent" (ScreenshotTool#221): an accent button
+   without a default button's Return. Drawn in the accent colour; not the
+   window's default button and no key equivalent; any other value is a
+   regular button. */
+- (void) checkButtonStyleAccent
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(780, 500, 260, 80)
+                                     title: @"QuirkProbe Button Style"];
+  NSButton *button = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(20, 20, 100, 32)]);
+  NSButton *plain = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(140, 20, 100, 32)]);
+  NSMutableArray *problems = [NSMutableArray array];
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale;
+  NSUInteger r, g, b;
+
+  if ([button respondsToSelector: @selector(setGSThemeStyle:)] == NO)
+    {
+      [self fail: @"button-style-accent" detail: @"NSButton has no -setGSThemeStyle:"];
+      return;
+    }
+  [button setBezelStyle: NSRoundedBezelStyle];
+  [button setTitle: @"Copy"];
+  [plain setBezelStyle: NSRoundedBezelStyle];
+  [plain setTitle: @"Save"];
+  [[window contentView] addSubview: button];
+  [[window contentView] addSubview: plain];
+  [button performSelector: @selector(setGSThemeStyle:) withObject: @"accent"];
+  [plain performSelector: @selector(setGSThemeStyle:) withObject: @"bogus"];
+  [window orderFront: nil];
+  [window display];
+
+  if ([[button performSelector: @selector(GSThemeStyle)] isEqualToString: @"accent"] == NO
+      || [[button cell] performSelector: @selector(GSThemeStyle)] == nil)
+    {
+      [problems addObject: @"the button and its cell don't keep \"accent\""];
+    }
+  if ([plain performSelector: @selector(GSThemeStyle)] != nil)
+    {
+      [problems addObject: @"an unknown style was kept"];
+    }
+  if ([[button keyEquivalent] length] > 0 || [window defaultButtonCell] == [button cell])
+    {
+      [problems addObject: @"the accent button took Return"];
+    }
+  rep = QuirkProbeRender([window contentView]);
+  scale = QuirkProbeScale(rep, [window contentView]);
+  /* A point inside the button's fill, clear of its title. */
+  if (QuirkProbePixel(rep, (NSInteger)(26.0 * scale), (NSInteger)(([[window contentView] bounds].size.height - 36.0) * scale),
+                      &r, &g, &b) == NO
+      || (QuirkProbeIsAccentBlue(r, g, b) == NO && QuirkProbeHasArgument(@"--high-contrast", nil) == NO
+          && QuirkProbeHasArgument(@"--contrast-theme", nil) == NO))
+    {
+      [problems addObject: [NSString stringWithFormat: @"the accent button's fill is %lu,%lu,%lu", (unsigned long)r,
+                                                       (unsigned long)g, (unsigned long)b]];
+    }
+  if (QuirkProbePixel(rep, (NSInteger)(146.0 * scale), (NSInteger)(([[window contentView] bounds].size.height - 36.0) * scale),
+                      &r, &g, &b)
+      && QuirkProbeIsAccentBlue(r, g, b))
+    {
+      [problems addObject: @"the button with an unknown style is accent too"];
+    }
+  [self saveView: [window contentView] named: @"button-style-accent"];
+  if ([problems count] == 0)
+    {
+      [self pass: @"button-style-accent" detail:
+        @"\"accent\" draws an AccentButton without Return; an unknown style is a regular button"];
+    }
+  else
+    {
+      [self fail: @"button-style-accent" detail: [problems componentsJoinedByString: @"; "]];
+    }
+  [window orderOut: nil];
+}
+
 /* Selecting a tab (alpha7): the new tab's window comes on screen before
    the old one goes, so the window never vanishes. */
 - (void) checkWindowTabSwitchShowsFirst
@@ -12393,6 +12468,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkMenuStyleMoreInTitleBar];
   [self checkWindowTabSwitchShowsFirst];
   [self checkSegmentLabelCentred];
+  [self checkButtonStyleAccent];
   [self checkClientCaption];
   [self checkClientCaptionScaled];
   [self checkDPIAwareness];

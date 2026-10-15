@@ -281,4 +281,16 @@ extern const CGFloat WinUIThemeMenuBarOverflowButtonWidth;
 CGFloat WinUIThemeMenuBarFirstTitleInset(NSMenuView *bar);
 BOOL WinUIThemeMenuBarOverflowSelected(NSMenuView *bar);
 
+/* An accent button without a default button's Return: -setGSThemeStyle:
+   @"accent" (WinUIThemeControls.m), as the Adwaita theme has it. */
+@interface NSButtonCell (WinUIThemeButtonStyle)
+- (void) setGSThemeStyle: (NSString *)style;
+- (NSString *) GSThemeStyle;
+@end
+
+@interface NSButton (WinUIThemeButtonStyle)
+- (void) setGSThemeStyle: (NSString *)style;
+- (NSString *) GSThemeStyle;
+@end
+
 #endif

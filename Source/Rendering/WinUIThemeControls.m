@@ -838,6 +838,57 @@ static char WinUIThemeProgressStateKey;
 
 @end
 
+/* An accent button without a default button's Return (ScreenshotTool's
+   Copy, ScreenshotTool#221): -setGSThemeStyle: @"accent" on a button or
+   its cell, a theme-neutral name the Adwaita theme also implements (its
+   suggested-action). Any other value, nil included, is a regular button.
+   Apps ask -respondsToSelector: first. The value is kept with the cell;
+   the button forwards to it. The button is drawn as an AccentButton
+   (WinUIThemeButtonIsDefault) and doesn't become the window's default
+   button: Return is left alone. */
+static char WinUIThemeButtonStyleKey;
+
+@implementation NSButtonCell (WinUIThemeButtonStyle)
+
+- (void) setGSThemeStyle: (NSString *)style
+{
+  if ([style isKindOfClass: [NSString class]] == NO || [style isEqualToString: @"accent"] == NO)
+    {
+      style = nil;
+    }
+  objc_setAssociatedObject(self, &WinUIThemeButtonStyleKey, style, OBJC_ASSOCIATION_COPY_NONATOMIC);
+  [[self controlView] setNeedsDisplay: YES];
+}
+
+- (NSString *) GSThemeStyle
+{
+  return objc_getAssociatedObject(self, &WinUIThemeButtonStyleKey);
+}
+
+@end
+
+@implementation NSButton (WinUIThemeButtonStyle)
+
+- (void) setGSThemeStyle: (NSString *)style
+{
+  id cell = [self cell];
+
+  if ([cell respondsToSelector: @selector(setGSThemeStyle:)])
+    {
+      [cell setGSThemeStyle: style];
+    }
+  [self setNeedsDisplay: YES];
+}
+
+- (NSString *) GSThemeStyle
+{
+  id cell = [self cell];
+
+  return [cell respondsToSelector: @selector(GSThemeStyle)] ? [cell GSThemeStyle] : nil;
+}
+
+@end
+
 @implementation WinUITheme (Controls)
 
 - (void) setKeyEquivalent: (NSString *)key
