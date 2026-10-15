@@ -5919,8 +5919,10 @@ QuirkProbeSegments(NSView *content, NSRect frame, NSInteger mode)
   return control;
 }
 
-/* Accent runs along one pixel row: their count and the first one's centre
-   and length in points. */
+/* Accent runs along one pixel row, ignoring any shorter than 4pt (a
+   ClearType fringe on a label's descender reaching the row at a large
+   text size): their count and the first one's centre and length in
+   points. */
 static NSUInteger
 QuirkProbeAccentRuns(NSBitmapImageRep *rep, NSInteger y, CGFloat scale, CGFloat *firstCentre, CGFloat *firstLength)
 {
@@ -5937,7 +5939,7 @@ QuirkProbeAccentRuns(NSBitmapImageRep *rep, NSInteger y, CGFloat scale, CGFloat 
         {
           start = x;
         }
-      if (hit == NO && inRun)
+      if (hit == NO && inRun && (x - start) >= 4.0 * scale)
         {
           if (runs == 0)
             {
