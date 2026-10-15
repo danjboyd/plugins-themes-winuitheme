@@ -272,6 +272,52 @@ does a window in high contrast or with Windows' transparency effects
 off. An inactive window shows Mica's solid colour, as Windows draws it.
 `defaults write NSGlobalDomain WinUIThemeMica NO` turns it off.
 
+## Toolbar in the Menu Bar
+
+Notepad and Paint have one row under the title bar: the menus at its
+start, the commands after them. An app whose toolbar suits that (a few
+icons) declares it in its Info.plist:
+
+```
+GSThemeToolbarInMenuBar = YES;
+```
+
+A window with a menu bar then shows its toolbar in the menu bar's row
+(#91): the menu titles keep the room they need, the toolbar takes the
+rest, so items after a flexible space sit at the row's end. Items are
+icon-only 32pt buttons with 16pt icons, as a compact CommandBar's, their
+labels shown as tool tips; a label-only toolbar keeps its text buttons.
+When the row is too narrow, the toolbar's items fold into its ">>" first,
+and the menus fold into their "..." only once the toolbar is down to one
+button. The content takes the toolbar's row back. A window without a
+menu bar (a panel) keeps the toolbar in a row of its own, and hiding the
+toolbar leaves the menu bar alone.
+
+The key is theme-neutral, so another theme may read it too. A user
+default overrides the app: `defaults write <app> GSThemeToolbarInMenuBar
+NO` for one app, or `NSGlobalDomain` for every app that doesn't say NO
+itself. A change applies to open windows, which keep their frames.
+
+## Paused and Error Progress
+
+WinUI's ProgressBar can show that a task is paused (a yellow bar) or
+failed (a red one); NSProgressIndicator has no such state. The theme
+adds `-setGSThemeState:` to NSProgressIndicator, taking `@"paused"`,
+`@"error"` or nil, a theme-neutral name any theme may implement. Other
+themes and AppKit don't have it, so ask first:
+
+```objc
+if ([indicator respondsToSelector: @selector(setGSThemeState:)])
+  {
+    [indicator performSelector: @selector(setGSThemeState:) withObject: @"error"];
+  }
+```
+
+The bar is then SystemFillColorCaution or SystemFillColorCritical; an
+indeterminate bar stops and fills its track, as WinUI's does. High
+contrast keeps the highlight colour, and the spinning style (a
+ProgressRing, which has no such states) is unchanged.
+
 ## Motion
 
 WinUI eases between states, and so does the theme:
@@ -282,14 +328,16 @@ WinUI eases between states, and so does the theme:
   checkbox's tick draws in, over 167ms;
 - menus, tool tips and popover flyouts fade in over about 167ms as they
   open, a menu bar's menus, context menus, pop-up lists and flyouts
-  sliding 8pt down into place; alerts fade in.
+  sliding 8pt down into place;
+- alerts open as WinUI's ContentDialog does: their content scales from
+  105% to 100% over 250ms, opaque after the first 83ms.
 
 Windows' "Animation effects" setting (Settings, Accessibility, Visual
 effects) turns it off, as it does in WinUI apps; `defaults write
 NSGlobalDomain WinUIThemeAnimations NO` (or `YES`) overrides it for
-GNUstep apps. Not done: a dialog's scale as it opens, which a layered
-window's alpha can't give, and high contrast's pressed buttons, which
-change at once with their titles.
+GNUstep apps. Not done: high contrast's pressed buttons, which change
+at once with their titles. A dialog's frame and border don't scale, only
+its content, which a layered window's alpha can't do.
 
 ## Window Tabs
 

@@ -5,6 +5,48 @@ Releases of the WinUI theme for GNUstep. Versions are semver pre-releases
 `GSThemeVersion` in `WinUIThemeInfo.plist`, and an annotated tag on `main`.
 Apps that bundle the theme should pin a tag, not `main`.
 
+## Unreleased
+
+**Chrome**
+- Single-row chrome (#91): an app that declares `GSThemeToolbarInMenuBar`
+  in its Info.plist gets its toolbar in the menu bar's row, as Notepad
+  and Paint have it:
+  - the menu titles first, then icon-only 32pt commands named by tool
+    tips;
+  - the toolbar folds into its ">>" before the menus fold;
+  - the content keeps its size;
+  - a user default overrides the app, and a change applies to open
+    windows.
+
+  ObjcMarkdown already declares it. QuirkProbe `toolbar-in-menu-bar`,
+  `toolbar-in-menu-bar-off`.
+
+**Controls** (#105)
+- Sliders draw their tick marks (`-setNumberOfTickMarks:`), as WinUI's
+  TickBar; libs-gui kept them but drew none. QuirkProbe `slider-ticks`.
+- Progress bars can show a paused or failed task, as WinUI's ProgressBar
+  does: `-[NSProgressIndicator setGSThemeState:]` with `@"paused"` or
+  `@"error"`. It's a theme-neutral name; ask `-respondsToSelector:`
+  first. QuirkProbe `progress-states`.
+
+**Motion** (#105)
+- Alerts open as WinUI's ContentDialog does: their content scales from
+  105% to 100% about its centre over 250ms, opaque after 83ms. It's a
+  snapshot of the drawn content shown scaled over it, removed at the
+  end; a layered window's alpha can't scale the window. QuirkProbe
+  `motion-dialog-scales`.
+
+**Fixes**
+- At a fractional window scale (a 150% monitor on the DPI-aware carried
+  backend) a scroll view showed its overlay indicator over content at
+  rest after its first display: the clip view's snap to the pixel grid
+  was taken for a scroll. QuirkProbe `scroller-hidden-at-rest` in the
+  `scaled-150` configuration.
+
+**Testing**
+- QuirkProbe sets centre and right alignment as the running gui numbers
+  them, so it runs clean on libs-gui master too.
+
 ## 0.1.0-alpha5 (2026-10-15)
 
 One fix for alpha4 on a scaled display. Requires gnustep-gui 0.32 or
