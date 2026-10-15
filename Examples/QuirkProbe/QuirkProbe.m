@@ -627,6 +627,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkHorizontalOnlyScroller;
 - (void) checkWindowTabs;
 - (void) checkWindowSingleTab;
+- (void) checkMenuStyleMoreInTitleBar;
 - (void) checkClientCaption;
 - (void) checkClientCaptionScaled;
 - (void) checkDPIAwareness;
@@ -7839,6 +7840,107 @@ QuirkProbeCloseButtonInkOnScreen(HWND hwnd)
     }
 }
 
+/* WinUIThemeMenuStyle `more` with the tabs in the title bar (#134), as
+   Windows Terminal has its menu beside the tab row's "+": no menu bar
+   row, the "..." in the caption right after the tabs, and the content up
+   against the caption. Back to `menubar`, the row returns. */
+- (void) checkMenuStyleMoreInTitleBar
+{
+  NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+  NSNotificationCenter *center = [NSNotificationCenter defaultCenter];
+  NSWindow *window = nil;
+  NSMenu *menu = AUTORELEASE([[NSMenu alloc] initWithTitle: @"QuirkProbe"]);
+  NSView *decoration = nil;
+  NSView *bar = nil;
+  NSMenuView *menuView = nil;
+  NSMutableArray *problems = [NSMutableArray array];
+  NSRect barFrame, menuFrame, contentFrame, overflow;
+  Class barClass = NSClassFromString(@"GSWindowTabBarView");
+
+  if ([GSCurrentServer() respondsToSelector: @selector(clientDrawsCaptions)] == NO
+      || [(id)GSCurrentServer() clientDrawsCaptions] == NO || barClass == Nil)
+    {
+      [self skip: @"menu-style-more-title-bar" detail: @"Windows draws the caption (a stock libs-back)"];
+      return;
+    }
+  [menu addItemWithTitle: @"File" action: NULL keyEquivalent: @""];
+  [menu addItemWithTitle: @"Edit" action: NULL keyEquivalent: @""];
+  window = [self windowWithFrame: NSMakeRect(180, 260, 560, 220) title: @"QuirkProbe More In Title Bar"];
+  decoration = [[window contentView] superview];
+  _offersNewTab = YES;
+  [defaults setObject: @"more" forKey: @"WinUIThemeMenuStyle"];
+  [center postNotificationName: NSUserDefaultsDidChangeNotification object: defaults];
+  [window setMenu: menu];
+  [window makeKeyAndOrderFront: nil];
+  [center postNotificationName: NSWindowDidBecomeKeyNotification object: window];
+  QuirkProbeDispatchEvents(0.3);
+  [window display];
+
+  bar = QuirkProbeFindViewOfClass(decoration, barClass);
+  menuView = (NSMenuView *)QuirkProbeFindViewOfClass(decoration, [NSMenuView class]);
+  if (bar == nil || menuView == nil)
+    {
+      [problems addObject: [NSString stringWithFormat: @"tab bar %@, menu bar %@", bar, menuView]];
+    }
+  else
+    {
+      barFrame = [decoration convertRect: [bar bounds] fromView: bar];
+      menuFrame = [decoration convertRect: [menuView bounds] fromView: menuView];
+      contentFrame = [decoration convertRect: [[window contentView] bounds] fromView: [window contentView]];
+      overflow = [menuView respondsToSelector: @selector(winUIThemeOverflowRect)]
+        ? [(id)menuView winUIThemeOverflowRect] : NSZeroRect;
+      if ([[GSTheme theme] menuHeightForWindow: window] != 0.0)
+        {
+          [problems addObject: [NSString stringWithFormat: @"the menu bar's row is %.0fpt",
+                                                           [[GSTheme theme] menuHeightForWindow: window]]];
+        }
+      if (fabs(NSMinX([decoration convertRect: overflow fromView: menuView]) - NSMaxX(barFrame)) > 0.5
+          || NSMinY(menuFrame) < NSMinY(barFrame) - 0.5
+          || NSMaxY(menuFrame) > NSMaxY(barFrame) + 0.5)
+        {
+          [problems addObject: [NSString stringWithFormat: @"the menu bar %@ isn't right after the tabs %@",
+                                                           NSStringFromRect(menuFrame), NSStringFromRect(barFrame)]];
+        }
+      if (NSIsEmptyRect(overflow) || NSWidth([menuView rectOfItemAtIndex: 0]) > 0.0)
+        {
+          [problems addObject: @"the bar isn't its \"...\" button alone"];
+        }
+      if (fabs(NSMaxY(contentFrame) - NSMinY(barFrame)) > 1.5)
+        {
+          [problems addObject: [NSString stringWithFormat: @"the content's top is %.0f, the caption's foot %.0f",
+                                                           NSMaxY(contentFrame), NSMinY(barFrame)]];
+        }
+      [self saveView: decoration named: @"menu-style-more-title-bar"];
+
+      /* Back to the menu bar: its row returns under the caption. */
+      [defaults setObject: @"menubar" forKey: @"WinUIThemeMenuStyle"];
+      [center postNotificationName: NSUserDefaultsDidChangeNotification object: defaults];
+      QuirkProbeDispatchEvents(0.2);
+      menuFrame = [decoration convertRect: [menuView bounds] fromView: menuView];
+      if ([[GSTheme theme] menuHeightForWindow: window] <= 0.0 || NSMaxY(menuFrame) > NSMinY(barFrame) + 1.5
+          || NSWidth([menuView rectOfItemAtIndex: 0]) <= 0.0)
+        {
+          [problems addObject: [NSString stringWithFormat: @"back to menubar, the menu bar is at %@ under the caption at %.0f",
+                                                           NSStringFromRect(menuFrame), NSMinY(barFrame)]];
+        }
+    }
+  [defaults removeObjectForKey: @"WinUIThemeMenuStyle"];
+  [center postNotificationName: NSUserDefaultsDidChangeNotification object: defaults];
+  _offersNewTab = NO;
+  [window setMenu: nil];
+  [window orderOut: nil];
+
+  if ([problems count] == 0)
+    {
+      [self pass: @"menu-style-more-title-bar" detail:
+        @"no menu row; the \"...\" right after the tabs; menubar brings the row back"];
+    }
+  else
+    {
+      [self fail: @"menu-style-more-title-bar" detail: [problems componentsJoinedByString: @"; "]];
+    }
+}
+
 - (void) checkWindowTabs
 {
   BOOL highContrast = QuirkProbeHasArgument(@"--high-contrast", @"yes");
@@ -11870,6 +11972,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkHorizontalOnlyScroller];
   [self checkWindowTabs];
   [self checkWindowSingleTab];
+  [self checkMenuStyleMoreInTitleBar];
   [self checkClientCaption];
   [self checkClientCaptionScaled];
   [self checkDPIAwareness];

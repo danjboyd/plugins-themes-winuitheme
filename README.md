@@ -309,6 +309,11 @@ own, so key equivalents and validation work as before, and the keyboard
 still reaches them: Alt or F10 selects the button, Down or Enter opens
 it, and Alt plus a menu's first letter opens the flyout and that menu.
 
+With the window's tabs in the title bar (the carried libs-back) and no
+toolbar showing, the "..." goes into the title bar right after the tabs'
+"+", as Windows Terminal has its menu, and the menu bar's row goes: the
+window is its title bar and its content (#134).
+
 `menubar` is the default. A user default overrides the app, as for
 `GSThemeToolbarInMenuBar`: `defaults write <app> WinUIThemeMenuStyle
 more` for one app, or `NSGlobalDomain` for every app whose Info.plist

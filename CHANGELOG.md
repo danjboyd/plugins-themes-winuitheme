@@ -18,6 +18,12 @@ Apps that bundle the theme should pin a tag, not `main`.
   `-newWindowForTab:`. Hide Tab Bar (`-toggleTabBar:`) still hides it.
   QuirkProbe `window-single-tab`.
 
+**Chrome**
+- With `WinUIThemeMenuStyle = more`, tabs in the title bar (the carried
+  libs-back) and no toolbar showing, the "..." sits in the title bar right
+  after the tabs' "+", as Windows Terminal has its menu, and the menu
+  bar's row goes (#134). QuirkProbe `menu-style-more-title-bar`.
+
 ## 0.1.0-alpha6 (2026-10-15)
 
 New chrome for apps that ask for it: the toolbar in the menu bar's row,

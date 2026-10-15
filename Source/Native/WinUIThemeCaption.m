@@ -23,6 +23,7 @@
 #import "../WinUITheme.h"
 #import "../Rendering/WinUIThemeDrawing.h"
 #import "../Settings/WinUIThemeSettings.h"
+#import "WinUIThemeToolbarInMenuBar.h"
 
 #import <GNUstepGUI/GSDisplayServer.h>
 #import <GNUstepGUI/GSWindowDecorationView.h>
@@ -161,6 +162,44 @@ WinUIThemeCaptionHoldsTabs(void)
   return [NSWindow instancesRespondToSelector: @selector(addTabbedWindow:ordered:)];
 }
 
+/* The menu bar's view: the "..." button's width with the bar's inset
+   either side of it. */
+static CGFloat
+WinUIThemeCaptionMenuBarWidth(NSMenuView *menuView)
+{
+  return WinUIThemeMenuBarOverflowButtonWidth + 2.0 * WinUIThemeMenuBarFirstTitleInset(menuView);
+}
+
+static NSMenuView *
+WinUIThemeCaptionMenuView(NSView *decoration)
+{
+  NSEnumerator *e = [[decoration subviews] objectEnumerator];
+  NSView *view;
+
+  while ((view = [e nextObject]) != nil)
+    {
+      if ([view isKindOfClass: [NSMenuView class]])
+        {
+          return (NSMenuView *)view;
+        }
+    }
+  return nil;
+}
+
+BOOL
+WinUIThemeMenuBarInTitleBar(NSWindow *window)
+{
+  NSToolbar *toolbar = [window toolbar];
+
+  return window != nil && [window menu] != nil
+    && WinUIThemeMenuStyleIsMore()
+    && WinUIThemeDrawsCaptionForStyle([window styleMask])
+    && WinUIThemeCaptionHoldsTabs()
+    && [[GSTheme theme] windowTabBarPlacementForWindow: window] == GSWindowTabBarInTitleBar
+    && GSWindowTabBarViewForWindow(window) != nil
+    && (toolbar == nil || [toolbar isVisible] == NO);
+}
+
 CGFloat
 WinUIThemeCaptionHeight(void)
 {
@@ -235,9 +274,11 @@ WinUIThemeCaptionHasSystemMenu(NSWindow *window)
   WinUIThemeCaptionButton *_zoom;
   WinUIThemeCaptionButton *_close;
   NSView *_tabBar;                /* the window's tab bar, when it's here */
+  NSRect _menuBarFrame;           /* the "..." beside it (#134), or empty */
 }
 - (void) layoutButtons;
 - (void) layoutTabBar;
+- (void) placeMenuBarIn: (NSView *)decoration;
 - (void) declareRegions: (int)windowNumber;
 @end
 
@@ -576,6 +617,12 @@ WinUIThemeCaptionHasSystemMenu(NSWindow *window)
       CGFloat density = WinUIThemeCaptionDensity();
       CGFloat start = [self leadingInset];
       CGFloat available = [self buttonsStart] - round(48.0 * density) - start;
+      NSMenuView *menuView = WinUIThemeCaptionMenuView([self superview]);
+
+      if (menuView != nil && WinUIThemeMenuBarInTitleBar(window))
+        {
+          available -= WinUIThemeCaptionMenuBarWidth(menuView) - WinUIThemeMenuBarFirstTitleInset(menuView);
+        }
       NSUInteger count = MAX(1, [[[window tabGroup] windows] count]);
       CGFloat newTab = ([NSApp targetForAction: @selector(newWindowForTab:) to: nil from: window] != nil)
         ? round(40.0 * density) : 0.0;
@@ -592,6 +639,39 @@ WinUIThemeCaptionHasSystemMenu(NSWindow *window)
                                 NSHeight([self bounds]))];
       [bar setNeedsDisplay: YES];
     }
+}
+
+/* The menu bar's view after the tabs (#134): bottom-aligned with them,
+   so the button lines up with the "+", and above the caption, which
+   draws the strip it sits on. It stays the decoration's subview, where
+   libs-gui finds it to lay out or remove. */
+- (void) placeMenuBarIn: (NSView *)decoration
+{
+  NSWindow *window = [self window];
+  NSMenuView *menuView = WinUIThemeCaptionMenuView(decoration);
+  NSRect frame;
+
+  _menuBarFrame = NSZeroRect;
+  if (menuView == nil || _tabBar == nil || [_tabBar superview] != self
+      || WinUIThemeMenuBarInTitleBar(window) == NO)
+    {
+      return;
+    }
+  /* The button itself right after the tabs' "+", as Terminal's drop-down
+     is: the bar's inset before it goes over the tab bar's empty end. */
+  _menuBarFrame = NSMakeRect(NSMaxX([_tabBar frame]) - WinUIThemeMenuBarFirstTitleInset(menuView), 0.0,
+                             WinUIThemeCaptionMenuBarWidth(menuView),
+                             MIN(NSHeight([self bounds]), [NSMenuView menuBarHeight]));
+  frame = [decoration convertRect: _menuBarFrame fromView: self];
+  if ([[decoration subviews] lastObject] != menuView)
+    {
+      RETAIN(menuView);
+      [menuView removeFromSuperviewWithoutNeedingDisplay];
+      [decoration addSubview: menuView];
+      RELEASE(menuView);
+    }
+  [menuView setFrame: frame];
+  [menuView setNeedsDisplay: YES];
 }
 
 - (void) declareRegions: (int)windowNumber
@@ -611,7 +691,7 @@ WinUIThemeCaptionHasSystemMenu(NSWindow *window)
       /* The row beside the tabs drags the window; the tabs are the
          gui's. */
       NSRect bounds = [self bounds];
-      NSRect bar = [_tabBar frame];
+      NSRect bar = NSUnionRect([_tabBar frame], _menuBarFrame);
 
       rects[count] = [self convertRect: NSMakeRect(NSMinX(bounds), NSMinY(bounds),
                                                    NSMinX(bar) - NSMinX(bounds), NSHeight(bounds))
@@ -782,6 +862,7 @@ WinUIThemeCaptionLayout(GSWindowDecorationView *decoration, NSWindow *window, in
     }
   [caption layoutButtons];
   [caption layoutTabBar];
+  [caption placeMenuBarIn: decoration];
   [caption setNeedsDisplay: YES];
   [caption declareRegions: windowNumber];
 }

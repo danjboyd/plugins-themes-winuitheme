@@ -20,6 +20,7 @@
 
 #import "WinUIThemeDrawing.h"
 #import "../Native/WinUIThemeWindowIntegration.h"
+#import "../Native/WinUIThemeCaption.h"
 
 #import "../Settings/WinUIThemeMetrics.h"
 #import "../Settings/WinUIThemeSettings.h"
@@ -967,8 +968,11 @@ WinUIThemeEndRow(BOOL began)
                                                   horizontal ? @"menuBarBorderColor" : @"menuBorderColor",
                                                   [NSColor controlShadowColor]);
   NSRect drawRect = horizontal ? NSIntegralRect(bounds) : NSInsetRect(NSIntegralRect(bounds), 0.5, 0.5);
+  /* In the title bar (#134) the caption under it draws the tab strip and
+     its foot line; the bar draws only its "..." button. */
+  BOOL inTitleBar = (horizontal && WinUIThemeMenuBarInTitleBar([menuView window]));
 
-  if (horizontal && NSIsEmptyRect(NSIntersectionRect(bounds, dirtyRect)) == NO)
+  if (horizontal && inTitleBar == NO && NSIsEmptyRect(NSIntersectionRect(bounds, dirtyRect)) == NO)
     {
       if (WinUIThemeWindowShowsMica([menuView window]))
         {
@@ -989,8 +993,11 @@ WinUIThemeEndRow(BOOL began)
                                    bounds.size.width,
                                    1.0);
 
-      [borderColor set];
-      NSRectFill(NSIntersectionRect(edgeRect, dirtyRect));
+      if (inTitleBar == NO)
+        {
+          [borderColor set];
+          NSRectFill(NSIntersectionRect(edgeRect, dirtyRect));
+        }
 
       /* The overflow button of a bar too narrow for its titles (#77):
          WinUI's More glyph, three dots in a row; the folded titles have no

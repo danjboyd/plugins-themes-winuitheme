@@ -27,6 +27,7 @@
 #import "Native/WinUIThemeShellDialogs.h"
 #import "Native/WinUIThemeWindowIntegration.h"
 #import "Native/WinUIThemeToolbarInMenuBar.h"
+#import "Native/WinUIThemeCaption.h"
 #import "GSWindowTabbing.h"
 
 #import <AppKit/AppKit.h>
@@ -275,6 +276,16 @@ WinUIThemeRightTextAlignment(void)
    menu bar. Attach it when such a window becomes key or main. Windows given a
    menu of their own, and windows that can't become main (panels, menus), are
    left alone. */
+/* No menu bar row while the "..." sits in the title bar (#134). */
+- (float) menuHeightForWindow: (NSWindow *)window
+{
+  if (WinUIThemeMenuBarInTitleBar(window))
+    {
+      return 0.0;
+    }
+  return [super menuHeightForWindow: window];
+}
+
 - (void) windowNeedsMainMenu: (NSNotification *)notification
 {
   NSWindow *window = [notification object];
