@@ -544,6 +544,27 @@ one chrome row, Read/Edit/Split at the end, no stray indicator. Making
 scaled-150 pass, by fixing the checks to measure in points, would make
 it a regression gate for the DPI-aware backend.
 
+### Tried and backed out overnight
+
+- **ContentDialog's scale** (#105). The idea was to scale an alert's
+  content from 105% to 100% over 250ms through its content view's
+  bounds, opaque after 83ms.
+  - The probe check `motion-dialog-scales` passed.
+  - But a ThemeDemo capture 60ms in showed the buttons scaled and the
+    title and message not drawn at all; on `main`, which only fades,
+    they show.
+  - So it was reverted in #125 (`2c1a955`). The commit (`5696766`) is
+    there to pick up: find why the alert's text fields don't redraw
+    under scaled bounds, and make the check look at the drawing, not
+    the bounds.
+- **libs-gui rounding a non-opaque view's invalid rect** to device
+  pixels, as it does an opaque one's (`NSView.m`,
+  `-_setNeedsDisplayInRect_real:`). The patch is in the 10-14 night
+  session's scratchpad (`gui-nonopaque-invalidrect.patch`). Built on the
+  carry branch and run under the probe, it didn't change the 1.5 edge
+  differences. Either it isn't the cause, or the probe didn't load the
+  patched DLL; it wasn't proven which.
+
 ### The second-monitor edges: what the code says
 
 Nothing was changed: none of this shows without a second monitor at
