@@ -59,6 +59,10 @@ Apps that bundle the theme should pin a tag, not `main`.
   an end segment wider than its label, the pill sat under the label's
   start (#138, Markdown Viewer's Read/Edit/Split). QuirkProbe
   `segment-label-centred`.
+- Every segment's label is in the primary text colour, as the Toolkit's
+  Segmented control draws them and as the segments' icons already were;
+  unselected labels were grey (#141). QuirkProbe
+  `segment-unselected-label-colour`.
 
 ## 0.1.0-alpha6 (2026-10-15)
 

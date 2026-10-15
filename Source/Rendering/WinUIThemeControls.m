@@ -499,13 +499,14 @@ WinUIThemeSegmentedLabelAttributes(NSSegmentedCell *cell,
       [attributes setObject: font forKey: NSFontAttributeName];
     }
 
-  /* In high contrast the selected segment is the highlight: its text
-     colour. */
+  /* Every segment's label in the primary text colour, as the Toolkit's
+     Segmented draws them (TextFillColorPrimary) and as the segments'
+     template icons are; the selection is the raised item and its pill.
+     Unselected labels were the secondary colour. In high contrast the
+     selected segment is the highlight: its text colour. */
   color = WinUIThemeColorFromTheme(theme,
-                                   selected
-                                     ? ([[theme settings] highContrastEnabled] ? @"accentTextColor"
-                                                                              : @"labelColor")
-                                     : @"secondaryLabelColor",
+                                   (selected && [[theme settings] highContrastEnabled])
+                                     ? @"accentTextColor" : @"labelColor",
                                    [NSColor controlTextColor]);
   if (color != nil)
     {

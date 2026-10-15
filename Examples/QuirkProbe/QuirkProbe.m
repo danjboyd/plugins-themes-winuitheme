@@ -11180,6 +11180,46 @@ QuirkProbeSendMove(NSWindow *window, NSPoint location)
         }
     }
   [self saveView: segments named: @"segment-label-centred"];
+  /* Every label in the primary text colour, as the Toolkit's Segmented
+     draws them: the unselected "Edit" as strong as the selected "Read"
+     (the darkest ink in light, the brightest in dark). */
+  {
+    BOOL dark = QuirkProbeHasArgument(@"--mode", @"dark");
+    NSInteger extreme[2] = { dark ? 0 : 765, dark ? 0 : 765 };
+    NSInteger segment;
+
+    for (segment = 0; segment < 2; segment++)
+      {
+        NSInteger x0 = (NSInteger)((segment * 90.0 + 12.0) * scale);
+        NSInteger x1 = (NSInteger)((segment * 90.0 + 78.0) * scale);
+
+        for (x = x0; x < x1; x++)
+          {
+            for (y = (NSInteger)(6.0 * scale); y < height - (NSInteger)(9.0 * scale); y++)
+              {
+                NSInteger sum;
+
+                if (QuirkProbePixel(rep, x, y, &r, &g, &b) == NO || (b > r + 60 && b > 120))
+                  {
+                    continue;
+                  }
+                sum = (NSInteger)(r + g + b);
+                extreme[segment] = dark ? MAX(extreme[segment], sum) : MIN(extreme[segment], sum);
+              }
+          }
+      }
+    if (labs((long)(extreme[0] - extreme[1])) <= 60)
+      {
+        [self pass: @"segment-unselected-label-colour" detail: [NSString stringWithFormat:
+          @"selected label ink %ld, unselected %ld (of 765)", (long)extreme[0], (long)extreme[1]]];
+      }
+    else
+      {
+        [self fail: @"segment-unselected-label-colour" detail: [NSString stringWithFormat:
+          @"selected label ink %ld, unselected %ld (of 765): the unselected label is fainter",
+          (long)extreme[0], (long)extreme[1]]];
+      }
+  }
   if (pillMin < 0 || inkMin < 0)
     {
       [self fail: @"segment-label-centred" detail: [NSString stringWithFormat:
