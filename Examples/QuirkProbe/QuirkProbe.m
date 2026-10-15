@@ -10727,7 +10727,7 @@ QuirkProbeAnimates(NSView *view, void (*change)(NSView *, BOOL), NSString **deta
   else if (QuirkProbeGuiScaledFractionally())
     {
       [self known: @"motion-check-draws-in" detail: [NSString stringWithFormat:
-        @"%@: at a fractional gui scale the box's antialiased corners after the animation differ from a static draw (the tick is complete), cause not found", detail]];
+        @"%@: at a fractional gui scale the box's antialiased corners differ: libs-gui redraws a non-opaque view over its old pixels (-setNeedsDisplay:), here once per frame, and a full redraw differs from both (the tick is complete)", detail]];
     }
   else
     {
@@ -10750,7 +10750,7 @@ QuirkProbeAnimates(NSView *view, void (*change)(NSView *, BOOL), NSString **deta
     else if (QuirkProbeGuiScaledFractionally())
       {
         [self known: @"motion-radio-dot-grows" detail: [NSString stringWithFormat:
-          @"%@: at a fractional gui scale the ring's antialiased edge after the animation differs from a static draw, cause not found", detail]];
+          @"%@: at a fractional gui scale the ring's antialiased edge differs: libs-gui redraws a non-opaque view over its old pixels (-setNeedsDisplay:), here once per frame", detail]];
       }
     else
       {
