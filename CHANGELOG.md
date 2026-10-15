@@ -5,7 +5,21 @@ Releases of the WinUI theme for GNUstep. Versions are semver pre-releases
 `GSThemeVersion` in `WinUIThemeInfo.plist`, and an annotated tag on `main`.
 Apps that bundle the theme should pin a tag, not `main`.
 
-## Unreleased
+## 0.1.0-alpha7 (2026-10-15)
+
+Window tabs from the start, as Notepad and Terminal open: on by default,
+an app that tabs shows its tab strip with one tab and a "+", and with
+the menus behind "..." the "..." sits beside the "+", as in Terminal.
+Fixes from trying it in Markdown Viewer and ScreenshotTool: submenus
+beside their item, menus closing as the window moves, no flash on "+",
+compact controls in the single row, per-app defaults under the app's
+bundle identifier, and the segmented control. Accent buttons without a
+Return key: `-setGSThemeStyle: @"accent"`, as the Adwaita theme has it.
+Requires gnustep-gui 0.32 or later. Tested with the carried libs-back
+`carry-0.32.0.4` (`danjboyd/libs-back`), as alpha6 was; tabs sit in the
+title bar only with it (a stock libs-back gives them a row of their
+own). Apps that use NSWindow's tabbing API (Markdown Viewer) get tabs
+from this release; `WinUIThemeWindowTabs NO` turns them off.
 
 **Controls**
 - Accent buttons without a default button's Return:
