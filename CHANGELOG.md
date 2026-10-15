@@ -17,6 +17,9 @@ Apps that bundle the theme should pin a tag, not `main`.
   tabbing mode isn't Disallowed, with something answering
   `-newWindowForTab:`. Hide Tab Bar (`-toggleTabBar:`) still hides it.
   QuirkProbe `window-single-tab`.
+- Selecting a tab (a click, the "+", Ctrl+Tab) shows the new tab's
+  window before the old one goes, so the window no longer vanishes for a
+  moment (#137). QuirkProbe `window-tab-switch-shows-first`.
 
 **Chrome**
 - With `WinUIThemeMenuStyle = more`, tabs in the title bar (the carried

@@ -122,6 +122,41 @@ WinUIThemeTabGroupIsTabBarVisible(id group, SEL _cmd)
 - (void) _windowsDidChangeAlso: (id)extra;
 @end
 
+@interface NSWindow (WinUIThemeTabSwitchPrivate)
+- (void) _tabbingShowWithFrame: (NSRect)frame makeKey: (BOOL)makeKey;
+- (void) _tabbingHide;
+@end
+
+static ptrdiff_t WinUIThemeSelectedWindowOffset = -1;
+
+/* Selecting a tab (a click, the "+", Ctrl+Tab): the shared code hid the
+   old tab's window, then showed the new one in its place, so for a moment
+   neither was on the screen and the window seemed to vanish. The new one
+   comes on screen first, at the group's frame, then the old one goes. The
+   selected window isn't retained, as in the shared code. */
+static void
+WinUIThemeTabGroupSwitchToWindow(id group, SEL _cmd, id window)
+{
+  id *selected = (id *)((char *)group + WinUIThemeSelectedWindowOffset);
+  id previous = *selected;
+  NSRect frame;
+  BOOL key;
+
+  if (window == previous)
+    {
+      return;
+    }
+  *selected = window;
+  if (previous == nil)
+    {
+      return;
+    }
+  frame = [previous frame];
+  key = [previous isKeyWindow];
+  [window _tabbingShowWithFrame: frame makeKey: key];
+  [previous _tabbingHide];
+}
+
 /* -toggleTabBar: as the shared code has it, against the automatic state
    above: back to automatic when that's what automatic would show, else
    shown (1) or hidden (2). */
@@ -159,6 +194,19 @@ WinUIThemeWindowTabsInstallSingleTabBar(void)
   WinUIThemeOriginalIsTabBarVisible = (BOOL (*)(id, SEL))method_getImplementation(method);
   method_setImplementation(method, (IMP)WinUIThemeTabGroupIsTabBarVisible);
   method_setImplementation(toggle, (IMP)WinUIThemeTabGroupToggleTabBar);
+
+  {
+    Method switchMethod = class_getInstanceMethod(groupClass, NSSelectorFromString(@"_switchToWindow:"));
+    Ivar selected = class_getInstanceVariable(groupClass, "_selectedWindow");
+
+    if (switchMethod != NULL && selected != NULL
+        && [NSWindow instancesRespondToSelector: @selector(_tabbingShowWithFrame:makeKey:)]
+        && [NSWindow instancesRespondToSelector: @selector(_tabbingHide)])
+      {
+        WinUIThemeSelectedWindowOffset = ivar_getOffset(selected);
+        method_setImplementation(switchMethod, (IMP)WinUIThemeTabGroupSwitchToWindow);
+      }
+  }
 }
 
 void
