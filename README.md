@@ -24,6 +24,8 @@ framework.
 - Windows' own Open, Save, Print and Page Setup dialogs.
 - Per-monitor DPI, and single-row chrome (the toolbar in the menu bar's
   row, as in Notepad and Paint).
+- Menus behind a "..." See more button instead of a menu bar, as Edge
+  and File Explorer have them (`WinUIThemeMenuStyle = more`).
 - Window tabs in the title bar, off by default for now.
 
 The theme measures within tolerance of a WinUI 3 reference app, page for
