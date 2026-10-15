@@ -8342,12 +8342,6 @@ QuirkProbeCloseButtonInkOnScreen(HWND hwnd)
     {
       [self pass: @"scroller-hidden-at-rest" detail: @"nothing over the content at rest"];
     }
-  else if (QuirkProbeGuiScaledFractionally() && ink <= 8)
-    {
-      [self known: @"scroller-hidden-at-rest" detail: [NSString stringWithFormat:
-        @"%lu px of scroll bar over the content just after the first display at a fractional gui scale, cause not found",
-        (unsigned long)ink]];
-    }
   else
     {
       [self fail: @"scroller-hidden-at-rest" detail: [NSString stringWithFormat:
