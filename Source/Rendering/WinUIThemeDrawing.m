@@ -480,6 +480,13 @@ WinUIThemeButtonIsDefault(NSCell *cell)
       return NO;
     }
 
+  /* -setGSThemeStyle: @"accent" (WinUIThemeControls.m). */
+  if ([cell respondsToSelector: @selector(GSThemeStyle)]
+      && [[(id)cell GSThemeStyle] isEqualToString: @"accent"])
+    {
+      return YES;
+    }
+
   keyEquivalent = [(NSButtonCell *)cell keyEquivalent];
   if ([keyEquivalent isEqualToString: @"\r"]
       || [keyEquivalent isEqualToString: @"\n"])

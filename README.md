@@ -342,6 +342,25 @@ indeterminate bar stops and fills its track, as WinUI's does. High
 contrast keeps the highlight colour, and the spinning style (a
 ProgressRing, which has no such states) is unchanged.
 
+## Accent Buttons
+
+WinUI's AccentButton marks a view's main command (ScreenshotTool's
+Copy) without being the window's default button. In AppKit the only way
+to get it is a Return key equivalent, which takes Return from the
+window's text views. The theme adds `-setGSThemeStyle:` to `NSButton`
+and `NSButtonCell`, taking `@"accent"` (any other value, nil included,
+is a regular button), a theme-neutral name the Adwaita theme also
+implements (its suggested-action). Ask first:
+
+```objc
+if ([button respondsToSelector: @selector(setGSThemeStyle:)])
+  {
+    [button performSelector: @selector(setGSThemeStyle:) withObject: @"accent"];
+  }
+```
+
+The button is drawn as an AccentButton; Return is left alone.
+
 ## Motion
 
 WinUI eases between states, and so does the theme:

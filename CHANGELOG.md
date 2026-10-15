@@ -7,6 +7,13 @@ Apps that bundle the theme should pin a tag, not `main`.
 
 ## Unreleased
 
+**Controls**
+- Accent buttons without a default button's Return:
+  `-[NSButton setGSThemeStyle: @"accent"]` (or on its cell), a
+  theme-neutral name the Adwaita theme also implements; any other value
+  is a regular button. ScreenshotTool's Copy uses it (ScreenshotTool#221).
+  QuirkProbe `button-style-accent`.
+
 **Window tabs**
 - Window tabs are on by default (#72): apps that use NSWindow's tabbing
   API (ObjcMarkdown) get WinUI's TabView, in the title bar with the
