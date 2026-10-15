@@ -455,6 +455,26 @@ QuirkProbeModuleOfAddress(void *address)
 - (BOOL) isTabBarVisible;
 @end
 
+/* Notes whether its partner was on screen as this window ordered out. */
+@interface QuirkProbeOrderOutWindow : NSWindow
+{
+@public
+  NSWindow *partner;
+  int partnerVisibleAtOrderOut;   /* -1 until it orders out */
+}
+@end
+
+@implementation QuirkProbeOrderOutWindow
+- (void) orderWindow: (NSWindowOrderingMode)place relativeTo: (NSInteger)otherWin
+{
+  if (place == NSWindowOut && partner != nil && partnerVisibleAtOrderOut < 0)
+    {
+      partnerVisibleAtOrderOut = [partner isVisible] ? 1 : 0;
+    }
+  [super orderWindow: place relativeTo: otherWin];
+}
+@end
+
 /* Notes whether a window was on screen when another one began to close. */
 @interface QuirkProbeCloseWatcher : NSObject
 {
@@ -646,6 +666,10 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkMenuBarKeyboard: (NSWindow *)window;
 - (void) checkMenuBarOverflow: (NSWindow *)window;
 - (void) checkMenuStyleMore: (NSWindow *)window;
+- (void) checkFlyoutSubmenus: (NSArray *)menus window: (NSWindow *)window bar: (NSMenuView *)bar
+                      target: (NSInteger)target;
+- (void) checkWindowTabSwitchShowsFirst;
+- (void) checkSegmentLabelCentred;
 - (void) checkThemeSwitchRestoresMethods;
 - (void) finish;
 @end
@@ -10836,6 +10860,7 @@ static BOOL QuirkProbeMenuItemPicked = NO;
       else
         {
           [self saveView: [[menus objectAtIndex: 0] menuRepresentation] named: @"menu-style-more-flyout"];
+          [self checkFlyoutSubmenus: menus window: window bar: bar target: target];
         }
       QuirkProbeSendKey(window, escape, 0);
       QuirkProbeSendKey(window, escape, 0);
@@ -10870,6 +10895,225 @@ static BOOL QuirkProbeMenuItemPicked = NO;
     {
       [self fail: @"menu-style-more" detail: [problems componentsJoinedByString: @"; "]];
     }
+}
+
+static void
+QuirkProbeSendMove(NSWindow *window, NSPoint location)
+{
+  [NSApp sendEvent: [NSEvent mouseEventWithType: NSMouseMoved
+                                       location: location
+                                  modifierFlags: 0
+                                      timestamp: 0
+                                   windowNumber: [window windowNumber]
+                                        context: nil
+                                    eventNumber: 0
+                                     clickCount: 0
+                                       pressure: 0.0]];
+}
+
+/* The "..." flyout's submenus (alpha7): a submenu opens beside the item
+   that opened it, its first item level with that item; the pointer
+   heading from that item to its submenu across the sibling below
+   doesn't switch the submenu until it rests there; moving the window
+   closes the menus. */
+- (void) checkFlyoutSubmenus: (NSArray *)menus window: (NSWindow *)window bar: (NSMenuView *)bar
+                      target: (NSInteger)target
+{
+  NSMenu *flyout = [menus objectAtIndex: 0];
+  NSMenu *submenu = [menus objectAtIndex: 1];
+  NSMenuView *parentView = [flyout menuRepresentation];
+  NSWindow *parentWindow = [parentView window];
+  NSMenuView *subView = [submenu menuRepresentation];
+  NSWindow *subWindow = [subView window];
+  NSRect item = [parentView convertRect: [parentView rectOfItemAtIndex: target] toView: nil];
+  NSRect first = [subView convertRect: [subView rectOfItemAtIndex: 0] toView: nil];
+  CGFloat itemTop = NSMinY([parentWindow frame]) + NSMaxY(item);
+  CGFloat firstTop = NSMinY([subWindow frame]) + NSMaxY(first);
+  NSInteger below = target + 1;
+  NSRect frame;
+  NSArray *open = nil;
+
+  if (fabs(itemTop - firstTop) <= 2.0)
+    {
+      [self pass: @"menu-submenu-beside-item" detail: [NSString stringWithFormat:
+        @"the submenu's first item at %.0f, its item at %.0f", firstTop, itemTop]];
+    }
+  else
+    {
+      [self fail: @"menu-submenu-beside-item" detail: [NSString stringWithFormat:
+        @"the submenu's first item at %.0f, its item at %.0f (the flyout's top %.0f)",
+        firstTop, itemTop, NSMaxY([parentWindow frame])]];
+    }
+
+  if (below < [flyout numberOfItems] && [submenu numberOfItems] >= 3)
+    {
+      NSRect belowRect = [parentView convertRect: [parentView rectOfItemAtIndex: below] toView: nil];
+      BOOL held, switched;
+
+      QuirkProbeSendMove(parentWindow, NSMakePoint(NSMinX(item) + 6.0, NSMidY(item)));
+      QuirkProbeSendMove(parentWindow, NSMakePoint(NSMaxX(belowRect) - 3.0, NSMidY(belowRect)));
+      open = QuirkProbeSessionMenus(bar);
+      held = ([open count] == 2 && [[[open objectAtIndex: 1] title] isEqualToString: [submenu title]]
+              && [parentView highlightedItemIndex] == target);
+      QuirkProbeDispatchEvents(0.6);
+      switched = ([parentView highlightedItemIndex] == below);
+      if (held && switched)
+        {
+          [self pass: @"menu-submenu-aim" detail:
+            @"crossing the item below on the way to the submenu kept it; resting there switched"];
+        }
+      else
+        {
+          [self fail: @"menu-submenu-aim" detail: [NSString stringWithFormat:
+            @"crossing the item below: %@; resting there: %@",
+            held ? @"kept" : @"switched at once", switched ? @"switched" : @"didn't switch"]];
+        }
+    }
+  else
+    {
+      [self skip: @"menu-submenu-aim" detail: @"no item below, or a short submenu"];
+    }
+
+  /* The window moves (Windows dragging it by its title bar sends the
+     same): the menus close. */
+  frame = [window frame];
+  [window setFrameOrigin: NSMakePoint(NSMinX(frame) + 12.0, NSMinY(frame))];
+  QuirkProbeDispatchEvents(0.1);
+  open = QuirkProbeSessionMenus(bar);
+  if ([open count] == 0 && [subWindow isVisible] == NO && [parentWindow isVisible] == NO)
+    {
+      [self pass: @"menu-closes-on-window-move" detail: @"moving the window closed the flyout and its submenu"];
+    }
+  else
+    {
+      [self fail: @"menu-closes-on-window-move" detail: [NSString stringWithFormat:
+        @"after the window moved: %lu menus open, flyout %@, submenu %@", (unsigned long)[open count],
+        [parentWindow isVisible] ? @"shown" : @"hidden", [subWindow isVisible] ? @"shown" : @"hidden"]];
+    }
+  [window setFrameOrigin: frame.origin];
+}
+
+/* A segment's label and its selection pill share a centre (alpha7): the
+   first, rounded segment, wider than its label, as Markdown Viewer's
+   Read/Edit/Split. The label was nudged 3-4pt towards the middle, so the
+   pill sat under the label's start. */
+- (void) checkSegmentLabelCentred
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(780, 600, 320, 80)
+                                     title: @"QuirkProbe Segment Centre"];
+  NSSegmentedControl *segments = AUTORELEASE([[NSSegmentedControl alloc]
+                                               initWithFrame: NSMakeRect(20, 20, 270, 32)]);
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale;
+  NSInteger x, y, width, height;
+  NSInteger inkMin = -1, inkMax = -1, pillMin = -1, pillMax = -1;
+  NSUInteger r, g, b;
+
+  if (QuirkProbeHasArgument(@"--high-contrast", nil) || QuirkProbeHasArgument(@"--contrast-theme", nil))
+    {
+      [self skip: @"segment-label-centred" detail: @"no pill in high contrast"];
+      return;
+    }
+  [segments setSegmentCount: 3];
+  [segments setLabel: @"Read" forSegment: 0];
+  [segments setLabel: @"Edit" forSegment: 1];
+  [segments setLabel: @"Split" forSegment: 2];
+  [segments setWidth: 90 forSegment: 0];
+  [segments setWidth: 90 forSegment: 1];
+  [segments setWidth: 90 forSegment: 2];
+  [segments setSelectedSegment: 0];
+  [[window contentView] addSubview: segments];
+  [window orderFront: nil];
+  [window display];
+  rep = QuirkProbeRender(segments);
+  scale = QuirkProbeScale(rep, segments);
+  width = (NSInteger)(86.0 * scale);
+  height = [rep pixelsHigh];
+  for (x = (NSInteger)(4.0 * scale); x < width; x++)
+    {
+      for (y = 0; y < height; y++)
+        {
+          if (QuirkProbePixel(rep, x, y, &r, &g, &b) == NO)
+            {
+              continue;
+            }
+          /* The accent pill: blue well above red; the label: dark (light
+             in the dark theme), neither the item's fill nor the pill. */
+          if (b > r + 60 && b > 120)
+            {
+              if (pillMin < 0) pillMin = x;
+              pillMax = x;
+            }
+          else if (QuirkProbeHasArgument(@"--mode", @"dark") ? (r + g + b > 480) : (r + g + b < 300))
+            {
+              if (inkMin < 0) inkMin = x;
+              inkMax = x;
+            }
+        }
+    }
+  [self saveView: segments named: @"segment-label-centred"];
+  if (pillMin < 0 || inkMin < 0)
+    {
+      [self fail: @"segment-label-centred" detail: [NSString stringWithFormat:
+        @"couldn't find the pill (%ld) or the label (%ld)", (long)pillMin, (long)inkMin]];
+    }
+  else if (fabs((pillMin + pillMax) / 2.0 - (inkMin + inkMax) / 2.0) <= 1.5 * scale)
+    {
+      [self pass: @"segment-label-centred" detail: [NSString stringWithFormat:
+        @"label centred at %.1f, pill at %.1f (pixels)", (inkMin + inkMax) / 2.0, (pillMin + pillMax) / 2.0]];
+    }
+  else
+    {
+      [self fail: @"segment-label-centred" detail: [NSString stringWithFormat:
+        @"label centred at %.1f, pill at %.1f (pixels)", (inkMin + inkMax) / 2.0, (pillMin + pillMax) / 2.0]];
+    }
+  [segments removeFromSuperview];
+  [window orderOut: nil];
+}
+
+/* Selecting a tab (alpha7): the new tab's window comes on screen before
+   the old one goes, so the window never vanishes. */
+- (void) checkWindowTabSwitchShowsFirst
+{
+  QuirkProbeOrderOutWindow *first = nil;
+  NSWindow *second = nil;
+  NSRect frame = NSMakeRect(200, 260, 520, 200);
+
+  if ([NSWindow instancesRespondToSelector: @selector(addTabbedWindow:ordered:)] == NO)
+    {
+      [self fail: @"window-tab-switch-shows-first" detail: @"no window tabbing"];
+      return;
+    }
+  first = AUTORELEASE([[QuirkProbeOrderOutWindow alloc] initWithContentRect: frame
+                                                                  styleMask: (NSTitledWindowMask
+                                                                              | NSClosableWindowMask
+                                                                              | NSResizableWindowMask)
+                                                                    backing: NSBackingStoreBuffered
+                                                                      defer: NO]);
+  [first setTitle: @"QuirkProbe Switch One"];
+  [first setReleasedWhenClosed: NO];
+  [_windows addObject: first];
+  second = [self windowWithFrame: frame title: @"QuirkProbe Switch Two"];
+  [first makeKeyAndOrderFront: nil];
+  QuirkProbeDispatchEvents(0.1);
+  first->partner = second;
+  first->partnerVisibleAtOrderOut = -1;
+  /* Joining as a tab selects the new window: the first orders out. */
+  [first addTabbedWindow: second ordered: NSWindowAbove];
+  QuirkProbeDispatchEvents(0.2);
+  if (first->partnerVisibleAtOrderOut == 1)
+    {
+      [self pass: @"window-tab-switch-shows-first" detail:
+        @"the new tab was on screen as the old one ordered out"];
+    }
+  else
+    {
+      [self fail: @"window-tab-switch-shows-first" detail: (first->partnerVisibleAtOrderOut < 0)
+        ? @"the old tab never ordered out" : @"the old tab ordered out before the new one was on screen"];
+    }
+  first->partner = nil;
+  [second orderOut: nil];
+  [first orderOut: nil];
 }
 
 /* Pointer-over state as the theme's tracker gets it from a tracking
@@ -11973,6 +12217,8 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkWindowTabs];
   [self checkWindowSingleTab];
   [self checkMenuStyleMoreInTitleBar];
+  [self checkWindowTabSwitchShowsFirst];
+  [self checkSegmentLabelCentred];
   [self checkClientCaption];
   [self checkClientCaptionScaled];
   [self checkDPIAwareness];

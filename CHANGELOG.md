@@ -24,6 +24,20 @@ Apps that bundle the theme should pin a tag, not `main`.
   after the tabs' "+", as Windows Terminal has its menu, and the menu
   bar's row goes (#134). QuirkProbe `menu-style-more-title-bar`.
 
+**Menus** (#136)
+- A submenu opens beside the item that opened it, its first item level
+  with that item, as on Windows; libs-gui put its top at the parent
+  menu's top, so the "..." flyout's Help and a context menu's last
+  submenu were reached across their siblings. At the screen's right edge
+  it opens to the left; at the foot it moves up. QuirkProbe
+  `menu-submenu-beside-item`.
+- Heading from an item to its open submenu, the pointer may cross the
+  item's siblings: they take over only once it rests on them (0.3s), the
+  "safe triangle" towards the submenu. QuirkProbe `menu-submenu-aim`.
+- Dragging or resizing a window closes its open menus and flyouts, as a
+  press outside them does; they stayed behind on the screen. QuirkProbe
+  `menu-closes-on-window-move`.
+
 ## 0.1.0-alpha6 (2026-10-15)
 
 New chrome for apps that ask for it: the toolbar in the menu bar's row,

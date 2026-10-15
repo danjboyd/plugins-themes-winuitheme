@@ -2416,6 +2416,62 @@ WinUIThemeScreenUnderPointer(void)
   return tableView;
 }
 
+/* A submenu of a menu (not of the menu bar) opens beside the item that
+   opened it, its first item level with that item, as Windows, WinUI's
+   MenuFlyout and macOS place it; libs-gui put its top at the top of the
+   parent menu, whichever item opened it, so a submenu of a low item was
+   reached across its siblings (the "..." flyout's Help, a context menu's
+   last submenu). Kept on the parent's screen: past the right edge it
+   opens to the left of the parent; past the foot it moves up. */
+- (NSPoint) _overrideNSMenuViewMethod_locationForSubmenu: (NSMenu *)submenu
+{
+  typedef NSPoint (*LocationIMP)(id, SEL, NSMenu *);
+  LocationIMP originalIMP = (LocationIMP)WinUIThemeOriginalMethod(_cmd, self, [NSMenuView class]);
+  NSMenuView *menuView = (NSMenuView *)self;
+  NSPoint location = (originalIMP != NULL) ? originalIMP(self, _cmd, submenu) : NSZeroPoint;
+  NSWindow *window = [menuView window];
+  NSMenuView *submenuView = [submenu menuRepresentation];
+  NSWindow *submenuWindow = [submenuView window];
+  NSInteger index = [[menuView menu] indexOfItemWithSubmenu: submenu];
+  NSRect frame, submenuFrame, item, first, visible;
+  CGFloat topPad;
+  NSScreen *screen;
+
+  if ([menuView isHorizontal] || submenu == nil || window == nil || submenuWindow == nil
+      || index < 0 || [submenu numberOfItems] == 0
+      || NSInterfaceStyleForKey(@"NSMenuInterfaceStyle", menuView) != NSWindows95InterfaceStyle
+      || [[GSTheme theme] isKindOfClass: [WinUITheme class]] == NO)
+    {
+      return location;
+    }
+  frame = [window frame];
+  submenuFrame = [submenuWindow frame];
+  item = [menuView convertRect: [menuView rectOfItemAtIndex: index] toView: nil];
+  first = [submenuView convertRect: [submenuView rectOfItemAtIndex: 0] toView: nil];
+  /* The submenu's padding above its first item. */
+  topPad = NSHeight(submenuFrame) - NSMaxY(first);
+  location.y = NSMinY(frame) + NSMaxY(item) + topPad - NSHeight(submenuFrame);
+  screen = ([window screen] != nil) ? [window screen] : [NSScreen mainScreen];
+  visible = [screen visibleFrame];
+  if (location.x + NSWidth(submenuFrame) > NSMaxX(visible))
+    {
+      location.x = NSMinX(frame) - NSWidth(submenuFrame) + (NSMaxX(frame) - location.x);
+    }
+  if (location.x < NSMinX(visible))
+    {
+      location.x = NSMinX(visible);
+    }
+  if (location.y < NSMinY(visible))
+    {
+      location.y = NSMinY(visible);
+    }
+  if (location.y + NSHeight(submenuFrame) > NSMaxY(visible))
+    {
+      location.y = MAX(NSMinY(visible), NSMaxY(visible) - NSHeight(submenuFrame));
+    }
+  return location;
+}
+
 /* The item the highlight leaves fades out and the one it reaches fades
    in (#105, WinUIThemeMenuItemFade). */
 - (void) _overrideNSMenuViewMethod_setHighlightedItemIndex: (NSInteger)index

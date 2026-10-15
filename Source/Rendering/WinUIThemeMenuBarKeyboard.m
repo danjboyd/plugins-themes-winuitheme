@@ -269,9 +269,22 @@ static BOOL WinUIThemeAltHeld = NO;
 static NSMenuView *WinUIThemeAltBar = nil;
 
 static void WinUIThemeEndMenuBarSession(void);
+static void WinUIThemeSessionHoverItem(NSUInteger level, NSInteger index);
+static void WinUIThemeOpenSessionSubmenu(NSUInteger level, NSInteger index, BOOL highlightFirst);
+static void WinUIThemeCloseSessionMenus(NSUInteger level);
+
+/* Aiming at an open submenu (the "safe triangle"): moving from an item
+   towards the submenu it opened, the pointer may cross its siblings; they
+   don't take over while it heads for the submenu, until it rests. Where
+   the pointer was at the last move, on the screen. */
+static NSPoint WinUIThemeSessionLastPointer;
+static BOOL WinUIThemeSessionHasLastPointer = NO;
+/* How long a pointer resting on a sibling takes to switch to it. */
+static const NSTimeInterval WinUIThemeSubmenuAimDelay = 0.3;
 
 @interface WinUIThemeMenuBarSessionObserver : NSObject
 + (void) windowWillLeave: (NSNotification *)notification;
++ (void) hoverSettled: (id)unused;
 @end
 
 @implementation WinUIThemeMenuBarSessionObserver
@@ -282,7 +295,95 @@ static void WinUIThemeEndMenuBarSession(void);
       WinUIThemeEndMenuBarSession();
     }
 }
+
+/* The pointer rested on a sibling of an open submenu's item: that item
+   takes over, if the pointer is still on it. */
++ (void) hoverSettled: (id)unused
+{
+  /* Where the last move left the pointer (it hasn't moved since). */
+  NSPoint point = WinUIThemeSessionLastPointer;
+  NSInteger level;
+
+  if (WinUIThemeSessionBar == nil || WinUIThemeSessionHasLastPointer == NO)
+    {
+      return;
+    }
+  for (level = (NSInteger)[WinUIThemeSessionMenus count] - 1; level >= 0; level--)
+    {
+      NSMenuView *view = [[WinUIThemeSessionMenus objectAtIndex: level] menuRepresentation];
+      NSWindow *window = [view window];
+
+      if (window != nil && NSPointInRect(point, [window frame]))
+        {
+          NSPoint local = [view convertPoint: [window convertScreenToBase: point] fromView: nil];
+          NSInteger index = [view indexOfItemAtPoint: local];
+
+          if (index >= 0 && index != [view highlightedItemIndex])
+            {
+              WinUIThemeSessionHoverItem((NSUInteger)level, index);
+            }
+          return;
+        }
+    }
+}
 @end
+
+/* Whether `point` (on the screen) is inside the triangle from the last
+   pointer position to the near edge of the submenu open from the menu at
+   `level`. */
+static BOOL
+WinUIThemeSessionAimsAtSubmenu(NSUInteger level, NSPoint point)
+{
+  NSWindow *parent = nil;
+  NSWindow *submenu = nil;
+  NSRect frame;
+  CGFloat nearX;
+  NSPoint a, b, c;
+  CGFloat d1, d2, d3;
+
+  if (WinUIThemeSessionHasLastPointer == NO || level + 1 >= [WinUIThemeSessionMenus count])
+    {
+      return NO;
+    }
+  parent = [[[WinUIThemeSessionMenus objectAtIndex: level] menuRepresentation] window];
+  submenu = [[[WinUIThemeSessionMenus objectAtIndex: level + 1] menuRepresentation] window];
+  if (parent == nil || submenu == nil)
+    {
+      return NO;
+    }
+  frame = [submenu frame];
+  nearX = (NSMidX(frame) >= NSMidX([parent frame])) ? NSMinX(frame) : NSMaxX(frame);
+  a = WinUIThemeSessionLastPointer;
+  b = NSMakePoint(nearX, NSMaxY(frame));
+  c = NSMakePoint(nearX, NSMinY(frame));
+  /* The pointer has to be moving towards the submenu at all. */
+  if (fabs(point.x - nearX) >= fabs(a.x - nearX))
+    {
+      return NO;
+    }
+  d1 = (point.x - b.x) * (a.y - b.y) - (a.x - b.x) * (point.y - b.y);
+  d2 = (point.x - c.x) * (b.y - c.y) - (b.x - c.x) * (point.y - c.y);
+  d3 = (point.x - a.x) * (c.y - a.y) - (c.x - a.x) * (point.y - a.y);
+  return !(((d1 < 0) || (d2 < 0) || (d3 < 0)) && ((d1 > 0) || (d2 > 0) || (d3 > 0)));
+}
+
+/* The pointer on item `index` of the open menu at `level`: it opens that
+   item's submenu or closes deeper ones, and is highlighted. */
+static void
+WinUIThemeSessionHoverItem(NSUInteger level, NSInteger index)
+{
+  NSMenu *menu = [WinUIThemeSessionMenus objectAtIndex: level];
+
+  if ([(NSMenuItem *)[menu itemAtIndex: index] hasSubmenu])
+    {
+      WinUIThemeOpenSessionSubmenu(level, index, NO);
+    }
+  else
+    {
+      WinUIThemeCloseSessionMenus(level + 1);
+      [[menu menuRepresentation] setHighlightedItemIndex: index];
+    }
+}
 
 BOOL
 WinUIThemeMenuAccessKeysVisible(void)
@@ -382,6 +483,8 @@ WinUIThemeEndMenuBarSession(void)
       [[bar window] setAcceptsMouseMovedEvents: NO];
     }
   [[NSNotificationCenter defaultCenter] removeObserver: [WinUIThemeMenuBarSessionObserver class]];
+  [NSObject cancelPreviousPerformRequestsWithTarget: [WinUIThemeMenuBarSessionObserver class]];
+  WinUIThemeSessionHasLastPointer = NO;
   WinUIThemeSessionBar = nil;
   WinUIThemeSessionIndex = -1;
   WinUIThemeSessionPressMenu = nil;
@@ -415,6 +518,17 @@ WinUIThemeBeginMenuBarSession(NSMenuView *bar, BOOL accessKeys)
   [center addObserver: [WinUIThemeMenuBarSessionObserver class]
              selector: @selector(windowWillLeave:)
                  name: NSWindowWillCloseNotification
+               object: window];
+  /* Dragging or resizing the window (its title bar is Windows', which the
+     gui doesn't see pressed) closes the menus, as a press outside them
+     does; they don't stay behind on the screen. */
+  [center addObserver: [WinUIThemeMenuBarSessionObserver class]
+             selector: @selector(windowWillLeave:)
+                 name: NSWindowDidMoveNotification
+               object: window];
+  [center addObserver: [WinUIThemeMenuBarSessionObserver class]
+             selector: @selector(windowWillLeave:)
+                 name: NSWindowDidResizeNotification
                object: window];
   [bar setNeedsDisplay: YES];
 }
@@ -921,19 +1035,30 @@ WinUIThemeMenuSessionPointer(NSEvent *event)
           {
             NSMenu *menu = [WinUIThemeSessionMenus objectAtIndex: level];
             NSInteger index = WinUIThemeItemIndexForEvent(menu, event);
+            NSPoint point = [window convertBaseToScreen: [event locationInWindow]];
+            Class observer = [WinUIThemeMenuBarSessionObserver class];
 
+            [NSObject cancelPreviousPerformRequestsWithTarget: observer];
             if (index >= 0 && index != [[menu menuRepresentation] highlightedItemIndex])
               {
-                if ([(NSMenuItem *)[menu itemAtIndex: index] hasSubmenu])
+                if (WinUIThemeSessionAimsAtSubmenu((NSUInteger)level, point))
                   {
-                    WinUIThemeOpenSessionSubmenu(level, index, NO);
+                    /* On its way to the open submenu: the sibling takes
+                       over only if the pointer rests on it. */
+                    [observer performSelector: @selector(hoverSettled:)
+                                   withObject: nil
+                                   afterDelay: WinUIThemeSubmenuAimDelay
+                                      inModes: [NSArray arrayWithObjects: NSDefaultRunLoopMode,
+                                                        NSEventTrackingRunLoopMode,
+                                                        NSModalPanelRunLoopMode, nil]];
                   }
                 else
                   {
-                    WinUIThemeCloseSessionMenus(level + 1);
-                    [[menu menuRepresentation] setHighlightedItemIndex: index];
+                    WinUIThemeSessionHoverItem((NSUInteger)level, index);
                   }
               }
+            WinUIThemeSessionLastPointer = point;
+            WinUIThemeSessionHasLastPointer = YES;
             return YES;
           }
         if (menuOpen && stop >= 0 && stop != WinUIThemeSessionIndex)
