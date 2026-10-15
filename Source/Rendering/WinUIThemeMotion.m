@@ -288,7 +288,76 @@ WinUIThemeCheckAmount(NSView *view, BOOL checked)
    theme transition, about 167ms), tool tips and dialogs. The window's
    alpha goes from 0 to 1; libs-back's windows are layered, so this is
    SetLayeredWindowAttributes. Menus and flyouts also slide down into
-   place. If the app moves the window meanwhile, the slide gives way. */
+   place. If the app moves the window meanwhile, the slide gives way.
+   A dialog also scales, as WinUI's ContentDialog does: its content from
+   105% to 100% about its centre over 250ms, while it's opaque after the
+   first third (83ms). The layered window's alpha can't scale the window,
+   and the content's own views are left alone: a snapshot of the drawn
+   content is shown over it, scaled, and taken away at the end. */
+@interface WinUIThemeDialogScaleView : NSView
+{
+  NSImage *_snapshot;
+  NSColor *_background;
+  CGFloat _scale;
+}
+- (id) initWithFrame: (NSRect)frame snapshot: (NSImage *)snapshot background: (NSColor *)background;
+- (void) setScale: (CGFloat)scale;
+@end
+
+@implementation WinUIThemeDialogScaleView
+
+- (id) initWithFrame: (NSRect)frame snapshot: (NSImage *)snapshot background: (NSColor *)background
+{
+  if ((self = [super initWithFrame: frame]) != nil)
+    {
+      ASSIGN(_snapshot, snapshot);
+      ASSIGN(_background, background);
+      _scale = 1.0;
+    }
+  return self;
+}
+
+- (void) dealloc
+{
+  RELEASE(_snapshot);
+  RELEASE(_background);
+  [super dealloc];
+}
+
+- (BOOL) isOpaque
+{
+  return YES;
+}
+
+/* Clicks go to the dialog's own controls. */
+- (NSView *) hitTest: (NSPoint)point
+{
+  return nil;
+}
+
+- (void) setScale: (CGFloat)scale
+{
+  _scale = scale;
+  [self setNeedsDisplay: YES];
+}
+
+- (void) drawRect: (NSRect)rect
+{
+  NSRect bounds = [self bounds];
+  NSSize size = NSMakeSize(NSWidth(bounds) * _scale, NSHeight(bounds) * _scale);
+
+  [_background set];
+  NSRectFill(rect);
+  [_snapshot drawInRect: NSMakeRect(NSMidX(bounds) - size.width / 2.0,
+                                    NSMidY(bounds) - size.height / 2.0,
+                                    size.width, size.height)
+               fromRect: NSZeroRect
+              operation: NSCompositeSourceOver
+               fraction: 1.0];
+}
+
+@end
+
 @interface WinUIThemeWindowFade : NSObject
 {
   NSWindow *_window;
@@ -298,10 +367,14 @@ WinUIThemeCheckAmount(NSView *view, BOOL checked)
   NSSize _slide;
   NSPoint _target;
   NSPoint _last;
+  CGFloat _scaleFrom;
+  WinUIThemeDialogScaleView *_scaled;
 }
 - (id) initWithWindow: (NSWindow *)window
              duration: (NSTimeInterval)duration
                 slide: (NSSize)slide;
+- (void) scaleContentFrom: (CGFloat)scale;
+- (void) scaleTo: (CGFloat)eased;
 - (void) finish;
 @end
 
@@ -341,6 +414,64 @@ static NSMapTable *WinUIThemeWindowFades = nil;
   return self;
 }
 
+/* A dialog's content starts at `scale` and settles at its own size. */
+- (void) scaleContentFrom: (CGFloat)scale
+{
+  if (scale > 1.0)
+    {
+      _scaleFrom = scale;
+    }
+}
+
+/* The snapshot over the content, once the window has drawn it: on the
+   first frame, as the window is shown after the fade begins. */
+- (void) coverContent
+{
+  NSView *content = [_window contentView];
+  NSView *frameView = [content superview];
+  NSBitmapImageRep *rep = nil;
+  NSImage *snapshot = nil;
+
+  if (_scaled != nil || _scaleFrom <= 1.0 || content == nil || frameView == nil
+      || [_window isVisible] == NO)
+    {
+      return;
+    }
+  [_window displayIfNeeded];
+  rep = [content bitmapImageRepForCachingDisplayInRect: [content bounds]];
+  if (rep == nil)
+    {
+      _scaleFrom = 0.0;
+      return;
+    }
+  [content cacheDisplayInRect: [content bounds] toBitmapImageRep: rep];
+  snapshot = AUTORELEASE([[NSImage alloc] initWithSize: [content bounds].size]);
+  [snapshot addRepresentation: rep];
+  _scaled = [[WinUIThemeDialogScaleView alloc] initWithFrame: [content frame]
+                                                    snapshot: snapshot
+                                                  background: [_window backgroundColor]];
+  [frameView addSubview: _scaled positioned: NSWindowAbove relativeTo: content];
+}
+
+/* The snapshot at the scale `eased` of the way from the start to the
+   content's own size; at the end, the content itself. */
+- (void) scaleTo: (CGFloat)eased
+{
+  if (_scaled == nil)
+    {
+      return;
+    }
+  if (eased >= 1.0 || NSEqualRects([_scaled frame], [[_window contentView] frame]) == NO)
+    {
+      [_scaled removeFromSuperview];
+      DESTROY(_scaled);
+      _scaleFrom = 0.0;
+      [[_window contentView] setNeedsDisplay: YES];
+      return;
+    }
+  [_scaled setScale: _scaleFrom + (1.0 - _scaleFrom) * eased];
+}
+
 /* Where the slide has the window at `eased`, unless the app moved it. */
 - (void) slideTo: (CGFloat)eased
 {
@@ -367,6 +498,13 @@ static NSMapTable *WinUIThemeWindowFades = nil;
       [self finish];
       return;
     }
+  if (_scaleFrom > 1.0)
+    {
+      [self coverContent];
+      [_window setAlphaValue: MIN(1.0, MAX(0.0, t) * 3.0)];
+      [self scaleTo: WinUIThemeEaseOut(MAX(0.0, t))];
+      return;
+    }
   [_window setAlphaValue: WinUIThemeEaseOut(MAX(0.0, t))];
   [self slideTo: WinUIThemeEaseOut(MAX(0.0, t))];
 }
@@ -380,6 +518,7 @@ static NSMapTable *WinUIThemeWindowFades = nil;
   if (window != nil)
     {
       [self slideTo: 1.0];
+      [self scaleTo: 1.0];
       _window = nil;
       [window setAlphaValue: 1.0];
       NSMapRemove(WinUIThemeWindowFades, window);
@@ -389,14 +528,14 @@ static NSMapTable *WinUIThemeWindowFades = nil;
 
 @end
 
-static void
+static WinUIThemeWindowFade *
 WinUIThemeOpenWindow(NSWindow *window, NSTimeInterval duration, NSSize slide)
 {
   WinUIThemeWindowFade *fade = nil;
 
   if (window == nil || WinUIThemeAnimationsEnabled() == NO || duration <= 0.0)
     {
-      return;
+      return nil;
     }
   if (WinUIThemeWindowFades == nil)
     {
@@ -405,11 +544,12 @@ WinUIThemeOpenWindow(NSWindow *window, NSTimeInterval duration, NSSize slide)
     }
   if (NSMapGet(WinUIThemeWindowFades, window) != NULL)
     {
-      return;
+      return nil;
     }
   fade = [[WinUIThemeWindowFade alloc] initWithWindow: window duration: duration slide: slide];
   NSMapInsert(WinUIThemeWindowFades, window, fade);
   RELEASE(fade);
+  return fade;
 }
 
 void
@@ -463,6 +603,9 @@ WinUIThemeWindowFadesInWhenShown(NSWindow *window)
 /* WinUI's popup theme transition, about 167ms, and its distance. */
 static const NSTimeInterval WinUIThemeOpenFadeDuration = 0.167;
 static const CGFloat WinUIThemeOpenSlideDistance = 8.0;
+/* WinUI's ContentDialog opening: 250ms, from 105%. */
+static const NSTimeInterval WinUIThemeDialogOpenDuration = 0.25;
+static const CGFloat WinUIThemeDialogOpenScale = 1.05;
 
 /* Where a window opening slides in from (#105), as WinUI's popup theme
    transition has it: from the side it opens on, 8pt. A menu from the
@@ -616,7 +759,8 @@ typedef void (*OrderWindowIMP)(id, SEL, NSWindowOrderingMode, NSInteger);
         }
       else if (WinUIThemeWindowIsDialog(window))
         {
-          WinUIThemeFadeInWindow(window, WinUIThemeOpenFadeDuration);
+          [WinUIThemeOpenWindow(window, WinUIThemeDialogOpenDuration, NSZeroSize)
+            scaleContentFrom: WinUIThemeDialogOpenScale];
         }
     }
   /* Before it shows, so it's never activated; and after, for a deferred

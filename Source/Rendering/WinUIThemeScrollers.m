@@ -625,12 +625,26 @@ static char WinUIThemeColumnAutoresizingStyleKey;
     }
   state = WinUIThemeOverlayStateFor((NSScrollView *)self, YES);
   origin = [[(NSScrollView *)self contentView] bounds].origin;
-  if (state->originKnown && NSEqualPoints(origin, state->origin) == NO)
+  /* Less than a device pixel from where it last scrolled isn't a scroll:
+     at a fractional window scale the clip view snaps its origin to the
+     pixel grid as it's first laid out, which showed the indicator over
+     content at rest. Smaller steps still add up. */
+  if (state->originKnown == NO)
     {
-      [state reveal];
+      state->origin = origin;
+      state->originKnown = YES;
     }
-  state->origin = origin;
-  state->originKnown = YES;
+  else
+    {
+      CGFloat factor = MAX(1.0, [[(NSView *)self window] userSpaceScaleFactor]);
+      CGFloat moved = MAX(fabs(origin.x - state->origin.x), fabs(origin.y - state->origin.y));
+
+      if (moved >= 1.0 / factor - 0.001)
+        {
+          [state reveal];
+          state->origin = origin;
+        }
+    }
 }
 
 - (void) _overrideNSScrollViewMethod_mouseEntered: (NSEvent *)event

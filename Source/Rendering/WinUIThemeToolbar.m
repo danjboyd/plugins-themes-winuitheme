@@ -20,6 +20,7 @@
 
 #import "WinUIThemeDrawing.h"
 #import "../Native/WinUIThemeWindowIntegration.h"
+#import "../Native/WinUIThemeToolbarInMenuBar.h"
 #import "../Settings/WinUIThemeSettings.h"
 #import "../Settings/WinUIThemeMetrics.h"
 
@@ -41,6 +42,9 @@
    - views stay however tall they are, and the row grows to fit them
 
    Every item then gets the tallest one's height, so the row is even.
+   In the menu bar's row (#91, GSThemeToolbarInMenuBar) every item gets
+   the row's height, and image items are icon-only 32pt buttons with 16pt
+   icons, their labels tool tips.
    Buttons get AppBarButton's hover and pressed fills (the text colour at
    6% and 4%, 4pt corners), and view items' labels are drawn in the text
    colour (libs-gui draws them black, lost in the dark palette). */
@@ -54,6 +58,10 @@
 - (NSView *) _backView;
 @end
 
+@interface NSToolbar (WinUIThemeToolbarPrivate)
+- (NSView *) _toolbarView;
+@end
+
 static const CGFloat WinUIThemeToolbarRowHeight = 48.0;
 static const CGFloat WinUIThemeToolbarButtonSize = 40.0;
 static const CGFloat WinUIThemeToolbarTextButtonHeight = 32.0;
@@ -64,6 +72,9 @@ static const CGFloat WinUIThemeToolbarLabelPadding = 12.0;
 static const CGFloat WinUIThemeToolbarLabelGap = 4.0;
 static const CGFloat WinUIThemeToolbarIconSize = 20.0;
 static const CGFloat WinUIThemeToolbarSmallIconSize = 16.0;
+/* In the menu bar's row (#91): a compact CommandBar's 32pt buttons. */
+static const CGFloat WinUIThemeToolbarCompactButtonSize = 32.0;
+static const CGFloat WinUIThemeToolbarCompactIconSize = 16.0;
 
 /* On a toolbar button: its hover tracking-rect tag, and whether the
    pointer is over it. */
@@ -130,16 +141,40 @@ WinUIThemeToolbarItemIsSpace(NSToolbarItem *item)
     || [identifier isEqualToString: NSToolbarSeparatorItemIdentifier];
 }
 
+/* The menu bar's height when the toolbar is in its row (#91), else
+   CommandBar's 48pt. */
+static CGFloat
+WinUIThemeToolbarRowHeightFor(NSToolbar *toolbar)
+{
+  if (WinUIThemeToolbarIsInMenuBar(toolbar))
+    {
+      return [[GSTheme theme] menuHeightForWindow: [[toolbar _toolbarView] window]];
+    }
+  return WinUIThemeToolbarRowHeight;
+}
+
+/* Labels under icons; none in the menu bar's row, where a label-only
+   toolbar keeps its text buttons. */
 static BOOL
 WinUIThemeToolbarShowsLabels(NSToolbar *toolbar)
 {
+  if (WinUIThemeToolbarIsInMenuBar(toolbar))
+    {
+      return [toolbar displayMode] == NSToolbarDisplayModeLabelOnly;
+    }
   return [toolbar displayMode] != NSToolbarDisplayModeIconOnly;
 }
 
+/* A text button: in a label-only toolbar, and in the menu bar's row an
+   item with no image to show (#91). */
 static BOOL
 WinUIThemeToolbarTextItem(NSToolbarItem *item)
 {
-  return [[item toolbar] displayMode] == NSToolbarDisplayModeLabelOnly;
+  NSToolbar *toolbar = [item toolbar];
+
+  return [toolbar displayMode] == NSToolbarDisplayModeLabelOnly
+    || (WinUIThemeToolbarIsInMenuBar(toolbar) && [item image] == nil && [item view] == nil
+        && WinUIThemeToolbarItemIsSpace(item) == NO);
 }
 
 /* The label's font: the interface font for text buttons, WinUI's Caption
@@ -166,7 +201,8 @@ WinUIThemeToolbarLabelSize(NSToolbarItem *item)
   NSString *label = [item label];
   NSSize size;
 
-  if (WinUIThemeToolbarShowsLabels(toolbar) == NO || [label length] == 0)
+  if ((WinUIThemeToolbarShowsLabels(toolbar) == NO && WinUIThemeToolbarTextItem(item) == NO)
+      || [label length] == 0)
     {
       return NSZeroSize;
     }
@@ -185,6 +221,11 @@ WinUIThemeToolbarImageSize(NSImage *image, NSToolbar *toolbar)
   NSSize size;
   CGFloat limit = ([toolbar sizeMode] == NSToolbarSizeModeSmall)
     ? WinUIThemeToolbarSmallIconSize : WinUIThemeToolbarIconSize;
+
+  if (WinUIThemeToolbarIsInMenuBar(toolbar))
+    {
+      limit = WinUIThemeToolbarCompactIconSize;
+    }
 
   if (image == nil)
     {
@@ -239,6 +280,13 @@ WinUIThemeToolbarContentSize(NSToolbarItem *item)
     {
       content = NSMakeSize(WinUIThemeToolbarViewWidth(item), NSHeight([view frame]));
     }
+  else if (WinUIThemeToolbarIsInMenuBar(toolbar))
+    {
+      NSSize image = WinUIThemeToolbarImageSize([item image], toolbar);
+
+      return NSMakeSize(MAX(image.width + 2.0 * 8.0, WinUIThemeToolbarCompactButtonSize),
+                        MAX(image.height + 2.0 * 8.0, WinUIThemeToolbarCompactButtonSize));
+    }
   else
     {
       NSSize image = WinUIThemeToolbarImageSize([item image], toolbar);
@@ -261,12 +309,17 @@ WinUIThemeToolbarContentSize(NSToolbarItem *item)
   return content;
 }
 
-/* The height an item's slot needs. */
+/* The height an item's slot needs; in the menu bar's row, the row's. */
 static CGFloat
 WinUIThemeToolbarItemHeight(NSToolbarItem *item)
 {
   NSSize content = WinUIThemeToolbarContentSize(item);
+  NSToolbar *toolbar = [item toolbar];
 
+  if (WinUIThemeToolbarIsInMenuBar(toolbar))
+    {
+      return WinUIThemeToolbarRowHeightFor(toolbar);
+    }
   return MAX(WinUIThemeToolbarRowHeight, content.height + 2.0 * 4.0);
 }
 
@@ -329,6 +382,65 @@ WinUIThemeToolbarApplyImage(NSButton *button, NSToolbarItem *item)
     }
 }
 
+/* libs-gui gives the flexible spaces the toolbar's width left over, then
+   rounds each space's frame to device pixels (-centerScanRect:). At a
+   window scale other than 1 that can take the items a fraction of a point
+   past the toolbar's width, and -_visibleBackViews (the same sum: a view
+   item at its minimum width and 10pt each side, others at their frames)
+   then puts the item after the space into the ">>" menu with the row
+   half empty: ScreenshotTool's Copy at 125% and 150% on the DPI-aware
+   carried backend. The last flexible space gives back the excess,
+   rounded up to a whole device pixel, and the items after it move
+   back. */
+static void
+WinUIThemeToolbarKeepFlexibleSpaceInside(NSView *toolbarView, NSToolbar *toolbar)
+{
+  NSArray *items = [toolbar items];
+  NSToolbarItem *flexible = nil;
+  CGFloat total = 0.0;
+  CGFloat excess;
+  CGFloat scale = MAX(1.0, [[toolbarView window] userSpaceScaleFactor]);
+  NSUInteger index;
+  BOOL after = NO;
+
+  for (index = 0; index < [items count]; index++)
+    {
+      NSToolbarItem *item = [items objectAtIndex: index];
+
+      total += ([item view] != nil) ? [item minSize].width + 2.0 * 10.0 : NSWidth([[item _backView] frame]);
+      if ([[item itemIdentifier] isEqualToString: NSToolbarFlexibleSpaceItemIdentifier])
+        {
+          flexible = item;
+        }
+    }
+  excess = total - NSWidth([toolbarView frame]);
+  if (flexible == nil || excess <= 0.0)
+    {
+      return;
+    }
+  excess = ceil(excess * scale - 0.001) / scale;
+  for (index = 0; index < [items count]; index++)
+    {
+      NSToolbarItem *item = [items objectAtIndex: index];
+      NSView *backView = [item _backView];
+      NSRect frame = [backView frame];
+
+      if (item == flexible)
+        {
+          /* Only what the space has: past that the items don't fit. */
+          excess = MIN(excess, NSWidth(frame));
+          frame.size.width -= excess;
+          [backView setFrame: frame];
+          after = YES;
+        }
+      else if (after)
+        {
+          frame.origin.x -= excess;
+          [backView setFrame: frame];
+        }
+    }
+}
+
 @implementation WinUITheme (Toolbar)
 
 /* The toolbar sits on the window background with a hairline under it
@@ -345,12 +457,42 @@ WinUIThemeToolbarApplyImage(NSButton *button, NSToolbarItem *item)
                               [[self settings] highContrastEnabled] ? 1.0 : 0.08);
 }
 
+/* The fill under a toolbar's items: the menu bar's in its row (#91). */
+- (NSColor *) toolbarBackgroundColorForToolbar: (NSToolbar *)toolbar
+{
+  if (WinUIThemeToolbarIsInMenuBar(toolbar))
+    {
+      return WinUIThemeColorFromTheme(self, @"menuBarBackgroundColor", [self toolbarBackgroundColor]);
+    }
+  return [self toolbarBackgroundColor];
+}
+
 /* Over Mica (#47) the toolbar leaves its background transparent, as the
    title bar and menu bar do, keeping its hairline. */
 - (void) drawToolbarRect: (NSRect)aRect
                    frame: (NSRect)viewFrame
               borderMask: (unsigned int)borderMask
 {
+  NSView *toolbarView = [NSView focusView];
+
+  /* In the menu bar's row (#91): the menu bar's background and its line
+     along the bottom. */
+  if ([toolbarView respondsToSelector: @selector(toolbar)]
+      && WinUIThemeToolbarIsInMenuBar([(id)toolbarView toolbar]))
+    {
+      if (WinUIThemeWindowShowsMica([toolbarView window]))
+        {
+          NSRectFillUsingOperation(aRect, NSCompositeClear);
+        }
+      else
+        {
+          [[self toolbarBackgroundColorForToolbar: [(id)toolbarView toolbar]] set];
+          NSRectFill(aRect);
+        }
+      [WinUIThemeColorFromTheme(self, @"menuBarBorderColor", [NSColor controlShadowColor]) set];
+      NSRectFill(NSIntersectionRect(aRect, NSMakeRect(0.0, 0.0, NSWidth(viewFrame), 1.0)));
+      return;
+    }
   if (WinUIThemeWindowShowsMica([[NSView focusView] window]) == NO)
     {
       [super drawToolbarRect: aRect frame: viewFrame borderMask: borderMask];
@@ -457,7 +599,7 @@ WinUIThemeToolbarApplyImage(NSButton *button, NSToolbarItem *item)
   NSToolbar *toolbar = [(id)self toolbar];
   NSEnumerator *enumerator = nil;
   NSToolbarItem *item = nil;
-  CGFloat row = WinUIThemeToolbarRowHeight;
+  CGFloat row = 0.0;
   Ivar heightIvar = NULL;
 
   if (originalIMP != NULL)
@@ -468,8 +610,11 @@ WinUIThemeToolbarApplyImage(NSButton *button, NSToolbarItem *item)
     {
       return;
     }
+  /* In the menu bar's row the row is the menu bar's height; a taller
+     view overhangs it, centred. */
+  row = WinUIThemeToolbarRowHeightFor(toolbar);
   enumerator = [[toolbar items] objectEnumerator];
-  while ((item = [enumerator nextObject]) != nil)
+  while ((item = [enumerator nextObject]) != nil && WinUIThemeToolbarIsInMenuBar(toolbar) == NO)
     {
       if (WinUIThemeToolbarItemIsSpace(item) == NO)
         {
@@ -512,6 +657,7 @@ WinUIThemeToolbarApplyImage(NSButton *button, NSToolbarItem *item)
     {
       return;
     }
+  WinUIThemeToolbarKeepFlexibleSpaceInside((NSView *)self, toolbar);
   enumerator = [[toolbar items] objectEnumerator];
   while ((item = [enumerator nextObject]) != nil)
     {
@@ -562,12 +708,18 @@ WinUIThemeToolbarApplyImage(NSButton *button, NSToolbarItem *item)
     {
       if (WinUIThemeToolbarItemIsSpace(toolbarItem))
         {
-          [button setFrameSize: NSMakeSize(NSWidth([button frame]), WinUIThemeToolbarRowHeight)];
+          [button setFrameSize: NSMakeSize(NSWidth([button frame]), WinUIThemeToolbarRowHeightFor(toolbar))];
         }
       else
         {
           WinUIThemeToolbarApplyImage(button, toolbarItem);
           [button setFont: WinUIThemeToolbarLabelFont(toolbar)];
+          /* In the menu bar's row (#91) an icon without its label, or a
+             label alone where there's no icon. */
+          if (WinUIThemeToolbarIsInMenuBar(toolbar) && [toolbar displayMode] != NSToolbarDisplayModeLabelOnly)
+            {
+              [button setImagePosition: ([toolbarItem image] != nil) ? NSImageOnly : NSNoImage];
+            }
           [button setFrameSize: NSMakeSize(WinUIThemeToolbarContentSize(toolbarItem).width
                                              + 2.0 * WinUIThemeToolbarSpacing,
                                            WinUIThemeToolbarItemHeight(toolbarItem))];
@@ -576,8 +728,7 @@ WinUIThemeToolbarApplyImage(NSButton *button, NSToolbarItem *item)
          AppBarButton's label is. The item's own tool tip wins. */
       if ([toolbarItem toolTip] == nil)
         {
-          [button setToolTip: ([toolbar displayMode] == NSToolbarDisplayModeIconOnly)
-                                ? [toolbarItem label] : nil];
+          [button setToolTip: WinUIThemeToolbarShowsLabels(toolbar) ? nil : [toolbarItem label]];
         }
     }
   /* The pressed state is the fill drawn below; GNUstep's own highlight
@@ -616,14 +767,25 @@ WinUIThemeToolbarApplyImage(NSButton *button, NSToolbarItem *item)
   if ([theme isKindOfClass: [WinUITheme class]] && [toolbarItem toolbar] != nil
       && WinUIThemeToolbarItemIsSpace(toolbarItem) == NO)
     {
+      NSRect fill = cellFrame;
+
+      /* In the menu bar's row, the row's line along the bottom stays. */
+      if (WinUIThemeToolbarIsInMenuBar([toolbarItem toolbar]))
+        {
+          fill.size.height -= 1.0;
+          if ([controlView isFlipped] == NO)
+            {
+              fill.origin.y += 1.0;
+            }
+        }
       if (WinUIThemeWindowShowsMica([controlView window]))
         {
-          NSRectFillUsingOperation(cellFrame, NSCompositeClear);
+          NSRectFillUsingOperation(fill, NSCompositeClear);
         }
       else
         {
-          [[theme toolbarBackgroundColor] set];
-          NSRectFill(cellFrame);
+          [[theme toolbarBackgroundColorForToolbar: [toolbarItem toolbar]] set];
+          NSRectFill(fill);
         }
     }
 
@@ -646,7 +808,7 @@ WinUIThemeToolbarApplyImage(NSButton *button, NSToolbarItem *item)
 
       if (pressed || hover)
         {
-          NSColor *background = [theme toolbarBackgroundColor];
+          NSColor *background = [theme toolbarBackgroundColorForToolbar: [toolbarItem toolbar]];
           NSColor *textColor = WinUIThemeColorFromTheme(theme, @"labelColor", [NSColor controlTextColor]);
 
           /* Over Mica the fill is WinUI's own, translucent. */

@@ -51,6 +51,14 @@ $configurationArguments = @{
   "large-text"    = @("--mode", "light", "-WinUIThemeTextScaleFactor", "150")
   # Compact metrics (#31), as apps with a main nib or Gorm file get them.
   "compact"       = @("--mode", "light", "-WinUIThemeMetrics", "compact")
+  # The gui drawing at 1.5, as on a 150% monitor with the DPI-aware carried
+  # backend (GSScaleFactor). The theme's metrics stay at 1.0 there, as a
+  # DPI-aware process's (WinUIThemeSystemDpi). Not in the default list:
+  # run it with -Configuration scaled-150, on the stock backend. With the
+  # carried one the forced factor contradicts its per-monitor DPI on a
+  # 100% monitor (dpi-per-monitor-aware and the caption hit tests fail);
+  # there, set the monitor itself to 150% instead.
+  "scaled-150"    = @("--mode", "light", "-GSScaleFactor", "1.5")
   "dusk"          = @("--mode", "light", "--high-contrast", "yes", "--contrast-theme", "dusk")
   "desert"        = @("--mode", "light", "--high-contrast", "yes", "--contrast-theme", "desert")
 }

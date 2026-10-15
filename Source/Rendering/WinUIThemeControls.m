@@ -23,6 +23,8 @@
 #import "../Settings/WinUIThemeMetrics.h"
 #import "../Settings/WinUIThemeSettings.h"
 
+#import <objc/runtime.h>
+
 @interface NSCell (WinUIThemeTextDrawingPrivate)
 - (NSDictionary *) _nonAutoreleasedTypingAttributes;
 - (BOOL) _shouldShortenStringForRect: (NSRect)titleRect
@@ -814,6 +816,32 @@ WinUIThemeDrawProgressRing(WinUITheme *theme, NSRect bounds, NSColor *color,
   [arc stroke];
 }
 
+/* Paused and error progress (#105), WinUI's ProgressBar ShowPaused and
+   ShowError, which NSProgressIndicator lacks. An app sets them with
+   -setGSThemeState: (@"paused", @"error" or nil), a theme-neutral name
+   any theme may implement; apps ask -respondsToSelector: first, as other
+   themes and AppKit don't have it. Kept with the indicator. */
+static char WinUIThemeProgressStateKey;
+
+@implementation NSProgressIndicator (WinUIThemeProgressState)
+
+- (void) setGSThemeState: (NSString *)state
+{
+  if ([state isEqualToString: @"paused"] == NO && [state isEqualToString: @"error"] == NO)
+    {
+      state = nil;
+    }
+  objc_setAssociatedObject(self, &WinUIThemeProgressStateKey, state, OBJC_ASSOCIATION_COPY_NONATOMIC);
+  [self setNeedsDisplay: YES];
+}
+
+- (NSString *) GSThemeState
+{
+  return objc_getAssociatedObject(self, &WinUIThemeProgressStateKey);
+}
+
+@end
+
 @implementation WinUITheme (Controls)
 
 - (void) setKeyEquivalent: (NSString *)key
@@ -1316,7 +1344,11 @@ WinUIThemeSwitchOnAmount(NSControlStateValue value)
 /* WinUI's ProgressBar (#42): a 1px track line in ControlStrongStroke under
    a 3px rounded accent bar, without the bezel. Indeterminate, two accent
    segments slide across, timed by the clock rather than the redraw count
-   so they move evenly. The spinning style is a ProgressRing. */
+   so they move evenly. The spinning style is a ProgressRing. Paused,
+   the bar is SystemFillColorCaution, in error SystemFillColorCritical;
+   an indeterminate bar then stops and fills the track, as WinUI's
+   IndeterminatePaused and IndeterminateError states do. A ProgressRing
+   has neither state. */
 - (void) drawProgressIndicator: (NSProgressIndicator *)progress
                     withBounds: (NSRect)bounds
                       withClip: (NSRect)rect
@@ -1331,6 +1363,8 @@ WinUIThemeSwitchOnAmount(NSControlStateValue value)
   NSRect barArea = NSIntegralRect(bounds);
   CGFloat thickness = MIN(3.0, vertical ? NSWidth(barArea) : NSHeight(barArea));
   NSRect trackLine;
+  NSString *state = [progress GSThemeState];
+  BOOL indeterminate = [progress isIndeterminate];
 
   (void)rect;
   (void)count;
@@ -1338,8 +1372,17 @@ WinUIThemeSwitchOnAmount(NSControlStateValue value)
 
   if ([progress style] == NSProgressIndicatorSpinningStyle)
     {
-      WinUIThemeDrawProgressRing(self, bounds, bar, [progress isIndeterminate], fraction);
+      WinUIThemeDrawProgressRing(self, bounds, bar, indeterminate, fraction);
       return;
+    }
+  if (state != nil)
+    {
+      bar = WinUIThemeStatusColor(self, [state isEqualToString: @"error"], enabled, bar);
+      if (indeterminate)
+        {
+          indeterminate = NO;
+          fraction = 1.0;
+        }
     }
 
   /* The bar, centred across the control; the track line through its middle. */
@@ -1358,7 +1401,7 @@ WinUIThemeSwitchOnAmount(NSControlStateValue value)
   [track set];
   NSRectFill(trackLine);
 
-  if ([progress isIndeterminate])
+  if (indeterminate)
     {
       double t = fmod([NSDate timeIntervalSinceReferenceDate], 2.0) / 2.0;
       CGFloat length = vertical ? NSHeight(barArea) : NSWidth(barArea);
@@ -1412,6 +1455,64 @@ WinUIThemeSwitchOnAmount(NSControlStateValue value)
     }
 }
 
+/* Tick marks (#105), which libs-gui keeps (-setNumberOfTickMarks:,
+   -setTickMarkPosition:) but never draws: WinUI's TickBar, 1px marks
+   4px long in SliderTickBarFill (the track's colour), 4px out from the
+   track on the side the slider gives, where the thumb's centre is at each
+   tick's value. The thumb, drawn after, covers the one under it. */
+static void
+WinUIThemeDrawSliderTicks(WinUITheme *theme, NSSliderCell *cell, NSRect rect,
+                          NSRect trackRect, BOOL horizontal, BOOL flipped)
+{
+  NSInteger count = [cell numberOfTickMarks];
+  CGFloat scale = MAX(1.0, [[theme settings] desktopScaleFactor]);
+  CGFloat length = round(4.0 * scale);
+  CGFloat gap = round(4.0 * scale);
+  CGFloat knob = [cell knobThickness];
+  double minValue = [cell minValue];
+  double range = [cell maxValue] - minValue;
+  /* Below, or right of a vertical slider; above, or left. */
+  BOOL after = ([cell tickMarkPosition] == NSTickMarkBelow);
+  NSColor *color = nil;
+  NSInteger index;
+
+  if (count <= 0 || range <= 0.0)
+    {
+      return;
+    }
+  WinUIThemeRangeColors(theme, WinUIThemeControlEnabled(cell), &color, NULL, NULL, NULL, NULL);
+  [color set];
+  for (index = 0; index < count; index++)
+    {
+      double fraction = ([cell tickMarkValueAtIndex: index] - minValue) / range;
+      NSRect mark;
+
+      if (horizontal)
+        {
+          CGFloat x = floor(NSMinX(rect) + knob / 2.0 + (NSWidth(rect) - knob) * fraction);
+          /* Below is down the screen: up the y axis when flipped. */
+          BOOL down = (after != flipped);
+          CGFloat y = down ? NSMinY(trackRect) - gap - length : NSMaxY(trackRect) + gap;
+
+          mark = NSMakeRect(x, y, 1.0, length);
+        }
+      else
+        {
+          CGFloat y;
+
+          /* The knob runs the other way in a flipped view (-knobRectFlipped:). */
+          if (flipped)
+            {
+              fraction = 1.0 - fraction;
+            }
+          y = floor(NSMinY(rect) + knob / 2.0 + (NSHeight(rect) - knob) * fraction);
+          mark = NSMakeRect(after ? NSMaxX(trackRect) + gap : NSMinX(trackRect) - gap - length,
+                            y, length, 1.0);
+        }
+      NSRectFill(mark);
+    }
+}
+
 /* WinUI's Slider (#41): a 4px track in ControlStrongFill, the value part
    in the accent, under the thumb. */
 - (void) drawSliderBorderAndBackground: (NSBorderType)aType
@@ -1459,6 +1560,8 @@ WinUIThemeSwitchOnAmount(NSControlStateValue value)
       [sliderCell setKnobThickness: thumb];
     }
   knobRect = [sliderCell knobRectFlipped: flipped];
+  /* From the track as it's drawn (-drawSliderBorderAndBackground:...). */
+  WinUIThemeDrawSliderTicks(self, sliderCell, rect, NSIntegralRect(trackRect), horizontal, flipped);
 
   if (horizontal)
     {

@@ -113,6 +113,54 @@ QuirkProbeRender(NSView *view)
   NSBitmapImageRep *rep = [view bitmapImageRepForCachingDisplayInRect: bounds];
 
   [view cacheDisplayInRect: bounds toBitmapImageRep: rep];
+  /* At a fractional window scale (GSScaleFactor 1.5) the backing store
+     read leaves a few rows along the top and columns along the right
+     transparent: the copy is a few pixels short. They take the nearest
+     drawn row or column, so checks see the window there, not black. */
+  if ([[view window] userSpaceScaleFactor] != 1.0 && [rep hasAlpha])
+    {
+      NSInteger width = [rep pixelsWide];
+      NSInteger height = [rep pixelsHigh];
+      NSInteger top = 0, right = width - 1;
+      NSInteger x, y;
+      NSUInteger pixel[5];
+
+      while (top < height / 4 && [[rep colorAtX: width / 2 y: top] alphaComponent] == 0.0
+             && [[rep colorAtX: 1 y: top] alphaComponent] == 0.0)
+        {
+          top++;
+        }
+      while (right > width * 3 / 4 && [[rep colorAtX: right y: height / 2] alphaComponent] == 0.0
+             && [[rep colorAtX: right y: height - 2] alphaComponent] == 0.0)
+        {
+          right--;
+        }
+      /* Wider than the read's few pixels, it's drawn that way (Mica). */
+      if (top > 6)
+        {
+          top = 0;
+        }
+      if (width - 1 - right > 6)
+        {
+          right = width - 1;
+        }
+      for (y = 0; y < top; y++)
+        {
+          for (x = 0; x < width; x++)
+            {
+              [rep getPixel: pixel atX: x y: top];
+              [rep setPixel: pixel atX: x y: y];
+            }
+        }
+      for (x = right + 1; x < width; x++)
+        {
+          for (y = 0; y < height; y++)
+            {
+              [rep getPixel: pixel atX: right y: y];
+              [rep setPixel: pixel atX: x y: y];
+            }
+        }
+    }
   return rep;
 }
 
@@ -163,6 +211,22 @@ QuirkProbeToolbarSymbolicImage(void)
 }
 
 /* Device pixels per point in a render of `view`. */
+/* NSTextAlignment's centre and right as the gui running the probe numbers
+   them: libs-gui after 0.32 numbers them as AppKit does (NSParagraphStyle's
+   version 4), so the constants the probe was compiled with from 0.32's
+   headers mean the other one there. */
+static NSTextAlignment
+QuirkProbeCenterAlignment(void)
+{
+  return ([NSParagraphStyle version] >= 4) ? 1 : 2;
+}
+
+static NSTextAlignment
+QuirkProbeRightAlignment(void)
+{
+  return ([NSParagraphStyle version] >= 4) ? 2 : 1;
+}
+
 static CGFloat
 QuirkProbeScale(NSBitmapImageRep *rep, NSView *view)
 {
@@ -369,6 +433,11 @@ QuirkProbeModuleOfAddress(void *address)
 - (void) positionWithComboBoxCell: (NSComboBoxCell *)comboBoxCell;
 @end
 
+/* libs-gui's toolbar item view, private. */
+@interface NSToolbarItem (QuirkProbeToolbar)
+- (NSView *) _backView;
+@end
+
 @interface NSView (QuirkProbeTabBar)
 - (NSUInteger) numberOfTabs;
 - (NSRect) rectForTabAtIndex: (NSUInteger)index;
@@ -490,6 +559,8 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkToolbarSeparator;
 - (void) checkDecorationFitsTallWindow;
 - (void) checkToolbarIconSize;
+- (void) checkToolbarInMenuBar;
+- (void) checkToolbarFlexibleSpaceScaled;
 - (void) checkScrollerEdge;
 - (void) checkTextAlignment;
 - (void) checkTableHeader;
@@ -509,7 +580,9 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkSizeToFit;
 - (void) checkTypography;
 - (void) checkSlider;
+- (void) checkSliderTicks;
 - (void) checkProgress;
+- (void) checkProgressStates;
 - (void) checkLevelIndicator;
 - (void) checkDatePicker;
 - (void) checkBrowser;
@@ -560,6 +633,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkPopupShadow: (NSWindow *)menuWindow;
 - (void) checkMenuBarKeyboard: (NSWindow *)window;
 - (void) checkMenuBarOverflow: (NSWindow *)window;
+- (void) checkMenuStyleMore: (NSWindow *)window;
 - (void) checkThemeSwitchRestoresMethods;
 - (void) finish;
 @end
@@ -1170,11 +1244,18 @@ static NSRect QuirkProbeOpenListRow;
 
 - (NSArray *) toolbarAllowedItemIdentifiers: (NSToolbar *)toolbar
 {
-  return [NSArray arrayWithObjects: QuirkProbeImageItem, NSToolbarSeparatorItemIdentifier, nil];
+  return [NSArray arrayWithObjects: QuirkProbeImageItem, NSToolbarSeparatorItemIdentifier,
+                                    NSToolbarFlexibleSpaceItemIdentifier, nil];
 }
 
 - (NSArray *) toolbarDefaultItemIdentifiers: (NSToolbar *)toolbar
 {
+  if ([[toolbar identifier] isEqualToString: @"QuirkProbeMenuRowToolbar"]
+      || [[toolbar identifier] isEqualToString: @"QuirkProbeFlexibleToolbar"])
+    {
+      return [NSArray arrayWithObjects: QuirkProbeImageItem, NSToolbarFlexibleSpaceItemIdentifier,
+                                        QuirkProbeImageItem, nil];
+    }
   if ([[toolbar identifier] isEqualToString: @"QuirkProbeSeparatorToolbar"])
     {
       return [NSArray arrayWithObjects: QuirkProbeImageItem, NSToolbarSeparatorItemIdentifier,
@@ -1678,6 +1759,354 @@ QuirkProbeDarkest(NSBitmapImageRep *rep)
     [item setAction: @selector(toolbarItemClicked:)];
   }
   [window setToolbar: nil];
+  [window orderOut: nil];
+}
+
+/* A flexible space at a window scale other than 1: libs-gui
+   gives it the rest of the toolbar's width, then rounds its frame to
+   device pixels (-centerScanRect:), which can take it past the toolbar's
+   width by a fraction of a point. The item after it then failed
+   libs-gui's "does it fit" test and went into the ">>" menu with the row
+   half empty (ScreenshotTool's Copy at 125% and 150% with the carried,
+   DPI-aware backend). Tried at several widths, GSScaleFactor 1.5. */
+- (void) checkToolbarFlexibleSpaceScaled
+{
+  NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+  NSWindow *window = nil;
+  NSToolbar *toolbar = nil;
+  NSMutableArray *clipped = [NSMutableArray array];
+  Class markClass = NSClassFromString(@"GSToolbarClippedItemsButton");
+  CGFloat width;
+
+  [defaults setObject: @"1.5" forKey: @"GSScaleFactor"];
+  window = [[NSWindow alloc] initWithContentRect: NSMakeRect(300, 300, 400, 160)
+                                       styleMask: (NSTitledWindowMask | NSClosableWindowMask
+                                                   | NSResizableWindowMask)
+                                         backing: NSBackingStoreBuffered
+                                           defer: NO];
+  [window setTitle: @"QuirkProbe Scaled Flexible Space"];
+  [window setReleasedWhenClosed: NO];
+  [_windows addObject: window];
+  RELEASE(window);
+  toolbar = [[NSToolbar alloc] initWithIdentifier: @"QuirkProbeFlexibleToolbar"];
+  [toolbar setDelegate: self];
+  [toolbar setDisplayMode: NSToolbarDisplayModeIconOnly];
+  [window setToolbar: toolbar];
+  RELEASE(toolbar);
+  [window orderFront: nil];
+  if (fabs([window userSpaceScaleFactor] - 1.5) > 0.01
+      || QuirkProbeFindViewOfClass([[window contentView] superview], NSClassFromString(@"GSToolbarView")) == nil)
+    {
+      /* A per-monitor DPI aware backend takes the monitor's scale. */
+      [self skip: @"toolbar-flexible-space-scaled" detail: [NSString stringWithFormat:
+        @"the window draws at %.2f, not the 1.5 asked (the backend scales by the monitor), or has no toolbar view",
+        [window userSpaceScaleFactor]]];
+      [window setToolbar: nil];
+      [window orderOut: nil];
+      [defaults removeObjectForKey: @"GSScaleFactor"];
+      return;
+    }
+  for (width = 400.0; width < 440.0; width += 1.0)
+    {
+      NSView *toolbarView = nil;
+      NSEnumerator *enumerator = nil;
+      NSView *subview = nil;
+
+      [window setContentSize: NSMakeSize(width, 160)];
+      [window display];
+      toolbarView = QuirkProbeFindViewOfClass([[window contentView] superview],
+                                              NSClassFromString(@"GSToolbarView"));
+      enumerator = [[toolbarView subviews] objectEnumerator];
+      while ((subview = [enumerator nextObject]) != nil)
+        {
+          if (markClass != Nil && [subview isKindOfClass: markClass])
+            {
+              [clipped addObject: [NSString stringWithFormat: @"%.0f", width]];
+            }
+        }
+    }
+  [window setToolbar: nil];
+  [window orderOut: nil];
+  [defaults removeObjectForKey: @"GSScaleFactor"];
+  if ([clipped count] == 0)
+    {
+      [self pass: @"toolbar-flexible-space-scaled" detail:
+        @"at 1.5, the item after a flexible space stayed in the row at 40 window widths"];
+    }
+  else
+    {
+      [self fail: @"toolbar-flexible-space-scaled" detail: [NSString stringWithFormat:
+        @"at 1.5, the last item went into >> at widths %@ (of 40 tried)",
+        [clipped componentsJoinedByString: @", "]]];
+    }
+}
+
+/* Single-row chrome (#91): with GSThemeToolbarInMenuBar the toolbar
+   shares the menu bar's row, the menu titles first, then the items, the
+   flexible space putting the last item at the row's end; icon-only 32pt
+   buttons named by tool tips; the content takes the toolbar's row back
+   and keeps its size. Hiding the toolbar leaves the menu bar the row; the
+   setting turned off puts the toolbar back in a row of its own with the
+   window's frame kept, as a window of an app that doesn't declare it
+   has. */
+- (void) checkToolbarInMenuBar
+{
+  NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+  NSWindow *window = [self windowWithFrame: NSMakeRect(300, 300, 520, 200)
+                                     title: @"QuirkProbe Toolbar In Menu Bar"];
+  NSMenu *menu = AUTORELEASE([[NSMenu alloc] initWithTitle: @"QuirkProbe"]);
+  NSToolbar *toolbar = [[NSToolbar alloc] initWithIdentifier: @"QuirkProbeMenuRowToolbar"];
+  NSMutableArray *problems = [NSMutableArray array];
+  NSView *decoration = nil;
+  NSView *toolbarView = nil;
+  NSMenuView *bar = nil;
+  NSToolbarItem *first = nil;
+  NSToolbarItem *last = nil;
+  NSRect barFrame, toolbarFrame, firstFrame, lastFrame, contentFrame;
+  NSRect windowFrame;
+  CGFloat contentHeight;
+  CGFloat menuHeight;
+
+  [defaults setBool: YES forKey: @"GSThemeToolbarInMenuBar"];
+  [menu addItemWithTitle: @"File" action: NULL keyEquivalent: @""];
+  [menu addItemWithTitle: @"Edit" action: NULL keyEquivalent: @""];
+  [menu addItemWithTitle: @"View" action: NULL keyEquivalent: @""];
+  [toolbar setDelegate: self];
+  [toolbar setDisplayMode: NSToolbarDisplayModeIconAndLabel];
+  /* As an app usually has it: the toolbar first, the menu bar when the
+     window first becomes key. */
+  [window setToolbar: toolbar];
+  RELEASE(toolbar);
+  [window orderFront: nil];
+  contentHeight = NSHeight([[window contentView] frame]);
+  [window setMenu: menu];
+  [window display];
+  QuirkProbeDispatchEvents(0.2);
+
+  decoration = [[window contentView] superview];
+  toolbarView = QuirkProbeFindViewOfClass(decoration, NSClassFromString(@"GSToolbarView"));
+  bar = (NSMenuView *)QuirkProbeFindViewOfClass(decoration, [NSMenuView class]);
+  if (toolbarView == nil || bar == nil || [[toolbar items] count] < 3)
+    {
+      [self skip: @"toolbar-in-menu-bar" detail: @"no toolbar view, menu bar or items"];
+      [self skip: @"toolbar-in-menu-bar-off" detail: @"no toolbar view, menu bar or items"];
+      [defaults removeObjectForKey: @"GSThemeToolbarInMenuBar"];
+      [window setToolbar: nil];
+      [window setMenu: nil];
+      [window orderOut: nil];
+      return;
+    }
+  menuHeight = [[GSTheme theme] menuHeightForWindow: window];
+  first = [[toolbar items] objectAtIndex: 0];
+  last = [[toolbar items] lastObject];
+  barFrame = [decoration convertRect: [bar bounds] fromView: bar];
+  toolbarFrame = [decoration convertRect: [toolbarView bounds] fromView: toolbarView];
+  firstFrame = [decoration convertRect: [[first _backView] bounds] fromView: [first _backView]];
+  lastFrame = [decoration convertRect: [[last _backView] bounds] fromView: [last _backView]];
+  contentFrame = [decoration convertRect: [[window contentView] bounds] fromView: [window contentView]];
+
+  if (fabs(NSMinY(toolbarFrame) - NSMinY(barFrame)) > 0.5 || fabs(NSHeight(toolbarFrame) - menuHeight) > 0.5)
+    {
+      [problems addObject: [NSString stringWithFormat: @"the toolbar %@ isn't in the menu bar's row %@",
+                                                       NSStringFromRect(toolbarFrame), NSStringFromRect(barFrame)]];
+    }
+  if (NSMaxX(barFrame) > NSMinX(firstFrame) + 0.5 || NSMinX(firstFrame) > NSMaxX(barFrame) + 40.0)
+    {
+      [problems addObject: [NSString stringWithFormat: @"the first item starts at %.0f, the menus end at %.0f",
+                                                       NSMinX(firstFrame), NSMaxX(barFrame)]];
+    }
+  if (fabs(NSMaxX(lastFrame) - NSMaxX(toolbarFrame)) > 4.0)
+    {
+      [problems addObject: [NSString stringWithFormat: @"the last item ends at %.0f, the row at %.0f",
+                                                       NSMaxX(lastFrame), NSMaxX(toolbarFrame)]];
+    }
+  if (fabs(NSHeight(firstFrame) - menuHeight) > 0.5 || NSWidth(firstFrame) > 40.0)
+    {
+      [problems addObject: [NSString stringWithFormat: @"an item is %.0fx%.0f, not a %.0fpt icon button",
+                                                       NSWidth(firstFrame), NSHeight(firstFrame), menuHeight]];
+    }
+  {
+    NSView *button = QuirkProbeFindViewOfClass([first _backView], NSClassFromString(@"GSToolbarButton"));
+
+    if (button == nil)
+      {
+        button = [first _backView];
+      }
+    if ([[button toolTip] isEqualToString: [first label]] == NO)
+      {
+        [problems addObject: [NSString stringWithFormat: @"the button's tool tip is %@, not its label",
+                                                         [button toolTip]]];
+      }
+  }
+  if (fabs(NSMaxY(contentFrame) - NSMinY(barFrame)) > 1.5)
+    {
+      [problems addObject: [NSString stringWithFormat: @"the content's top is %.0f, the row's foot %.0f",
+                                                       NSMaxY(contentFrame), NSMinY(barFrame)]];
+    }
+  if (fabs(NSHeight(contentFrame) - contentHeight) > 0.5)
+    {
+      [problems addObject: [NSString stringWithFormat: @"the content is %.0fpt high, %.0fpt before the menu bar",
+                                                       NSHeight(contentFrame), contentHeight]];
+    }
+  /* One background: the toolbar's empty middle as the menu bar's end. */
+  {
+    NSBitmapImageRep *rep = nil;
+    CGFloat scale;
+    NSUInteger r1, g1, b1, r2, g2, b2;
+    NSInteger y;
+
+    [decoration display];
+    rep = QuirkProbeRender(decoration);
+    scale = QuirkProbeScale(rep, decoration);
+    y = (NSInteger)((NSHeight([decoration bounds]) - NSMidY(barFrame)) * scale);
+    if (QuirkProbePixel(rep, (NSInteger)((NSMaxX(barFrame) - 2.0) * scale), y, &r1, &g1, &b1)
+        && QuirkProbePixel(rep, (NSInteger)((NSMaxX(firstFrame) + NSMinX(lastFrame)) / 2.0 * scale), y,
+                           &r2, &g2, &b2)
+        && (labs((long)r1 - (long)r2) > 2 || labs((long)g1 - (long)g2) > 2 || labs((long)b1 - (long)b2) > 2))
+      {
+        [problems addObject: [NSString stringWithFormat: @"the row's background is %lu,%lu,%lu under the menus, %lu,%lu,%lu under the toolbar",
+                                                         (unsigned long)r1, (unsigned long)g1, (unsigned long)b1,
+                                                         (unsigned long)r2, (unsigned long)g2, (unsigned long)b2]];
+      }
+    [self saveView: decoration named: @"toolbar-in-menu-bar"];
+  }
+
+  /* Hidden: the menu bar has the row; shown again, it's shared again. */
+  [window toggleToolbarShown: nil];
+  barFrame = [decoration convertRect: [bar bounds] fromView: bar];
+  contentFrame = [decoration convertRect: [[window contentView] bounds] fromView: [window contentView]];
+  if ([toolbarView superview] != nil || NSWidth(barFrame) < NSWidth([decoration bounds]) - 20.0
+      || fabs(NSHeight(contentFrame) - contentHeight) > 0.5)
+    {
+      [problems addObject: [NSString stringWithFormat: @"with the toolbar hidden the menu bar is %.0fpt wide, the content %.0fpt high",
+                                                       NSWidth(barFrame), NSHeight(contentFrame)]];
+    }
+  [window toggleToolbarShown: nil];
+  toolbarFrame = [decoration convertRect: [toolbarView bounds] fromView: toolbarView];
+  barFrame = [decoration convertRect: [bar bounds] fromView: bar];
+  if ([toolbarView superview] != decoration || fabs(NSMinY(toolbarFrame) - NSMinY(barFrame)) > 0.5)
+    {
+      [problems addObject: [NSString stringWithFormat: @"shown again, the toolbar is at %@, the menu bar %@",
+                                                       NSStringFromRect(toolbarFrame), NSStringFromRect(barFrame)]];
+    }
+  /* Too narrow for both: the toolbar keeps a button and its ">>", and
+     the menus fold into their "..." (#77) instead. */
+  windowFrame = [window frame];
+  [window setFrame: NSMakeRect(NSMinX(windowFrame), NSMinY(windowFrame), 180, NSHeight(windowFrame))
+           display: YES];
+  toolbarFrame = [decoration convertRect: [toolbarView bounds] fromView: toolbarView];
+  if (NSWidth(toolbarFrame) < 59.5 || NSIsEmptyRect([bar rectOfItemAtIndex: 2]) == NO)
+    {
+      [problems addObject: [NSString stringWithFormat: @"180pt wide, the toolbar is %.0fpt and View's title at %@",
+                                                       NSWidth(toolbarFrame),
+                                                       NSStringFromRect([bar rectOfItemAtIndex: 2])]];
+    }
+  [window setFrame: windowFrame display: YES];
+  toolbarFrame = [decoration convertRect: [toolbarView bounds] fromView: toolbarView];
+  barFrame = [decoration convertRect: [bar bounds] fromView: bar];
+  if ([problems count] == 0)
+    {
+      [self pass: @"toolbar-in-menu-bar" detail: [NSString stringWithFormat:
+        @"one %.0fpt row: menus to %.0f, items from %.0f to %.0f of %.0f; the content kept %.0fpt",
+        menuHeight, NSMaxX(barFrame), NSMinX(firstFrame), NSMaxX(lastFrame), NSMaxX(toolbarFrame), contentHeight]];
+    }
+  else
+    {
+      [self fail: @"toolbar-in-menu-bar" detail: [problems componentsJoinedByString: @"; "]];
+    }
+
+  /* Off: a row of its own under the menu bar, the window's frame kept. */
+  [problems removeAllObjects];
+  windowFrame = [window frame];
+  [defaults setBool: NO forKey: @"GSThemeToolbarInMenuBar"];
+  [[NSNotificationCenter defaultCenter] postNotificationName: NSUserDefaultsDidChangeNotification
+                                                      object: defaults];
+  QuirkProbeDispatchEvents(0.2);
+  barFrame = [decoration convertRect: [bar bounds] fromView: bar];
+  toolbarFrame = [decoration convertRect: [toolbarView bounds] fromView: toolbarView];
+  contentFrame = [decoration convertRect: [[window contentView] bounds] fromView: [window contentView]];
+  if (fabs(NSMaxY(toolbarFrame) - NSMinY(barFrame)) > 1.5 || NSHeight(toolbarFrame) < 40.0
+      || fabs(NSMaxY(contentFrame) - NSMinY(toolbarFrame)) > 1.5)
+    {
+      [problems addObject: [NSString stringWithFormat: @"the toolbar %@ isn't a row under the menu bar %@ over the content %@",
+                                                       NSStringFromRect(toolbarFrame), NSStringFromRect(barFrame),
+                                                       NSStringFromRect(contentFrame)]];
+    }
+  if (NSEqualRects([window frame], windowFrame) == NO)
+    {
+      [problems addObject: [NSString stringWithFormat: @"the window moved from %@ to %@",
+                                                       NSStringFromRect(windowFrame), NSStringFromRect([window frame])]];
+    }
+  if (NSWidth(barFrame) < NSWidth([decoration bounds]) - 20.0)
+    {
+      [problems addObject: [NSString stringWithFormat: @"the menu bar is %.0fpt wide", NSWidth(barFrame)]];
+    }
+  if ([problems count] == 0)
+    {
+      [self pass: @"toolbar-in-menu-bar-off" detail: [NSString stringWithFormat:
+        @"a %.0fpt row of its own under the menu bar; the window kept its frame", NSHeight(toolbarFrame)]];
+    }
+  else
+    {
+      [self fail: @"toolbar-in-menu-bar-off" detail: [problems componentsJoinedByString: @"; "]];
+    }
+
+  /* WinUIThemeMenuStyle `more` (#130): the toolbar in the row whatever
+     GSThemeToolbarInMenuBar says, and the "..." button after it at the
+     row's end, as CommandBar's. */
+  [problems removeAllObjects];
+  windowFrame = [window frame];
+  [defaults removeObjectForKey: @"GSThemeToolbarInMenuBar"];
+  [defaults setObject: @"more" forKey: @"WinUIThemeMenuStyle"];
+  [[NSNotificationCenter defaultCenter] postNotificationName: NSUserDefaultsDidChangeNotification
+                                                      object: defaults];
+  QuirkProbeDispatchEvents(0.2);
+  [decoration display];
+  barFrame = [decoration convertRect: [bar bounds] fromView: bar];
+  toolbarFrame = [decoration convertRect: [toolbarView bounds] fromView: toolbarView];
+  if ([toolbarView superview] != decoration || fabs(NSMinY(toolbarFrame) - NSMinY(barFrame)) > 0.5)
+    {
+      [problems addObject: [NSString stringWithFormat: @"the toolbar %@ isn't in the menu bar's row %@",
+                                                       NSStringFromRect(toolbarFrame), NSStringFromRect(barFrame)]];
+    }
+  else
+    {
+      NSRect overflow = [bar respondsToSelector: @selector(winUIThemeOverflowRect)]
+        ? [decoration convertRect: [(id)bar winUIThemeOverflowRect] fromView: bar] : NSZeroRect;
+
+      if (NSIsEmptyRect(overflow) || NSMinX(overflow) < NSMaxX(toolbarFrame) - 0.5
+          || NSMaxX(overflow) < NSMaxX([decoration bounds]) - 20.0)
+        {
+          [problems addObject: [NSString stringWithFormat: @"the button %@ isn't after the toolbar %@ at the row's end",
+                                                           NSStringFromRect(overflow), NSStringFromRect(toolbarFrame)]];
+        }
+      if (NSWidth([bar rectOfItemAtIndex: 0]) > 0.0)
+        {
+          [problems addObject: @"the menu titles are still shown"];
+        }
+    }
+  if (NSEqualRects([window frame], windowFrame) == NO)
+    {
+      [problems addObject: [NSString stringWithFormat: @"the window moved from %@ to %@",
+                                                       NSStringFromRect(windowFrame), NSStringFromRect([window frame])]];
+    }
+  [self saveView: decoration named: @"menu-style-more-toolbar"];
+  if ([problems count] == 0)
+    {
+      [self pass: @"menu-style-more-toolbar" detail: [NSString stringWithFormat:
+        @"the toolbar from %.0f to %.0f, the button after it; the window kept its frame",
+        NSMinX(toolbarFrame), NSMaxX(toolbarFrame)]];
+    }
+  else
+    {
+      [self fail: @"menu-style-more-toolbar" detail: [problems componentsJoinedByString: @"; "]];
+    }
+  [defaults removeObjectForKey: @"WinUIThemeMenuStyle"];
+  [defaults removeObjectForKey: @"GSThemeToolbarInMenuBar"];
+  [[NSNotificationCenter defaultCenter] postNotificationName: NSUserDefaultsDidChangeNotification
+                                                      object: defaults];
+  [window setToolbar: nil];
+  [window setMenu: nil];
   [window orderOut: nil];
 }
 
@@ -3247,6 +3676,17 @@ QuirkProbeBrightnessAt(NSBitmapImageRep *rep, CGFloat scale, CGFloat x, CGFloat 
 
 /* The desktop scale the theme was given (--scale), by which it scales its
    metrics; the probe's drawing stays 1:1. */
+/* Whether the gui draws at a fractional scale (the scaled-150
+   configuration's GSScaleFactor), where a few checks have known
+   differences. */
+static BOOL
+QuirkProbeGuiScaledFractionally(void)
+{
+  CGFloat factor = [[NSUserDefaults standardUserDefaults] floatForKey: @"GSScaleFactor"];
+
+  return factor > 1.01 && factor != floor(factor);
+}
+
 static CGFloat
 QuirkProbeDesktopScale(void)
 {
@@ -3285,6 +3725,95 @@ QuirkProbeColumnCount(NSBitmapImageRep *rep, QuirkProbePixelTest test,
    and a 22px thumb centred on it around an accent dot, 10px at rest and
    8px pressed, as measured in WinUI 3 (Compare-Reference.ps1). The theme
    drew a plain circle on a 6px bordered track. */
+/* Slider tick marks (#105): libs-gui keeps -setNumberOfTickMarks: but
+   draws nothing. WinUI's TickBar: a 1px mark per tick, 4px long, 4px out
+   from the track on the side the slider asks for, under the thumb's
+   centre at each tick's value. Looked for in the columns where the
+   marks go, on both sides of the track, and between them. */
+- (void) checkSliderTicks
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(420, 300, 280, 80)
+                                     title: @"QuirkProbe Slider Ticks"];
+  NSSlider *slider = AUTORELEASE([[NSSlider alloc] initWithFrame: NSMakeRect(20, 24, 240, 32)]);
+  NSMutableArray *problems = [NSMutableArray array];
+  CGFloat desktop = QuirkProbeDesktopScale();
+  NSInteger pass;
+
+  [slider setMinValue: 0.0];
+  [slider setMaxValue: 100.0];
+  [slider setDoubleValue: 0.0];
+  [slider setNumberOfTickMarks: 5];
+  [[window contentView] addSubview: slider];
+  [window orderFront: nil];
+  for (pass = 0; pass < 2; pass++)
+    {
+      BOOL below = (pass == 0);
+      NSBitmapImageRep *rep = nil;
+      CGFloat scale, knob, width, middle, markY, otherY;
+      NSInteger background, index;
+
+      [slider setTickMarkPosition: below ? NSTickMarkBelow : NSTickMarkAbove];
+      [window display];
+      rep = QuirkProbeRender(slider);
+      scale = QuirkProbeScale(rep, slider);
+      knob = [[slider cell] knobThickness];
+      width = NSWidth([slider bounds]);
+      /* Points from the top; the track is centred. */
+      middle = NSHeight([slider bounds]) / 2.0;
+      markY = middle + (below ? 1.0 : -1.0) * 8.0 * desktop;
+      otherY = middle - (below ? 1.0 : -1.0) * 8.0 * desktop;
+      background = QuirkProbeBrightnessAt(rep, scale, 4.0, 2.0);
+      if (pass == 0)
+        {
+          [self saveView: slider named: @"slider-ticks"];
+        }
+      /* The first tick is under the thumb, at 0. */
+      for (index = 1; index < 5; index++)
+        {
+          CGFloat x = floor(knob / 2.0 + (width - knob) * index / 4.0) + 0.5;
+          CGFloat between = x - (width - knob) / 8.0;
+          NSInteger mark = background;
+          CGFloat dx;
+
+          /* Within 2pt: the theme's drawing rect may be a point in. */
+          for (dx = -2.0; dx <= 2.0; dx += 1.0)
+            {
+              NSInteger ink = QuirkProbeBrightnessAt(rep, scale, x + dx, markY);
+
+              if (labs((long)(ink - background)) > labs((long)(mark - background)))
+                {
+                  mark = ink;
+                }
+            }
+          NSInteger opposite = QuirkProbeBrightnessAt(rep, scale, x, otherY);
+          NSInteger gap = QuirkProbeBrightnessAt(rep, scale, between, markY);
+
+          if (labs((long)(mark - background)) < 60)
+            {
+              [problems addObject: [NSString stringWithFormat: @"%@: no mark at %.0fpt (%ld, background %ld)",
+                                                               below ? @"below" : @"above", x,
+                                                               (long)mark, (long)background]];
+            }
+          if (labs((long)(opposite - background)) >= 60 || labs((long)(gap - background)) >= 60)
+            {
+              [problems addObject: [NSString stringWithFormat: @"%@: ink across the track (%ld) or between marks (%ld) at %.0fpt",
+                                                               below ? @"below" : @"above",
+                                                               (long)opposite, (long)gap, x]];
+            }
+        }
+    }
+  if ([problems count] == 0)
+    {
+      [self pass: @"slider-ticks" detail: @"five marks below the track, then above it, at the thumb's positions"];
+    }
+  else
+    {
+      [self fail: @"slider-ticks" detail: [problems componentsJoinedByString: @"; "]];
+    }
+  [slider removeFromSuperview];
+  [window orderOut: nil];
+}
+
 - (void) checkSlider
 {
   NSWindow *window = [self windowWithFrame: NSMakeRect(420, 300, 280, 80)
@@ -3389,7 +3918,9 @@ QuirkProbeColumnCount(NSBitmapImageRep *rep, QuirkProbePixelTest test,
           @"a %.0f px thumb doesn't fit the probe's %ld px slider", expected, (long)height]];
       }
     else if (thumbTop >= 0 && trackTop >= 0
-        && fabs((thumbBottom - thumbTop + 1) - expected) <= 1.0 && fabs(offset) <= 0.5)
+        && fabs((thumbBottom - thumbTop + 1) - expected) <= 1.0
+        /* At a fractional scale the centres round to different pixels. */
+        && fabs(offset) <= ((scale == floor(scale)) ? 0.5 : 1.0))
       {
         [self pass: @"slider-thumb-size" detail: [NSString stringWithFormat:
           @"a %ld px thumb, centred on the track", (long)(thumbBottom - thumbTop + 1)]];
@@ -3407,6 +3938,93 @@ QuirkProbeColumnCount(NSBitmapImageRep *rep, QuirkProbePixelTest test,
 /* WinUI's ProgressBar and ProgressRing (issue #42): a 3px accent bar on a
    1px track line, not a bordered bezel; and an accent ring, hollow, not
    GNUstep's NeXT spinner. */
+/* Paused and error progress (#105): -setGSThemeState: @"paused" draws
+   the bar in SystemFillColorCaution, @"error" in SystemFillColorCritical,
+   and an indeterminate bar in error stops and fills its track, as WinUI's
+   ProgressBar ShowPaused and ShowError. Sampled in the bar's middle row
+   at a quarter and at seven eighths of its length. */
+- (void) checkProgressStates
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(420, 200, 300, 100)
+                                     title: @"QuirkProbe Progress States"];
+  NSProgressIndicator *bar = AUTORELEASE([[NSProgressIndicator alloc]
+    initWithFrame: NSMakeRect(20, 40, 200, 20)]);
+  BOOL dark = QuirkProbeHasArgument(@"--mode", @"dark");
+  NSUInteger caution[3] = { 0x9D, 0x5D, 0x00 };
+  NSUInteger critical[3] = { 0xC4, 0x2B, 0x1C };
+  NSMutableArray *problems = [NSMutableArray array];
+  NSInteger pass;
+
+  if (QuirkProbeHasArgument(@"--high-contrast", nil))
+    {
+      [self skip: @"progress-states" detail: @"high contrast keeps the highlight colour"];
+      return;
+    }
+  if ([bar respondsToSelector: @selector(setGSThemeState:)] == NO)
+    {
+      [self fail: @"progress-states" detail: @"NSProgressIndicator has no -setGSThemeState:"];
+      return;
+    }
+  if (dark)
+    {
+      caution[0] = 0xFC; caution[1] = 0xE1; caution[2] = 0x00;
+      critical[0] = 0xFF; critical[1] = 0x99; critical[2] = 0xA4;
+    }
+  [bar setMinValue: 0.0];
+  [bar setMaxValue: 100.0];
+  [bar setDoubleValue: 50.0];
+  [[window contentView] addSubview: bar];
+  [window orderFront: nil];
+  for (pass = 0; pass < 3; pass++)
+    {
+      NSString *names[3] = { @"paused", @"error", @"indeterminate error" };
+      NSUInteger *expected = (pass == 0) ? caution : critical;
+      NSBitmapImageRep *rep = nil;
+      CGFloat scale;
+      NSInteger y, index;
+      CGFloat xs[2] = { 50.0, 175.0 };
+
+      [bar setIndeterminate: (pass == 2)];
+      [bar performSelector: @selector(setGSThemeState:) withObject: (pass == 0) ? @"paused" : @"error"];
+      [window display];
+      rep = QuirkProbeRender(bar);
+      scale = QuirkProbeScale(rep, bar);
+      y = (NSInteger)(NSHeight([bar bounds]) / 2.0 * scale);
+      if (pass == 2)
+        {
+          [self saveView: bar named: @"progress-indeterminate-error"];
+        }
+      /* The second sample only where the bar reaches: a full bar. */
+      for (index = 0; index < ((pass == 2) ? 2 : 1); index++)
+        {
+          NSUInteger red = 0, green = 0, blue = 0;
+
+          QuirkProbePixel(rep, (NSInteger)(xs[index] * scale), y, &red, &green, &blue);
+          if (labs((long)red - (long)expected[0]) > 8 || labs((long)green - (long)expected[1]) > 8
+              || labs((long)blue - (long)expected[2]) > 8)
+            {
+              [problems addObject: [NSString stringWithFormat: @"%@: %lu,%lu,%lu at %.0fpt, not %lu,%lu,%lu",
+                                                               names[pass], (unsigned long)red, (unsigned long)green,
+                                                               (unsigned long)blue, xs[index],
+                                                               (unsigned long)expected[0], (unsigned long)expected[1],
+                                                               (unsigned long)expected[2]]];
+            }
+        }
+    }
+  [bar performSelector: @selector(setGSThemeState:) withObject: nil];
+  [bar setIndeterminate: NO];
+  if ([problems count] == 0)
+    {
+      [self pass: @"progress-states" detail: @"paused in the caution colour, error in the critical colour, an indeterminate bar in error full"];
+    }
+  else
+    {
+      [self fail: @"progress-states" detail: [problems componentsJoinedByString: @"; "]];
+    }
+  [bar removeFromSuperview];
+  [window orderOut: nil];
+}
+
 - (void) checkProgress
 {
   NSWindow *window = [self windowWithFrame: NSMakeRect(420, 200, 300, 100)
@@ -4610,7 +5228,7 @@ QuirkProbeColumnTitleProblem(NSBitmapImageRep *rep, NSRect pixels, CGFloat scale
       [label setCell: AUTORELEASE([titleCellClass new])];
     }
   [label setFont: [NSFont boldSystemFontOfSize: 0]];
-  [label setAlignment: NSCenterTextAlignment];
+  [label setAlignment: QuirkProbeCenterAlignment()];
   [label setDrawsBackground: YES];
   [label setEditable: NO];
   [label setTextColor: [NSColor windowFrameTextColor]];
@@ -4831,7 +5449,9 @@ QuirkProbeChannelDistance(NSBitmapImageRep *rep, NSInteger x, NSInteger y, NSInt
             otherRows++;
           }
       }
-    if ([thick dividerThickness] >= 6.0 && lineRows >= 1 && lineRows <= (NSInteger)ceil(scale) && otherRows == 0)
+    /* At a fractional scale a 1pt hairline covers part of a second row. */
+    if ([thick dividerThickness] >= 6.0 && lineRows >= 1 && lineRows <= (NSInteger)ceil(scale)
+        && otherRows <= ((scale == floor(scale)) ? 0 : 1))
       {
         [self pass: @"split-view-thick-divider" detail: [NSString stringWithFormat:
           @"a %ld px hairline across the %.0fpt divider, no dimple", (long)lineRows, [thick dividerThickness]]];
@@ -7909,16 +8529,28 @@ QuirkProbeDifferingPixels(NSBitmapImageRep *a, NSBitmapImageRep *b)
   return count;
 }
 
-/* Sends `window` a press and release of the left button at `point`. */
+/* Sends `window` a press and release of the left button at `point`, in
+   points from the window's corner: window coordinates are device pixels
+   when the gui draws at another scale (GSScaleFactor), where a press
+   meant to miss a button landed on it and its tracking loop waited for a
+   release the probe sends only afterwards. */
 static void
 QuirkProbeClickAt(NSWindow *window, NSPoint point)
 {
-  NSEvent *down = [NSEvent mouseEventWithType: NSLeftMouseDown location: point modifierFlags: 0
+  CGFloat factor = [window userSpaceScaleFactor];
+  NSEvent *down = nil;
+  NSEvent *up = nil;
+
+  if (factor > 0.0 && factor != 1.0)
+    {
+      point = NSMakePoint(point.x * factor, point.y * factor);
+    }
+  down = [NSEvent mouseEventWithType: NSLeftMouseDown location: point modifierFlags: 0
                                     timestamp: 0 windowNumber: [window windowNumber] context: nil
                                   eventNumber: 0 clickCount: 1 pressure: 1];
-  NSEvent *up = [NSEvent mouseEventWithType: NSLeftMouseUp location: point modifierFlags: 0
-                                  timestamp: 0 windowNumber: [window windowNumber] context: nil
-                                eventNumber: 0 clickCount: 1 pressure: 0];
+  up = [NSEvent mouseEventWithType: NSLeftMouseUp location: point modifierFlags: 0
+                     timestamp: 0 windowNumber: [window windowNumber] context: nil
+                   eventNumber: 0 clickCount: 1 pressure: 0];
 
   [NSApp sendEvent: down];
   [NSApp sendEvent: up];
@@ -8849,7 +9481,7 @@ QuirkProbeInkIn(NSBitmapImageRep *rep, NSRect area, NSInteger fill, NSInteger th
   [trailing setButtonType: NSSwitchButton];
   [trailing setTitle: @"Release when closed"];
   [trailing setImagePosition: NSImageRight];
-  [trailing setAlignment: NSRightTextAlignment];
+  [trailing setAlignment: QuirkProbeRightAlignment()];
   [trailing setState: NSOnState];
   [radio setButtonType: NSRadioButton];
   [radio setTitle: @"Buffered"];
@@ -9040,6 +9672,7 @@ QuirkProbeInkIn(NSBitmapImageRep *rep, NSRect area, NSInteger fill, NSInteger th
   [self checkMenuBarTitles: _lateWindow];
   [self checkMenuBarKeyboard: _lateWindow];
   [self checkMenuBarOverflow: _lateWindow];
+  [self checkMenuStyleMore: _lateWindow];
   [self checkWindowsMenuConventions];
   [self checkThemeSwitchRestoresMethods];
   [self finish];
@@ -9776,12 +10409,14 @@ static BOOL QuirkProbeMenuItemPicked = NO;
       [self fail: @"menu-bar-overflow-keyboard" detail: @"the theme has no menu bar overflow"];
       return;
     }
-  /* Room for the first title and the button (40pt), not the second title. */
+  /* Room for the first title and the button (40pt), not the second title.
+     The window's frame is in device pixels, the bar's in points. */
   {
     NSRect first = [bar rectOfItemAtIndex: 0];
+    CGFloat factor = [window userSpaceScaleFactor];
 
-    narrow.size.width = NSMaxX(first) + 2.0 * NSMinX(first) + 40.0
-      + (NSWidth(saved) - NSWidth([bar frame])) + 4.0;
+    narrow.size.width = (NSMaxX(first) + 2.0 * NSMinX(first) + 40.0 + 4.0) * factor
+      + (NSWidth(saved) - NSWidth([bar frame]) * factor);
   }
   [window setFrame: narrow display: YES];
   QuirkProbeDispatchEvents(0.2);
@@ -9934,6 +10569,124 @@ static BOOL QuirkProbeMenuItemPicked = NO;
     }
 }
 
+/* WinUIThemeMenuStyle `more` (#130): the bar shows only its "..." button
+   at its end, whose flyout holds every menu; Alt plus a menu's access key
+   opens the flyout and that menu in it. Set back to `menubar`, the titles
+   return. */
+- (void) checkMenuStyleMore: (NSWindow *)window
+{
+  NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+  NSMenuView *bar = (NSMenuView *)QuirkProbeFindViewOfClass([[window contentView] superview],
+                                                            [NSMenuView class]);
+  NSMenu *mainMenu = [NSApp mainMenu];
+  NSInteger count = [mainMenu numberOfItems];
+  NSMutableArray *problems = [NSMutableArray array];
+  NSString *escape = QuirkProbeKeyString(0x1b);
+  NSRect overflow;
+  NSInteger index;
+  NSInteger target = -1;
+  unichar key = 0;
+  NSArray *menus = nil;
+
+  if (bar == nil || [bar isHorizontal] == NO || count < 2
+      || [bar respondsToSelector: @selector(winUIThemeOverflowRect)] == NO)
+    {
+      [self skip: @"menu-style-more" detail: @"the window has no menu bar with an overflow"];
+      return;
+    }
+  [defaults setObject: @"more" forKey: @"WinUIThemeMenuStyle"];
+  [[NSNotificationCenter defaultCenter] postNotificationName: NSUserDefaultsDidChangeNotification
+                                                      object: defaults];
+  QuirkProbeDispatchEvents(0.2);
+  [window display];
+
+  overflow = [(id)bar winUIThemeOverflowRect];
+  for (index = 0; index < count; index++)
+    {
+      if (NSWidth([bar rectOfItemAtIndex: index]) > 0.0)
+        {
+          [problems addObject: [NSString stringWithFormat: @"title %ld is still shown", (long)index]];
+          break;
+        }
+    }
+  if (NSIsEmptyRect(overflow))
+    {
+      [problems addObject: @"the bar has no button"];
+    }
+  else if (NSMaxX(overflow) > NSMaxX([bar visibleRect]) + 0.5
+           || NSMaxX(overflow) < NSMaxX([bar visibleRect]) - 20.0)
+    {
+      [problems addObject: [NSString stringWithFormat: @"the button %@ isn't at the bar's end (%.0f)",
+                                                       NSStringFromRect(overflow), NSMaxX([bar visibleRect])]];
+    }
+  [self saveView: bar named: @"menu-style-more"];
+
+  /* Alt and the second menu's access key: the flyout, and that menu. */
+  for (index = 1; index < count && target < 0; index++)
+    {
+      NSString *title = [(NSMenuItem *)[mainMenu itemAtIndex: index] title];
+
+      if ([title length] > 0 && [(NSMenuItem *)[mainMenu itemAtIndex: index] hasSubmenu])
+        {
+          target = index;
+          key = [[title lowercaseString] characterAtIndex: 0];
+        }
+    }
+  if ([window isKeyWindow] && target > 0 && [problems count] == 0)
+    {
+      QuirkProbeSendKey(window, QuirkProbeKeyString(key), NSAlternateKeyMask);
+      menus = QuirkProbeSessionMenus(bar);
+      if ([menus count] != 2 || [[menus objectAtIndex: 0] numberOfItems] != count
+          /* The flyout's items are copies, so their submenus are too. */
+          || [[[menus objectAtIndex: 1] title] isEqualToString:
+                [[(NSMenuItem *)[mainMenu itemAtIndex: target] submenu] title]] == NO)
+        {
+          [problems addObject: [NSString stringWithFormat: @"Alt+%C opened %lu menus, not the flyout and %@",
+            key, (unsigned long)[menus count], [(NSMenuItem *)[mainMenu itemAtIndex: target] title]]];
+        }
+      else if ([[[[menus objectAtIndex: 0] menuRepresentation] window] isVisible] == NO)
+        {
+          [problems addObject: @"the flyout isn't shown"];
+        }
+      else
+        {
+          [self saveView: [[menus objectAtIndex: 0] menuRepresentation] named: @"menu-style-more-flyout"];
+        }
+      QuirkProbeSendKey(window, escape, 0);
+      QuirkProbeSendKey(window, escape, 0);
+      QuirkProbeSendKey(window, escape, 0);
+    }
+  else if ([problems count] == 0)
+    {
+      [problems addObject: @"the window isn't key, or no menu has a title"];
+    }
+
+  [defaults setObject: @"menubar" forKey: @"WinUIThemeMenuStyle"];
+  [[NSNotificationCenter defaultCenter] postNotificationName: NSUserDefaultsDidChangeNotification
+                                                      object: defaults];
+  QuirkProbeDispatchEvents(0.2);
+  if (NSIsEmptyRect([(id)bar winUIThemeOverflowRect]) == NO
+      || NSWidth([bar rectOfItemAtIndex: count - 1]) == 0.0)
+    {
+      [problems addObject: @"set back to menubar, the titles stay folded"];
+    }
+  [defaults removeObjectForKey: @"WinUIThemeMenuStyle"];
+  [[NSNotificationCenter defaultCenter] postNotificationName: NSUserDefaultsDidChangeNotification
+                                                      object: defaults];
+  QuirkProbeDispatchEvents(0.1);
+
+  if ([problems count] == 0)
+    {
+      [self pass: @"menu-style-more" detail: [NSString stringWithFormat:
+        @"the bar is its button at %@; Alt+%C opens the flyout and %@; menubar brings the titles back",
+        NSStringFromRect(overflow), key, [(NSMenuItem *)[mainMenu itemAtIndex: target] title]]];
+    }
+  else
+    {
+      [self fail: @"menu-style-more" detail: [problems componentsJoinedByString: @"; "]];
+    }
+}
+
 /* Pointer-over state as the theme's tracker gets it from a tracking
    rect, without moving the real pointer. */
 static void
@@ -10058,6 +10811,8 @@ QuirkProbeAnimates(NSView *view, void (*change)(NSView *, BOOL), NSString **deta
   CGFloat flyoutTarget = 0.0, flyoutStart = 0.0, flyoutEnd = 0.0;
   NSPanel *alert = nil;
   CGFloat alertOpening = -1.0, alertOpen = -1.0;
+  BOOL alertCovered = NO, alertUncovered = NO;
+  NSUInteger alertInk = 0;
   NSSwitch *toggle = nil;
   NSButton *checkbox = nil;
   NSString *detail = nil;
@@ -10143,6 +10898,11 @@ QuirkProbeAnimates(NSView *view, void (*change)(NSView *, BOOL), NSString **deta
     {
       [self pass: @"motion-check-draws-in" detail: detail];
     }
+  else if (QuirkProbeGuiScaledFractionally())
+    {
+      [self known: @"motion-check-draws-in" detail: [NSString stringWithFormat:
+        @"%@: at a fractional gui scale the box's antialiased corners differ: libs-gui redraws a non-opaque view over its old pixels (-setNeedsDisplay:), here once per frame, and a full redraw differs from both (the tick is complete)", detail]];
+    }
   else
     {
       [self fail: @"motion-check-draws-in" detail: detail];
@@ -10160,6 +10920,11 @@ QuirkProbeAnimates(NSView *view, void (*change)(NSView *, BOOL), NSString **deta
     if (QuirkProbeAnimatesBy(radio, QuirkProbeCheck, 16, &detail))
       {
         [self pass: @"motion-radio-dot-grows" detail: detail];
+      }
+    else if (QuirkProbeGuiScaledFractionally())
+      {
+        [self known: @"motion-radio-dot-grows" detail: [NSString stringWithFormat:
+          @"%@: at a fractional gui scale the ring's antialiased edge differs: libs-gui redraws a non-opaque view over its old pixels (-setNeedsDisplay:), here once per frame", detail]];
       }
     else
       {
@@ -10289,10 +11054,43 @@ QuirkProbeAnimates(NSView *view, void (*change)(NSView *, BOOL), NSString **deta
   alert = NSGetAlertPanel(@"QuirkProbe Motion", @"An alert fading in.", @"OK", nil, nil);
   if (alert != nil)
     {
+      Class scaleViewClass = NSClassFromString(@"WinUIThemeDialogScaleView");
+      NSView *cover = nil;
+
       [alert orderFront: nil];
       alertOpening = [alert alphaValue];
+      /* A few frames in: the scaled snapshot over the content, with the
+         alert's text in it. */
+      QuirkProbeDispatchEvents(0.06);
+      cover = (scaleViewClass != Nil)
+        ? QuirkProbeFindViewOfClass([[alert contentView] superview], scaleViewClass) : nil;
+      if (cover != nil)
+        {
+          NSBitmapImageRep *rep = QuirkProbeRender(cover);
+          NSUInteger r0 = 0, g0 = 0, b0 = 0;
+          NSInteger x, y;
+
+          /* Ink: far from the background, in any palette. */
+          alertCovered = YES;
+          QuirkProbePixel(rep, 2, 2, &r0, &g0, &b0);
+          for (y = 0; y < [rep pixelsHigh]; y++)
+            {
+              for (x = 0; x < [rep pixelsWide]; x++)
+                {
+                  NSUInteger r, g, b;
+
+                  if (QuirkProbePixel(rep, x, y, &r, &g, &b)
+                      && llabs((long long)(r + g + b) - (long long)(r0 + g0 + b0)) > 300)
+                    {
+                      alertInk++;
+                    }
+                }
+            }
+        }
       QuirkProbeDispatchEvents(0.3);
       alertOpen = [alert alphaValue];
+      alertUncovered = (scaleViewClass == Nil
+                        || QuirkProbeFindViewOfClass([[alert contentView] superview], scaleViewClass) == nil);
       [alert orderOut: nil];
       NSReleaseAlertPanel(alert);
     }
@@ -10318,6 +11116,23 @@ QuirkProbeAnimates(NSView *view, void (*change)(NSView *, BOOL), NSString **deta
     {
       [self fail: @"motion-dialog-fades-in" detail: [NSString stringWithFormat:
         @"an alert's alpha is %.2f opening, %.2f open", alertOpening, alertOpen]];
+    }
+
+  /* WinUI's ContentDialog also scales from 105% as it opens (#105): a
+     snapshot of the drawn content, scaled, over it while it opens, with
+     the alert's text (dark ink) in it; gone once it's open. */
+  if (alertCovered && alertInk >= 200 && alertUncovered)
+    {
+      [self pass: @"motion-dialog-scales" detail: [NSString stringWithFormat:
+        @"a scaled snapshot over the alert opening (%lu px of its text's ink), gone once open",
+        (unsigned long)alertInk]];
+    }
+  else
+    {
+      [self fail: @"motion-dialog-scales" detail: [NSString stringWithFormat:
+        @"opening: a scaled snapshot %@, %lu px of text ink; open: %@",
+        alertCovered ? @"over the content" : @"missing", (unsigned long)alertInk,
+        alertUncovered ? @"gone" : @"still there"]];
     }
 
   if (flyoutOpening < 0.5 && flyoutOpen == 1.0 && flyoutInstant == 1.0
@@ -10918,6 +11733,8 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkToolbarSeparator];
   [self checkDecorationFitsTallWindow];
   [self checkToolbarIconSize];
+  [self checkToolbarInMenuBar];
+  [self checkToolbarFlexibleSpaceScaled];
   [self checkScrollerEdge];
   [self checkTableHeader];
   [self checkTextAlignment];
@@ -10932,7 +11749,9 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkSizeToFit];
   [self checkTypography];
   [self checkSlider];
+  [self checkSliderTicks];
   [self checkProgress];
+  [self checkProgressStates];
   [self checkLevelIndicator];
   [self checkDatePicker];
   [self checkBrowser];

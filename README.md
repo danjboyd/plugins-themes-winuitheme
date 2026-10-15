@@ -1,15 +1,79 @@
 # GNUstep WinUI Theme
 
-`plugins-themes-winuitheme` is a GNUstep theme project that targets WinUI 3 as
-closely as practical while preserving GNUstep desktop application conventions.
+A GNUstep theme that makes ordinary GNUstep apps look and behave like
+WinUI 3 apps on Windows 11, without changing the apps. Document windows,
+menu bars, toolbars, inspectors, tables, dialogs and split views take
+WinUI's controls, colours, type, motion and title bar. The apps keep
+GNUstep's structure; this isn't an attempt to turn GNUstep into a XAML
+framework.
 
-The target is a Windows-native result for ordinary GNUstep desktop software:
-document windows, top menu bars, toolbars, inspectors, data views, dialogs, and
-split-window layouts.
+![ThemeDemo's controls page under WinUITheme, light and dark](Docs/Images/controls-light-dark.png)
 
-This repository is intentionally not trying to recreate the Windows Settings
-app shell or turn GNUstep into a XAML application framework. The visual target
-is WinUI 3 client-area parity with GNUstep structure intact.
+| | |
+| --- | --- |
+| ![Text input and an open pop-up list](Docs/Images/popup-open-light.png) | ![Tables and outlines](Docs/Images/data-views-dark.png) |
+| ![An alert, drawn as WinUI's ContentDialog](Docs/Images/alert-light.png) | ![The Dusk contrast theme](Docs/Images/controls-dusk.png) |
+
+**What it covers:**
+- WinUI 3's controls and type: Segoe UI Variable, 32px controls, the accent
+  colour, light and dark following Windows.
+- Windows' contrast themes, followed live.
+- The app's own WinUI title bar, Mica and DWM shadows.
+- WinUI's motion: hover fades, sliding menus, the switch knob, the
+  dialog scale-in.
+- Windows' own Open, Save, Print and Page Setup dialogs.
+- Per-monitor DPI, and single-row chrome (the toolbar in the menu bar's
+  row, as in Notepad and Paint).
+- Menus behind a "..." See more button instead of a menu bar, as Edge
+  and File Explorer have them (`WinUIThemeMenuStyle = more`).
+- Window tabs in the title bar, off by default for now.
+
+The theme measures within tolerance of a WinUI 3 reference app, page for
+page, in light and dark (`Tests/Scripts/Compare-Reference.ps1`).
+
+**Status: alpha.** Releases are `0.1.0-alphaN` pre-releases; see
+[`CHANGELOG.md`](./CHANGELOG.md). Windows only, built with MSYS2's
+CLANG64 GNUstep. It's in use in
+[ScreenshotTool](https://github.com/danjboyd/ScreenshotTool) and
+[ObjcMarkdown](https://github.com/danjboyd/ObjcMarkdown)'s Windows
+installers.
+
+## Install
+
+You need MSYS2's GNUstep in the CLANG64 environment
+(`pacman -S mingw-w64-clang-x86_64-gnustep-gui mingw-w64-clang-x86_64-gnustep-back`),
+with gnustep-gui 0.32 or later.
+
+1. Download `WinUITheme-<version>-msys2-clang64.zip` from the
+   [latest release](https://github.com/danjboyd/plugins-themes-winuitheme/releases).
+2. Unzip it and copy `WinUITheme.theme` into a GNUstep `Themes` directory:
+   for every user, MSYS2's (`C:\msys64\clang64\lib\GNUstep\Themes`); for
+   yourself, your own, in a CLANG64 shell:
+
+   ```sh
+   mkdir -p "$(gnustep-config --variable=GNUSTEP_USER_LIBRARY)/Themes"
+   cp -r WinUITheme.theme "$(gnustep-config --variable=GNUSTEP_USER_LIBRARY)/Themes/"
+   ```
+
+   Put it in one of them only: a copy in your own directory hides MSYS2's.
+3. Choose it, for every app:
+
+   ```sh
+   defaults write NSGlobalDomain GSTheme WinUITheme
+   ```
+
+   or for one app (`defaults write <App> GSTheme WinUITheme`), or for one
+   run (`openapp <App> -GSTheme WinUITheme`).
+4. For the WinUI title bar, shadows and sharp text on scaled displays,
+   install the carried libs-back too (see [Requirements](#requirements)).
+   The theme works without it, with Windows' own caption.
+
+**Shipping it with an app:** put `WinUITheme.theme` in the Themes
+directory your installer's `GNUstep.conf` names, make `GSTheme WinUITheme` one of
+the app's defaults, and ship the carried libs-back with it.
+Pin a release tag, not `main`. ScreenshotTool's MSI, built with
+[gnustep-packager](https://github.com/danjboyd/gnustep-packager), is a
+worked example.
 
 ## Requirements
 
@@ -41,79 +105,6 @@ is WinUI 3 client-area parity with GNUstep structure intact.
 
   Everything else in the theme works with a stock libs-back. Each change
   is also sent to GNUstep, and leaves `carry` once GNUstep releases it.
-
-## Current Status
-
-The repository now has the full phase 1-12 implementation scaffold in place:
-
-- theme settings, metrics, palette, and runtime defaults
-- shared drawing helpers and client-area control rendering
-- menu, data-view, and container rendering
-- native Windows file/print/page-setup integration
-- DWM-backed window integration
-- GNUstep `ThemeDemo` and WinUI 3 reference harnesses
-- variant-review and real-app validation scripts
-- release-readiness and backlog documentation
-
-Current blockers are release-gate items rather than missing implementation:
-
-- the screenshot corpus still needs a final manual freeze
-- `ObjcMarkdown` is not green enough yet to close the hard real-app gate
-
-## Key Documents
-
-- [Implementation Roadmap](./Docs/IMPLEMENTATION_ROADMAP.md)
-- [Windows Build Notes](./Docs/WINDOWS_BUILD.md)
-- [Surface Ownership Matrix](./Docs/SURFACE_OWNERSHIP_MATRIX.md)
-- [Harness Review Notes](./Docs/HARNESS_REVIEW.md)
-- [Upstream Boundaries](./Docs/UPSTREAM_BOUNDARIES.md)
-- [Variant And Accessibility Review](./Docs/VARIANT_AND_ACCESSIBILITY_REVIEW.md)
-- [ObjcMarkdown Validation](./Docs/OBJCMARKDOWN_VALIDATION.md)
-- [Release Readiness](./Docs/RELEASE_READINESS.md)
-- [Post-Release Backlog](./Docs/POST_RELEASE_BACKLOG.md)
-
-## Repository Layout
-
-```text
-Source/                    Theme implementation
-Source/Settings/           Settings and metrics model
-Source/Rendering/          Palette and future rendering code
-Source/Native/             Reserved for later Windows adapters
-Source/WindowTabbing/      Shared window tabbing code (vendored)
-Resources/                 Theme bundle metadata and future assets
-Examples/ThemeDemo/        GNUstep-side review harness
-Examples/Shared/PageContract/
-Reference/WinUI3ReferenceApp/
-Tests/Scripts/             Validation and capture helpers
-Docs/                      Roadmap and design notes
-```
-
-## Build
-
-Build the theme bundle:
-
-```sh
-make
-```
-
-Build and install the theme bundle on this Windows/MSYS2 machine:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File Scripts/Build-ThemeBundle.ps1
-powershell -ExecutionPolicy Bypass -File Scripts/Install-ThemeBundle.ps1
-```
-
-Build the GNUstep demo harness:
-
-```sh
-make -C Examples/ThemeDemo
-```
-
-Build the WinUI 3 reference harness:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File Reference/WinUI3ReferenceApp/build.ps1
-```
 
 ## Metrics for Gorm and Nib Apps
 
@@ -272,6 +263,80 @@ does a window in high contrast or with Windows' transparency effects
 off. An inactive window shows Mica's solid colour, as Windows draws it.
 `defaults write NSGlobalDomain WinUIThemeMica NO` turns it off.
 
+## Toolbar in the Menu Bar
+
+Notepad and Paint have one row under the title bar: the menus at its
+start, the commands after them. An app whose toolbar suits that (a few
+icons) declares it in its Info.plist:
+
+```
+GSThemeToolbarInMenuBar = YES;
+```
+
+A window with a menu bar then shows its toolbar in the menu bar's row
+(#91): the menu titles keep the room they need, the toolbar takes the
+rest, so items after a flexible space sit at the row's end. Items are
+icon-only 32pt buttons with 16pt icons, as a compact CommandBar's, their
+labels shown as tool tips; a label-only toolbar keeps its text buttons.
+When the row is too narrow, the toolbar's items fold into its ">>" first,
+and the menus fold into their "..." only once the toolbar is down to one
+button. The content takes the toolbar's row back. A window without a
+menu bar (a panel) keeps the toolbar in a row of its own, and hiding the
+toolbar leaves the menu bar alone.
+
+The key is theme-neutral, so another theme may read it too. A user
+default overrides the app: `defaults write <app> GSThemeToolbarInMenuBar
+NO` for one app, or `NSGlobalDomain` for every app that doesn't say NO
+itself. A change applies to open windows, which keep their frames.
+
+## Menus Behind "..." (WinUIThemeMenuStyle)
+
+Edge and File Explorer have no menu bar: their commands end in a "..."
+See more button whose flyout holds the rest. An app whose menus suit
+that declares it in its Info.plist:
+
+```
+WinUIThemeMenuStyle = more;
+```
+
+The menu bar's titles then all fold into its "..." button (#130),
+which opens a WinUI menu flyout with the app's menus as submenus (File,
+Edit, View...). A window with a toolbar shows it in the same row, its
+commands first and the "..." at the row's end, as a CommandBar has
+them, whatever `GSThemeToolbarInMenuBar` says; a window without one
+keeps a slim row with the button at its end. The menus are the app's
+own, so key equivalents and validation work as before, and the keyboard
+still reaches them: Alt or F10 selects the button, Down or Enter opens
+it, and Alt plus a menu's first letter opens the flyout and that menu.
+
+`menubar` is the default. A user default overrides the app, as for
+`GSThemeToolbarInMenuBar`: `defaults write <app> WinUIThemeMenuStyle
+more` for one app, or `NSGlobalDomain` for every app whose Info.plist
+doesn't say `menubar`. A change applies to open windows. The Adwaita
+theme's `GnomeThemeMenuStyle = primary` is the GNOME counterpart; WinUI's
+three-line button is a navigation pane's toggle, not a menu, so the
+theme uses "..." as Windows' own apps do.
+
+## Paused and Error Progress
+
+WinUI's ProgressBar can show that a task is paused (a yellow bar) or
+failed (a red one); NSProgressIndicator has no such state. The theme
+adds `-setGSThemeState:` to NSProgressIndicator, taking `@"paused"`,
+`@"error"` or nil, a theme-neutral name any theme may implement. Other
+themes and AppKit don't have it, so ask first:
+
+```objc
+if ([indicator respondsToSelector: @selector(setGSThemeState:)])
+  {
+    [indicator performSelector: @selector(setGSThemeState:) withObject: @"error"];
+  }
+```
+
+The bar is then SystemFillColorCaution or SystemFillColorCritical; an
+indeterminate bar stops and fills its track, as WinUI's does. High
+contrast keeps the highlight colour, and the spinning style (a
+ProgressRing, which has no such states) is unchanged.
+
 ## Motion
 
 WinUI eases between states, and so does the theme:
@@ -282,14 +347,16 @@ WinUI eases between states, and so does the theme:
   checkbox's tick draws in, over 167ms;
 - menus, tool tips and popover flyouts fade in over about 167ms as they
   open, a menu bar's menus, context menus, pop-up lists and flyouts
-  sliding 8pt down into place; alerts fade in.
+  sliding 8pt down into place;
+- alerts open as WinUI's ContentDialog does: their content scales from
+  105% to 100% over 250ms, opaque after the first 83ms.
 
 Windows' "Animation effects" setting (Settings, Accessibility, Visual
 effects) turns it off, as it does in WinUI apps; `defaults write
 NSGlobalDomain WinUIThemeAnimations NO` (or `YES`) overrides it for
-GNUstep apps. Not done: a dialog's scale as it opens, which a layered
-window's alpha can't give, and high contrast's pressed buttons, which
-change at once with their titles.
+GNUstep apps. Not done: high contrast's pressed buttons, which change
+at once with their titles. A dialog's frame and border don't scale, only
+its content, which a layered window's alpha can't do.
 
 ## Window Tabs
 
@@ -350,10 +417,60 @@ the other defers to it (it tells them apart by module: `dladdr()`, or
 Windows; apps should rely on the theme (or libs-gui, later)
 for the API.
 
-## Real-App Gate
+## Build
 
-Before release, the theme must validate against `ObjcMarkdown` in the sibling
-directory at `C:\Users\Support\git\ObjcMarkdown`.
+Build the theme bundle:
+
+```sh
+make
+```
+
+Build and install the theme bundle on this Windows/MSYS2 machine:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File Scripts/Build-ThemeBundle.ps1
+powershell -ExecutionPolicy Bypass -File Scripts/Install-ThemeBundle.ps1
+```
+
+Build the GNUstep demo harness:
+
+```sh
+make -C Examples/ThemeDemo
+```
+
+Build the WinUI 3 reference harness:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File Reference/WinUI3ReferenceApp/build.ps1
+```
+
+## Repository Layout
+
+```text
+Source/                    Theme implementation
+Source/Settings/           Settings and metrics model
+Source/Rendering/          Palette and future rendering code
+Source/Native/             Reserved for later Windows adapters
+Source/WindowTabbing/      Shared window tabbing code (vendored)
+Resources/                 Theme bundle metadata and future assets
+Examples/ThemeDemo/        GNUstep-side review harness
+Examples/Shared/PageContract/
+Reference/WinUI3ReferenceApp/
+Tests/Scripts/             Validation and capture helpers
+Docs/                      Roadmap and design notes
+```
+
+## Key Documents
+
+- [Implementation Roadmap](./Docs/IMPLEMENTATION_ROADMAP.md)
+- [Windows Build Notes](./Docs/WINDOWS_BUILD.md)
+- [Surface Ownership Matrix](./Docs/SURFACE_OWNERSHIP_MATRIX.md)
+- [Harness Review Notes](./Docs/HARNESS_REVIEW.md)
+- [Upstream Boundaries](./Docs/UPSTREAM_BOUNDARIES.md)
+- [Variant And Accessibility Review](./Docs/VARIANT_AND_ACCESSIBILITY_REVIEW.md)
+- [ObjcMarkdown Validation](./Docs/OBJCMARKDOWN_VALIDATION.md)
+- [Release Readiness](./Docs/RELEASE_READINESS.md)
+- [Post-Release Backlog](./Docs/POST_RELEASE_BACKLOG.md)
 
 ## License
 
