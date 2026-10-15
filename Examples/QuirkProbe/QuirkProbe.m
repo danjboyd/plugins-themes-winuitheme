@@ -633,6 +633,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkPopupShadow: (NSWindow *)menuWindow;
 - (void) checkMenuBarKeyboard: (NSWindow *)window;
 - (void) checkMenuBarOverflow: (NSWindow *)window;
+- (void) checkMenuStyleMore: (NSWindow *)window;
 - (void) checkThemeSwitchRestoresMethods;
 - (void) finish;
 @end
@@ -2049,6 +2050,58 @@ QuirkProbeDarkest(NSBitmapImageRep *rep)
     {
       [self fail: @"toolbar-in-menu-bar-off" detail: [problems componentsJoinedByString: @"; "]];
     }
+
+  /* WinUIThemeMenuStyle `more` (#130): the toolbar in the row whatever
+     GSThemeToolbarInMenuBar says, and the "..." button after it at the
+     row's end, as CommandBar's. */
+  [problems removeAllObjects];
+  windowFrame = [window frame];
+  [defaults removeObjectForKey: @"GSThemeToolbarInMenuBar"];
+  [defaults setObject: @"more" forKey: @"WinUIThemeMenuStyle"];
+  [[NSNotificationCenter defaultCenter] postNotificationName: NSUserDefaultsDidChangeNotification
+                                                      object: defaults];
+  QuirkProbeDispatchEvents(0.2);
+  [decoration display];
+  barFrame = [decoration convertRect: [bar bounds] fromView: bar];
+  toolbarFrame = [decoration convertRect: [toolbarView bounds] fromView: toolbarView];
+  if ([toolbarView superview] != decoration || fabs(NSMinY(toolbarFrame) - NSMinY(barFrame)) > 0.5)
+    {
+      [problems addObject: [NSString stringWithFormat: @"the toolbar %@ isn't in the menu bar's row %@",
+                                                       NSStringFromRect(toolbarFrame), NSStringFromRect(barFrame)]];
+    }
+  else
+    {
+      NSRect overflow = [bar respondsToSelector: @selector(winUIThemeOverflowRect)]
+        ? [decoration convertRect: [(id)bar winUIThemeOverflowRect] fromView: bar] : NSZeroRect;
+
+      if (NSIsEmptyRect(overflow) || NSMinX(overflow) < NSMaxX(toolbarFrame) - 0.5
+          || NSMaxX(overflow) < NSMaxX([decoration bounds]) - 20.0)
+        {
+          [problems addObject: [NSString stringWithFormat: @"the button %@ isn't after the toolbar %@ at the row's end",
+                                                           NSStringFromRect(overflow), NSStringFromRect(toolbarFrame)]];
+        }
+      if (NSWidth([bar rectOfItemAtIndex: 0]) > 0.0)
+        {
+          [problems addObject: @"the menu titles are still shown"];
+        }
+    }
+  if (NSEqualRects([window frame], windowFrame) == NO)
+    {
+      [problems addObject: [NSString stringWithFormat: @"the window moved from %@ to %@",
+                                                       NSStringFromRect(windowFrame), NSStringFromRect([window frame])]];
+    }
+  [self saveView: decoration named: @"menu-style-more-toolbar"];
+  if ([problems count] == 0)
+    {
+      [self pass: @"menu-style-more-toolbar" detail: [NSString stringWithFormat:
+        @"the toolbar from %.0f to %.0f, the button after it; the window kept its frame",
+        NSMinX(toolbarFrame), NSMaxX(toolbarFrame)]];
+    }
+  else
+    {
+      [self fail: @"menu-style-more-toolbar" detail: [problems componentsJoinedByString: @"; "]];
+    }
+  [defaults removeObjectForKey: @"WinUIThemeMenuStyle"];
   [defaults removeObjectForKey: @"GSThemeToolbarInMenuBar"];
   [[NSNotificationCenter defaultCenter] postNotificationName: NSUserDefaultsDidChangeNotification
                                                       object: defaults];
@@ -9619,6 +9672,7 @@ QuirkProbeInkIn(NSBitmapImageRep *rep, NSRect area, NSInteger fill, NSInteger th
   [self checkMenuBarTitles: _lateWindow];
   [self checkMenuBarKeyboard: _lateWindow];
   [self checkMenuBarOverflow: _lateWindow];
+  [self checkMenuStyleMore: _lateWindow];
   [self checkWindowsMenuConventions];
   [self checkThemeSwitchRestoresMethods];
   [self finish];
@@ -10512,6 +10566,124 @@ static BOOL QuirkProbeMenuItemPicked = NO;
       || NSWidth([bar rectOfItemAtIndex: count - 1]) == 0.0)
     {
       [self fail: @"menu-bar-overflow" detail: @"widened again, the bar still folds"];
+    }
+}
+
+/* WinUIThemeMenuStyle `more` (#130): the bar shows only its "..." button
+   at its end, whose flyout holds every menu; Alt plus a menu's access key
+   opens the flyout and that menu in it. Set back to `menubar`, the titles
+   return. */
+- (void) checkMenuStyleMore: (NSWindow *)window
+{
+  NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+  NSMenuView *bar = (NSMenuView *)QuirkProbeFindViewOfClass([[window contentView] superview],
+                                                            [NSMenuView class]);
+  NSMenu *mainMenu = [NSApp mainMenu];
+  NSInteger count = [mainMenu numberOfItems];
+  NSMutableArray *problems = [NSMutableArray array];
+  NSString *escape = QuirkProbeKeyString(0x1b);
+  NSRect overflow;
+  NSInteger index;
+  NSInteger target = -1;
+  unichar key = 0;
+  NSArray *menus = nil;
+
+  if (bar == nil || [bar isHorizontal] == NO || count < 2
+      || [bar respondsToSelector: @selector(winUIThemeOverflowRect)] == NO)
+    {
+      [self skip: @"menu-style-more" detail: @"the window has no menu bar with an overflow"];
+      return;
+    }
+  [defaults setObject: @"more" forKey: @"WinUIThemeMenuStyle"];
+  [[NSNotificationCenter defaultCenter] postNotificationName: NSUserDefaultsDidChangeNotification
+                                                      object: defaults];
+  QuirkProbeDispatchEvents(0.2);
+  [window display];
+
+  overflow = [(id)bar winUIThemeOverflowRect];
+  for (index = 0; index < count; index++)
+    {
+      if (NSWidth([bar rectOfItemAtIndex: index]) > 0.0)
+        {
+          [problems addObject: [NSString stringWithFormat: @"title %ld is still shown", (long)index]];
+          break;
+        }
+    }
+  if (NSIsEmptyRect(overflow))
+    {
+      [problems addObject: @"the bar has no button"];
+    }
+  else if (NSMaxX(overflow) > NSMaxX([bar visibleRect]) + 0.5
+           || NSMaxX(overflow) < NSMaxX([bar visibleRect]) - 20.0)
+    {
+      [problems addObject: [NSString stringWithFormat: @"the button %@ isn't at the bar's end (%.0f)",
+                                                       NSStringFromRect(overflow), NSMaxX([bar visibleRect])]];
+    }
+  [self saveView: bar named: @"menu-style-more"];
+
+  /* Alt and the second menu's access key: the flyout, and that menu. */
+  for (index = 1; index < count && target < 0; index++)
+    {
+      NSString *title = [(NSMenuItem *)[mainMenu itemAtIndex: index] title];
+
+      if ([title length] > 0 && [(NSMenuItem *)[mainMenu itemAtIndex: index] hasSubmenu])
+        {
+          target = index;
+          key = [[title lowercaseString] characterAtIndex: 0];
+        }
+    }
+  if ([window isKeyWindow] && target > 0 && [problems count] == 0)
+    {
+      QuirkProbeSendKey(window, QuirkProbeKeyString(key), NSAlternateKeyMask);
+      menus = QuirkProbeSessionMenus(bar);
+      if ([menus count] != 2 || [[menus objectAtIndex: 0] numberOfItems] != count
+          /* The flyout's items are copies, so their submenus are too. */
+          || [[[menus objectAtIndex: 1] title] isEqualToString:
+                [[(NSMenuItem *)[mainMenu itemAtIndex: target] submenu] title]] == NO)
+        {
+          [problems addObject: [NSString stringWithFormat: @"Alt+%C opened %lu menus, not the flyout and %@",
+            key, (unsigned long)[menus count], [(NSMenuItem *)[mainMenu itemAtIndex: target] title]]];
+        }
+      else if ([[[[menus objectAtIndex: 0] menuRepresentation] window] isVisible] == NO)
+        {
+          [problems addObject: @"the flyout isn't shown"];
+        }
+      else
+        {
+          [self saveView: [[menus objectAtIndex: 0] menuRepresentation] named: @"menu-style-more-flyout"];
+        }
+      QuirkProbeSendKey(window, escape, 0);
+      QuirkProbeSendKey(window, escape, 0);
+      QuirkProbeSendKey(window, escape, 0);
+    }
+  else if ([problems count] == 0)
+    {
+      [problems addObject: @"the window isn't key, or no menu has a title"];
+    }
+
+  [defaults setObject: @"menubar" forKey: @"WinUIThemeMenuStyle"];
+  [[NSNotificationCenter defaultCenter] postNotificationName: NSUserDefaultsDidChangeNotification
+                                                      object: defaults];
+  QuirkProbeDispatchEvents(0.2);
+  if (NSIsEmptyRect([(id)bar winUIThemeOverflowRect]) == NO
+      || NSWidth([bar rectOfItemAtIndex: count - 1]) == 0.0)
+    {
+      [problems addObject: @"set back to menubar, the titles stay folded"];
+    }
+  [defaults removeObjectForKey: @"WinUIThemeMenuStyle"];
+  [[NSNotificationCenter defaultCenter] postNotificationName: NSUserDefaultsDidChangeNotification
+                                                      object: defaults];
+  QuirkProbeDispatchEvents(0.1);
+
+  if ([problems count] == 0)
+    {
+      [self pass: @"menu-style-more" detail: [NSString stringWithFormat:
+        @"the bar is its button at %@; Alt+%C opens the flyout and %@; menubar brings the titles back",
+        NSStringFromRect(overflow), key, [(NSMenuItem *)[mainMenu itemAtIndex: target] title]]];
+    }
+  else
+    {
+      [self fail: @"menu-style-more" detail: [problems componentsJoinedByString: @"; "]];
     }
 }
 

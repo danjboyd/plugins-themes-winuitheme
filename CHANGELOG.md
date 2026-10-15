@@ -20,6 +20,17 @@ Apps that bundle the theme should pin a tag, not `main`.
 
   ObjcMarkdown already declares it. QuirkProbe `toolbar-in-menu-bar`,
   `toolbar-in-menu-bar-off`.
+- Menus behind "..." (#130): `WinUIThemeMenuStyle = more` in an app's
+  Info.plist (or as a user default) folds the menu bar into its "..."
+  See more button, as Edge and File Explorer have no menu bar:
+  - the button opens a menu flyout with the app's menus as submenus;
+  - a toolbar shares the row, its commands first and the "..." at the
+    row's end, as CommandBar's;
+  - Alt, F10 and Alt plus a menu's first letter reach the menus as
+    before; key equivalents are unchanged;
+  - `menubar` is the default, and a change applies to open windows.
+
+  QuirkProbe `menu-style-more`, `menu-style-more-toolbar`.
 
 **Controls** (#105)
 - Sliders draw their tick marks (`-setNumberOfTickMarks:`), as WinUI's

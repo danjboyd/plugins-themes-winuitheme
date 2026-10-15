@@ -298,6 +298,34 @@ default overrides the app: `defaults write <app> GSThemeToolbarInMenuBar
 NO` for one app, or `NSGlobalDomain` for every app that doesn't say NO
 itself. A change applies to open windows, which keep their frames.
 
+## Menus Behind "..." (WinUIThemeMenuStyle)
+
+Edge and File Explorer have no menu bar: their commands end in a "..."
+See more button whose flyout holds the rest. An app whose menus suit
+that declares it in its Info.plist:
+
+```
+WinUIThemeMenuStyle = more;
+```
+
+The menu bar's titles then all fold into its "..." button (#130),
+which opens a WinUI menu flyout with the app's menus as submenus (File,
+Edit, View...). A window with a toolbar shows it in the same row, its
+commands first and the "..." at the row's end, as a CommandBar has
+them, whatever `GSThemeToolbarInMenuBar` says; a window without one
+keeps a slim row with the button at its end. The menus are the app's
+own, so key equivalents and validation work as before, and the keyboard
+still reaches them: Alt or F10 selects the button, Down or Enter opens
+it, and Alt plus a menu's first letter opens the flyout and that menu.
+
+`menubar` is the default. A user default overrides the app, as for
+`GSThemeToolbarInMenuBar`: `defaults write <app> WinUIThemeMenuStyle
+more` for one app, or `NSGlobalDomain` for every app whose Info.plist
+doesn't say `menubar`. A change applies to open windows. The Adwaita
+theme's `GnomeThemeMenuStyle = primary` is the GNOME counterpart; WinUI's
+three-line button is a navigation pane's toggle, not a menu, so the
+theme uses "..." as Windows' own apps do.
+
 ## Paused and Error Progress
 
 WinUI's ProgressBar can show that a task is paused (a yellow bar) or

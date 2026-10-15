@@ -21,6 +21,7 @@
 #import "WinUIThemeToolbarInMenuBar.h"
 #import "WinUIThemeWindowIntegration.h"
 #import "../WinUITheme.h"
+#import "../Rendering/WinUIThemeDrawing.h"
 
 #import <AppKit/AppKit.h>
 #import <GNUstepGUI/GSTheme.h>
@@ -113,6 +114,11 @@ WinUIThemeToolbarInMenuBarEnabled(void)
     {
       return NO;
     }
+  /* The "..." button sits at the end of the toolbar's row. */
+  if (WinUIThemeMenuStyleIsMore())
+    {
+      return YES;
+    }
   if (declaredRead == NO)
     {
       declared = RETAIN(WinUIThemeToolbarInMenuBarValue([[NSBundle mainBundle] infoDictionary]));
@@ -143,6 +149,88 @@ WinUIThemeToolbarInMenuBarEnabled(void)
     }
   value = WinUIThemeToolbarInMenuBarValue([defaults volatileDomainForName: NSRegistrationDomain]);
   return [value boolValue];
+}
+
+/* WinUIThemeMenuStyle's value in one domain: YES for `more`, NO for
+   `menubar`, nil for anything else. */
+static NSNumber *
+WinUIThemeMenuStyleValue(NSDictionary *values)
+{
+  id value = [values objectForKey: @"WinUIThemeMenuStyle"];
+
+  if ([value isKindOfClass: [NSString class]] == NO)
+    {
+      return nil;
+    }
+  if ([value caseInsensitiveCompare: @"more"] == NSOrderedSame)
+    {
+      return [NSNumber numberWithBool: YES];
+    }
+  if ([value caseInsensitiveCompare: @"menubar"] == NSOrderedSame)
+    {
+      return [NSNumber numberWithBool: NO];
+    }
+  return nil;
+}
+
+/* In GSThemeToolbarInMenuBar's order: the user for this app; the app,
+   when its Info.plist says `menubar` (its menus don't suit a flyout);
+   the user for all apps; the app's Info.plist; registered defaults. */
+static BOOL
+WinUIThemeReadMenuStyleIsMore(void)
+{
+  static BOOL declaredRead = NO;
+  static NSNumber *declared = nil;
+  NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+  NSNumber *value = nil;
+
+  if (declaredRead == NO)
+    {
+      declared = RETAIN(WinUIThemeMenuStyleValue([[NSBundle mainBundle] infoDictionary]));
+      declaredRead = YES;
+    }
+  value = WinUIThemeMenuStyleValue([defaults volatileDomainForName: NSArgumentDomain]);
+  if (value == nil)
+    {
+      value = WinUIThemeMenuStyleValue(
+        [defaults persistentDomainForName: [[NSProcessInfo processInfo] processName]]);
+    }
+  if (value != nil)
+    {
+      return [value boolValue];
+    }
+  if (declared != nil && [declared boolValue] == NO)
+    {
+      return NO;
+    }
+  value = WinUIThemeMenuStyleValue([defaults persistentDomainForName: NSGlobalDomain]);
+  if (value != nil)
+    {
+      return [value boolValue];
+    }
+  if (declared != nil)
+    {
+      return YES;
+    }
+  return [WinUIThemeMenuStyleValue([defaults volatileDomainForName: NSRegistrationDomain]) boolValue];
+}
+
+/* Read once, and again when the defaults change: menu bars ask for each
+   title's rect. -1 until read. */
+static int WinUIThemeMenuStyleMore = -1;
+
+BOOL
+WinUIThemeMenuStyleIsMore(void)
+{
+  if (WinUIThemeToolbarInMenuBarActive == NO)
+    {
+      return NO;
+    }
+  if (WinUIThemeMenuStyleMore < 0)
+    {
+      WinUIThemeMenuStyleMore = WinUIThemeReadMenuStyleIsMore() ? 1 : 0;
+    }
+  return (WinUIThemeMenuStyleMore == 1);
 }
 
 static BOOL
@@ -283,6 +371,26 @@ WinUIThemeLayoutToolbarInMenuBar(GSWindowDecorationView *decoration, NSWindow *w
       return;
     }
   row = [menuView frame];
+  if (WinUIThemeMenuStyleIsMore())
+    {
+      /* The commands first, then the "..." button at the row's end, as
+         CommandBar has them; the bar keeps its inset either side of the
+         button (WinUIThemeMenuBarKeyboard.m). */
+      menusWidth = MIN(NSWidth(row), WinUIThemeMenuBarOverflowButtonWidth
+                                       + 2.0 * WinUIThemeMenuBarFirstTitleInset(menuView));
+      toolbarWidth = NSWidth(row) - menusWidth;
+      WinUIThemeToolbarViewSetInMenuBar(toolbarView, YES);
+      if (NSWidth([toolbarView frame]) != toolbarWidth || NSHeight([toolbarView frame]) != NSHeight(row))
+        {
+          [toolbarView setFrameSize: NSMakeSize(toolbarWidth, NSHeight(row))];
+          [toolbarView _reload];
+        }
+      [toolbarView setFrame: NSMakeRect(NSMinX(row), NSMinY(row), toolbarWidth, NSHeight(row))];
+      [menuView setFrame: NSMakeRect(NSMaxX(row) - menusWidth, NSMinY(row), menusWidth, NSHeight(row))];
+      [menuView setNeedsDisplay: YES];
+      [toolbarView setNeedsDisplay: YES];
+      return;
+    }
   /* The full row: libs-gui's -layout gave the bar all of it. */
   menusWidth = WinUIThemeMenuTitlesWidth(menuView);
   if (menusWidth > 0.0)
@@ -471,21 +579,27 @@ WinUIThemeLayoutToolbarInMenuBar(GSWindowDecorationView *decoration, NSWindow *w
 @end
 
 /* Called whenever NSUserDefaults posts a change (on the main thread):
-   only a change of the setting itself moves toolbars, and only in the
-   theme's own decoration views, which carry them. */
+   only a change of a setting itself moves toolbars or folds menu titles,
+   and only in the theme's own decoration views, which carry them. */
 void
 WinUIThemeToolbarInMenuBarSettingChanged(void)
 {
   static int enabled = -1;
-  BOOL now = WinUIThemeToolbarInMenuBarEnabled();
+  static int more = -1;
+  BOOL nowMore;
+  BOOL now;
   NSEnumerator *enumerator = nil;
   NSWindow *window = nil;
 
-  if (enabled == (int)now)
+  WinUIThemeMenuStyleMore = -1;
+  nowMore = WinUIThemeMenuStyleIsMore();
+  now = WinUIThemeToolbarInMenuBarEnabled();
+  if (enabled == (int)now && more == (int)nowMore)
     {
       return;
     }
   enabled = now;
+  more = nowMore;
   enumerator = [[NSApp windows] objectEnumerator];
   while ((window = [enumerator nextObject]) != nil)
     {
@@ -494,7 +608,14 @@ WinUIThemeToolbarInMenuBarSettingChanged(void)
       if ([decoration isKindOfClass: [WinUIThemeBackendWindowDecorationView class]]
           || [decoration isKindOfClass: [WinUIThemeStandardWindowDecorationView class]])
         {
+          NSMenuView *menuView = WinUIThemeDecorationMenuView(decoration);
+
           [(GSWindowDecorationView *)decoration winUIThemePlaceToolbarForSetting];
+          /* The menu titles fold or come back: the row is shared out
+             again. */
+          [(GSWindowDecorationView *)decoration layout];
+          [menuView setNeedsDisplay: YES];
+          [decoration setNeedsDisplay: YES];
         }
     }
 }
