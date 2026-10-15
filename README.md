@@ -328,14 +328,16 @@ WinUI eases between states, and so does the theme:
   checkbox's tick draws in, over 167ms;
 - menus, tool tips and popover flyouts fade in over about 167ms as they
   open, a menu bar's menus, context menus, pop-up lists and flyouts
-  sliding 8pt down into place; alerts fade in.
+  sliding 8pt down into place;
+- alerts open as WinUI's ContentDialog does: their content scales from
+  105% to 100% over 250ms, opaque after the first 83ms.
 
 Windows' "Animation effects" setting (Settings, Accessibility, Visual
 effects) turns it off, as it does in WinUI apps; `defaults write
 NSGlobalDomain WinUIThemeAnimations NO` (or `YES`) overrides it for
-GNUstep apps. Not done: a dialog's scale as it opens, which a layered
-window's alpha can't give, and high contrast's pressed buttons, which
-change at once with their titles.
+GNUstep apps. Not done: high contrast's pressed buttons, which change
+at once with their titles. A dialog's frame and border don't scale, only
+its content, which a layered window's alpha can't do.
 
 ## Window Tabs
 

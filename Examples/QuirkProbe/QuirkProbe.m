@@ -10639,6 +10639,8 @@ QuirkProbeAnimates(NSView *view, void (*change)(NSView *, BOOL), NSString **deta
   CGFloat flyoutTarget = 0.0, flyoutStart = 0.0, flyoutEnd = 0.0;
   NSPanel *alert = nil;
   CGFloat alertOpening = -1.0, alertOpen = -1.0;
+  BOOL alertCovered = NO, alertUncovered = NO;
+  NSUInteger alertInk = 0;
   NSSwitch *toggle = nil;
   NSButton *checkbox = nil;
   NSString *detail = nil;
@@ -10880,10 +10882,43 @@ QuirkProbeAnimates(NSView *view, void (*change)(NSView *, BOOL), NSString **deta
   alert = NSGetAlertPanel(@"QuirkProbe Motion", @"An alert fading in.", @"OK", nil, nil);
   if (alert != nil)
     {
+      Class scaleViewClass = NSClassFromString(@"WinUIThemeDialogScaleView");
+      NSView *cover = nil;
+
       [alert orderFront: nil];
       alertOpening = [alert alphaValue];
+      /* A few frames in: the scaled snapshot over the content, with the
+         alert's text in it. */
+      QuirkProbeDispatchEvents(0.06);
+      cover = (scaleViewClass != Nil)
+        ? QuirkProbeFindViewOfClass([[alert contentView] superview], scaleViewClass) : nil;
+      if (cover != nil)
+        {
+          NSBitmapImageRep *rep = QuirkProbeRender(cover);
+          NSUInteger r0 = 0, g0 = 0, b0 = 0;
+          NSInteger x, y;
+
+          /* Ink: far from the background, in any palette. */
+          alertCovered = YES;
+          QuirkProbePixel(rep, 2, 2, &r0, &g0, &b0);
+          for (y = 0; y < [rep pixelsHigh]; y++)
+            {
+              for (x = 0; x < [rep pixelsWide]; x++)
+                {
+                  NSUInteger r, g, b;
+
+                  if (QuirkProbePixel(rep, x, y, &r, &g, &b)
+                      && llabs((long long)(r + g + b) - (long long)(r0 + g0 + b0)) > 300)
+                    {
+                      alertInk++;
+                    }
+                }
+            }
+        }
       QuirkProbeDispatchEvents(0.3);
       alertOpen = [alert alphaValue];
+      alertUncovered = (scaleViewClass == Nil
+                        || QuirkProbeFindViewOfClass([[alert contentView] superview], scaleViewClass) == nil);
       [alert orderOut: nil];
       NSReleaseAlertPanel(alert);
     }
@@ -10909,6 +10944,23 @@ QuirkProbeAnimates(NSView *view, void (*change)(NSView *, BOOL), NSString **deta
     {
       [self fail: @"motion-dialog-fades-in" detail: [NSString stringWithFormat:
         @"an alert's alpha is %.2f opening, %.2f open", alertOpening, alertOpen]];
+    }
+
+  /* WinUI's ContentDialog also scales from 105% as it opens (#105): a
+     snapshot of the drawn content, scaled, over it while it opens, with
+     the alert's text (dark ink) in it; gone once it's open. */
+  if (alertCovered && alertInk >= 200 && alertUncovered)
+    {
+      [self pass: @"motion-dialog-scales" detail: [NSString stringWithFormat:
+        @"a scaled snapshot over the alert opening (%lu px of its text's ink), gone once open",
+        (unsigned long)alertInk]];
+    }
+  else
+    {
+      [self fail: @"motion-dialog-scales" detail: [NSString stringWithFormat:
+        @"opening: a scaled snapshot %@, %lu px of text ink; open: %@",
+        alertCovered ? @"over the content" : @"missing", (unsigned long)alertInk,
+        alertUncovered ? @"gone" : @"still there"]];
     }
 
   if (flyoutOpening < 0.5 && flyoutOpen == 1.0 && flyoutInstant == 1.0
