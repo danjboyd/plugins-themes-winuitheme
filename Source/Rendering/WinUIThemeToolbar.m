@@ -329,6 +329,65 @@ WinUIThemeToolbarApplyImage(NSButton *button, NSToolbarItem *item)
     }
 }
 
+/* libs-gui gives the flexible spaces the toolbar's width left over, then
+   rounds each space's frame to device pixels (-centerScanRect:). At a
+   window scale other than 1 that can take the items a fraction of a point
+   past the toolbar's width, and -_visibleBackViews (the same sum: a view
+   item at its minimum width and 10pt each side, others at their frames)
+   then puts the item after the space into the ">>" menu with the row
+   half empty: ScreenshotTool's Copy at 125% and 150% on the DPI-aware
+   carried backend. The last flexible space gives back the excess,
+   rounded up to a whole device pixel, and the items after it move
+   back. */
+static void
+WinUIThemeToolbarKeepFlexibleSpaceInside(NSView *toolbarView, NSToolbar *toolbar)
+{
+  NSArray *items = [toolbar items];
+  NSToolbarItem *flexible = nil;
+  CGFloat total = 0.0;
+  CGFloat excess;
+  CGFloat scale = MAX(1.0, [[toolbarView window] userSpaceScaleFactor]);
+  NSUInteger index;
+  BOOL after = NO;
+
+  for (index = 0; index < [items count]; index++)
+    {
+      NSToolbarItem *item = [items objectAtIndex: index];
+
+      total += ([item view] != nil) ? [item minSize].width + 2.0 * 10.0 : NSWidth([[item _backView] frame]);
+      if ([[item itemIdentifier] isEqualToString: NSToolbarFlexibleSpaceItemIdentifier])
+        {
+          flexible = item;
+        }
+    }
+  excess = total - NSWidth([toolbarView frame]);
+  if (flexible == nil || excess <= 0.0)
+    {
+      return;
+    }
+  excess = ceil(excess * scale - 0.001) / scale;
+  for (index = 0; index < [items count]; index++)
+    {
+      NSToolbarItem *item = [items objectAtIndex: index];
+      NSView *backView = [item _backView];
+      NSRect frame = [backView frame];
+
+      if (item == flexible)
+        {
+          /* Only what the space has: past that the items don't fit. */
+          excess = MIN(excess, NSWidth(frame));
+          frame.size.width -= excess;
+          [backView setFrame: frame];
+          after = YES;
+        }
+      else if (after)
+        {
+          frame.origin.x -= excess;
+          [backView setFrame: frame];
+        }
+    }
+}
+
 @implementation WinUITheme (Toolbar)
 
 /* The toolbar sits on the window background with a hairline under it
@@ -512,6 +571,7 @@ WinUIThemeToolbarApplyImage(NSButton *button, NSToolbarItem *item)
     {
       return;
     }
+  WinUIThemeToolbarKeepFlexibleSpaceInside((NSView *)self, toolbar);
   enumerator = [[toolbar items] objectEnumerator];
   while ((item = [enumerator nextObject]) != nil)
     {

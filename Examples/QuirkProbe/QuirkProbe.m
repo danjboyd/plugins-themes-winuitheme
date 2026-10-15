@@ -490,6 +490,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkToolbarSeparator;
 - (void) checkDecorationFitsTallWindow;
 - (void) checkToolbarIconSize;
+- (void) checkToolbarFlexibleSpaceScaled;
 - (void) checkScrollerEdge;
 - (void) checkTextAlignment;
 - (void) checkTableHeader;
@@ -1170,11 +1171,17 @@ static NSRect QuirkProbeOpenListRow;
 
 - (NSArray *) toolbarAllowedItemIdentifiers: (NSToolbar *)toolbar
 {
-  return [NSArray arrayWithObjects: QuirkProbeImageItem, NSToolbarSeparatorItemIdentifier, nil];
+  return [NSArray arrayWithObjects: QuirkProbeImageItem, NSToolbarSeparatorItemIdentifier,
+                                    NSToolbarFlexibleSpaceItemIdentifier, nil];
 }
 
 - (NSArray *) toolbarDefaultItemIdentifiers: (NSToolbar *)toolbar
 {
+  if ([[toolbar identifier] isEqualToString: @"QuirkProbeFlexibleToolbar"])
+    {
+      return [NSArray arrayWithObjects: QuirkProbeImageItem, NSToolbarFlexibleSpaceItemIdentifier,
+                                        QuirkProbeImageItem, nil];
+    }
   if ([[toolbar identifier] isEqualToString: @"QuirkProbeSeparatorToolbar"])
     {
       return [NSArray arrayWithObjects: QuirkProbeImageItem, NSToolbarSeparatorItemIdentifier,
@@ -1679,6 +1686,85 @@ QuirkProbeDarkest(NSBitmapImageRep *rep)
   }
   [window setToolbar: nil];
   [window orderOut: nil];
+}
+
+/* A flexible space at a window scale other than 1: libs-gui
+   gives it the rest of the toolbar's width, then rounds its frame to
+   device pixels (-centerScanRect:), which can take it past the toolbar's
+   width by a fraction of a point. The item after it then failed
+   libs-gui's "does it fit" test and went into the ">>" menu with the row
+   half empty (ScreenshotTool's Copy at 125% and 150% with the carried,
+   DPI-aware backend). Tried at several widths, GSScaleFactor 1.5. */
+- (void) checkToolbarFlexibleSpaceScaled
+{
+  NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+  NSWindow *window = nil;
+  NSToolbar *toolbar = nil;
+  NSMutableArray *clipped = [NSMutableArray array];
+  Class markClass = NSClassFromString(@"GSToolbarClippedItemsButton");
+  CGFloat width;
+
+  [defaults setObject: @"1.5" forKey: @"GSScaleFactor"];
+  window = [[NSWindow alloc] initWithContentRect: NSMakeRect(300, 300, 400, 160)
+                                       styleMask: (NSTitledWindowMask | NSClosableWindowMask
+                                                   | NSResizableWindowMask)
+                                         backing: NSBackingStoreBuffered
+                                           defer: NO];
+  [window setTitle: @"QuirkProbe Scaled Flexible Space"];
+  [window setReleasedWhenClosed: NO];
+  [_windows addObject: window];
+  RELEASE(window);
+  toolbar = [[NSToolbar alloc] initWithIdentifier: @"QuirkProbeFlexibleToolbar"];
+  [toolbar setDelegate: self];
+  [toolbar setDisplayMode: NSToolbarDisplayModeIconOnly];
+  [window setToolbar: toolbar];
+  RELEASE(toolbar);
+  [window orderFront: nil];
+  if (fabs([window userSpaceScaleFactor] - 1.5) > 0.01
+      || QuirkProbeFindViewOfClass([[window contentView] superview], NSClassFromString(@"GSToolbarView")) == nil)
+    {
+      /* A per-monitor DPI aware backend takes the monitor's scale. */
+      [self skip: @"toolbar-flexible-space-scaled" detail: [NSString stringWithFormat:
+        @"the window draws at %.2f, not the 1.5 asked (the backend scales by the monitor), or has no toolbar view",
+        [window userSpaceScaleFactor]]];
+      [window setToolbar: nil];
+      [window orderOut: nil];
+      [defaults removeObjectForKey: @"GSScaleFactor"];
+      return;
+    }
+  for (width = 400.0; width < 440.0; width += 1.0)
+    {
+      NSView *toolbarView = nil;
+      NSEnumerator *enumerator = nil;
+      NSView *subview = nil;
+
+      [window setContentSize: NSMakeSize(width, 160)];
+      [window display];
+      toolbarView = QuirkProbeFindViewOfClass([[window contentView] superview],
+                                              NSClassFromString(@"GSToolbarView"));
+      enumerator = [[toolbarView subviews] objectEnumerator];
+      while ((subview = [enumerator nextObject]) != nil)
+        {
+          if (markClass != Nil && [subview isKindOfClass: markClass])
+            {
+              [clipped addObject: [NSString stringWithFormat: @"%.0f", width]];
+            }
+        }
+    }
+  [window setToolbar: nil];
+  [window orderOut: nil];
+  [defaults removeObjectForKey: @"GSScaleFactor"];
+  if ([clipped count] == 0)
+    {
+      [self pass: @"toolbar-flexible-space-scaled" detail:
+        @"at 1.5, the item after a flexible space stayed in the row at 40 window widths"];
+    }
+  else
+    {
+      [self fail: @"toolbar-flexible-space-scaled" detail: [NSString stringWithFormat:
+        @"at 1.5, the last item went into >> at widths %@ (of 40 tried)",
+        [clipped componentsJoinedByString: @", "]]];
+    }
 }
 
 /* Vertical scrollers sit on the trailing (right) edge (issue #4). */
@@ -10918,6 +11004,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkToolbarSeparator];
   [self checkDecorationFitsTallWindow];
   [self checkToolbarIconSize];
+  [self checkToolbarFlexibleSpaceScaled];
   [self checkScrollerEdge];
   [self checkTableHeader];
   [self checkTextAlignment];
