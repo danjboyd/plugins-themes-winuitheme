@@ -29,12 +29,6 @@ Apps that bundle the theme should pin a tag, not `main`.
   `@"error"`. It's a theme-neutral name; ask `-respondsToSelector:`
   first. QuirkProbe `progress-states`.
 
-**Motion** (#105)
-- Alerts open as WinUI's ContentDialog does: their content scales from
-  105% to 100% about its centre over 250ms (the content view's bounds;
-  a layered window's alpha can't scale it), opaque after 83ms.
-  QuirkProbe `motion-dialog-scales`.
-
 **Fixes**
 - At a fractional window scale (a 150% monitor on the DPI-aware carried
   backend) a scroll view showed its overlay indicator over content at
