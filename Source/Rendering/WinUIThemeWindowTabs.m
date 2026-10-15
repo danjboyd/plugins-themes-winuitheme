@@ -231,17 +231,13 @@ WinUIThemeTabGroupSwitchToWindow(id group, SEL _cmd, id window)
      window out as the new one fades in. */
   WinUIThemeWindowIntegrationSuspendTransitions(window, previous);
   [window _tabbingShowWithFrame: frame makeKey: key];
-  /* libs-back's windows are layered: one shows nothing until its contents
-     are flushed, which a new window (the "+") gets only once the app has
-     set it up and the run loop draws it. Drawn and flushed now, and the old
-     one, under it at the same frame, ordered out a moment later: hidden at
-     once, it left neither window on the screen for a tenth of a second. */
+  /* A tab shown before keeps its contents while ordered out (libs-back's
+     windows are layered, and show nothing until flushed); drawn and
+     flushed again, it covers the old one, which goes at once, as the
+     shared code and apps expect. */
   [window display];
   [window flushWindow];
-  [WinUIThemeTabHider performSelector: @selector(hide:)
-                           withObject: [NSArray arrayWithObjects: group, previous, nil]
-                           afterDelay: 0.05
-                              inModes: WinUIThemeTabModes()];
+  [previous _tabbingHide];
 }
 
 /* -toggleTabBar: as the shared code has it, against the automatic state
