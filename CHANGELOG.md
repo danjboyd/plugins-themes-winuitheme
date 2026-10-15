@@ -41,6 +41,12 @@ Apps that bundle the theme should pin a tag, not `main`.
   press outside them does; they stayed behind on the screen. QuirkProbe
   `menu-closes-on-window-move`.
 
+**Controls**
+- A segmented control's label and its selection pill share a centre: in
+  an end segment wider than its label, the pill sat under the label's
+  start (#138, Markdown Viewer's Read/Edit/Split). QuirkProbe
+  `segment-label-centred`.
+
 ## 0.1.0-alpha6 (2026-10-15)
 
 New chrome for apps that ask for it: the toolbar in the menu bar's row,

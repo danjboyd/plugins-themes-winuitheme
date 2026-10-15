@@ -532,7 +532,6 @@ WinUIThemeDrawSegmentedLabel(NSSegmentedCell *cell,
   NSDictionary *attributes = nil;
   NSSize titleSize = NSZeroSize;
   NSRect textFrame = frame;
-  CGFloat opticalXOffset = 0.0;
   CGFloat leftInset = 6.0;
   CGFloat rightInset = 6.0;
   NSAttributedString *attrstring = nil;
@@ -558,27 +557,17 @@ WinUIThemeDrawSegmentedLabel(NSSegmentedCell *cell,
       return;
     }
 
-  if (roundedLeft != roundedRight)
-    {
-      CGFloat radius = MAX(6.0, [[theme metrics] controlCornerRadius] + 2.0);
-      CGFloat capOffset = MIN(4.0, MAX(2.0, ceil(radius * 0.5)));
-
-      opticalXOffset = roundedLeft ? capOffset : -capOffset;
-      if (roundedLeft)
-        {
-          leftInset += capOffset;
-        }
-      else
-        {
-          rightInset += capOffset;
-        }
-    }
+  /* Centred on the segment's item, as the selected item's pill is
+     (drawSegmentedControlSegment:): the item is 3pt inside a rounded end
+     and 1pt inside a joint. The label and the pill shared no centre in
+     an end segment before, the label nudged 3-4pt towards the middle. */
+  leftInset += roundedLeft ? 3.0 : 1.0;
+  rightInset += roundedRight ? 3.0 : 1.0;
 
   attrstring = AUTORELEASE([[NSAttributedString alloc] initWithString: label
                                                            attributes: attributes]);
   textFrame.origin.x += leftInset;
   textFrame.size.width = MAX(0.0, textFrame.size.width - (leftInset + rightInset));
-  textFrame.origin.x += opticalXOffset;
   /* 2pt above the middle, clear of the selected segment's pill. */
   textFrame.origin.y = floor(NSMidY(frame) - (titleSize.height / 2.0))
     + ([[cell controlView] isFlipped] ? -2.0 : 2.0);
