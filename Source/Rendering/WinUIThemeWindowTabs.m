@@ -23,6 +23,7 @@
 
 #import <AppKit/AppKit.h>
 #import <GNUstepGUI/GSTheme.h>
+#import <objc/runtime.h>
 
 #import "GSWindowTabbing.h"
 #import "../Native/WinUIThemeCaption.h"
@@ -62,6 +63,122 @@
    - high contrast: ButtonFace strip, Window for the selected tab with a
      Hilight outline and Hilight text, Hilight with HilightText under the
      pointer, WindowText separators. */
+
+/* One tab (#133). The shared code's group shows its bar from the second
+   tab, as macOS does; Notepad and Terminal open with theirs, one tab and
+   a "+". While a group's bar is automatic (not shown or hidden with
+   -toggleTabBar:), a window on its own shows it when it can be a tab
+   (titled, not a panel, its tabbing mode not Disallowed) and something
+   answers -newWindowForTab: for it, so the "+" has something to do. The
+   shared code builds a window's bar only when its group changes; a
+   window on its own gets it as it first becomes key. The rule belongs in
+   the shared code (a theme's say over the automatic state); until then
+   the theme replaces -[NSWindowTabGroup isTabBarVisible]. */
+
+@interface NSWindow (WinUIThemeSingleTabPrivate)
+- (BOOL) _canBeTabbed;
+- (void) _updateTabBar;
+- (NSWindowTabGroup *) _tabbingGroup;
+- (id) _tabBarView;
+@end
+
+static BOOL (*WinUIThemeOriginalIsTabBarVisible)(id, SEL) = NULL;
+static ptrdiff_t WinUIThemeBarStateOffset = -1;
+
+static BOOL
+WinUIThemeWindowShowsSingleTab(NSWindow *window)
+{
+  return window != nil
+    && [[GSTheme theme] isKindOfClass: [WinUITheme class]]
+    && [window respondsToSelector: @selector(_canBeTabbed)]
+    && [window _canBeTabbed]
+    && [NSApp targetForAction: @selector(newWindowForTab:) to: nil from: window] != nil;
+}
+
+/* What the automatic state shows: the bar from two tabs, or one tab
+   that can have company. */
+static BOOL
+WinUIThemeTabGroupShowsAutomatically(NSWindowTabGroup *group)
+{
+  NSArray *windows = [group windows];
+
+  return [windows count] > 1
+    || ([windows count] == 1 && WinUIThemeWindowShowsSingleTab([windows objectAtIndex: 0]));
+}
+
+static BOOL
+WinUIThemeTabGroupIsTabBarVisible(id group, SEL _cmd)
+{
+  if (WinUIThemeBarStateOffset >= 0
+      && *(int *)((char *)group + WinUIThemeBarStateOffset) != 0)
+    {
+      /* Shown or hidden with -toggleTabBar:. */
+      return WinUIThemeOriginalIsTabBarVisible(group, _cmd);
+    }
+  return WinUIThemeTabGroupShowsAutomatically(group);
+}
+
+@interface NSWindowTabGroup (WinUIThemeSingleTabPrivate)
+- (void) _windowsDidChangeAlso: (id)extra;
+@end
+
+/* -toggleTabBar: as the shared code has it, against the automatic state
+   above: back to automatic when that's what automatic would show, else
+   shown (1) or hidden (2). */
+static void
+WinUIThemeTabGroupToggleTabBar(id group, SEL _cmd)
+{
+  BOOL show = ([(NSWindowTabGroup *)group isTabBarVisible] == NO);
+  int *state = (int *)((char *)group + WinUIThemeBarStateOffset);
+
+  *state = (show == WinUIThemeTabGroupShowsAutomatically(group)) ? 0 : (show ? 1 : 2);
+  [(NSWindowTabGroup *)group _windowsDidChangeAlso: nil];
+}
+
+void
+WinUIThemeWindowTabsInstallSingleTabBar(void)
+{
+  Class groupClass = NSClassFromString(@"NSWindowTabGroup");
+  Method method = NULL;
+  Method toggle = NULL;
+  Ivar state = NULL;
+
+  if (WinUIThemeOriginalIsTabBarVisible != NULL || groupClass == Nil)
+    {
+      return;
+    }
+  method = class_getInstanceMethod(groupClass, @selector(isTabBarVisible));
+  toggle = class_getInstanceMethod(groupClass, NSSelectorFromString(@"_toggleTabBar"));
+  state = class_getInstanceVariable(groupClass, "_barState");
+  if (method == NULL || toggle == NULL || state == NULL
+      || [groupClass instancesRespondToSelector: @selector(_windowsDidChangeAlso:)] == NO)
+    {
+      return;
+    }
+  WinUIThemeBarStateOffset = ivar_getOffset(state);
+  WinUIThemeOriginalIsTabBarVisible = (BOOL (*)(id, SEL))method_getImplementation(method);
+  method_setImplementation(method, (IMP)WinUIThemeTabGroupIsTabBarVisible);
+  method_setImplementation(toggle, (IMP)WinUIThemeTabGroupToggleTabBar);
+}
+
+void
+WinUIThemeWindowTabsWindowBecameKey(NSWindow *window)
+{
+  NSWindowTabGroup *group = nil;
+
+  if (WinUIThemeOriginalIsTabBarVisible == NULL
+      || [window respondsToSelector: @selector(_updateTabBar)] == NO
+      || WinUIThemeWindowShowsSingleTab(window) == NO)
+    {
+      return;
+    }
+  group = [window tabGroup];
+  if ([[group windows] count] == 1 && [group isTabBarVisible]
+      && [window _tabBarView] == nil)
+    {
+      [window _updateTabBar];
+    }
+}
 
 static CGFloat
 WinUIThemeTabsDensity(WinUITheme *theme)

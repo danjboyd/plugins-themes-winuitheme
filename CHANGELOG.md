@@ -5,6 +5,16 @@ Releases of the WinUI theme for GNUstep. Versions are semver pre-releases
 `GSThemeVersion` in `WinUIThemeInfo.plist`, and an annotated tag on `main`.
 Apps that bundle the theme should pin a tag, not `main`.
 
+## Unreleased
+
+**Window tabs**
+- A window that can be a tab shows its tab strip with one tab and a
+  "+", as Notepad and Terminal open (#133); the shared code showed it
+  only from the second tab. That's a titled window, not a panel, whose
+  tabbing mode isn't Disallowed, with something answering
+  `-newWindowForTab:`. Hide Tab Bar (`-toggleTabBar:`) still hides it.
+  QuirkProbe `window-single-tab`.
+
 ## 0.1.0-alpha6 (2026-10-15)
 
 New chrome for apps that ask for it: the toolbar in the menu bar's row,

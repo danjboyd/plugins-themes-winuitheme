@@ -122,10 +122,13 @@ WinUIThemeRightTextAlignment(void)
      Off unless WinUIThemeWindowTabs is YES until the tabs are checked with
      ObjcMarkdown: apps that find the API use it, and ObjcMarkdown's MSI
      takes the theme from main. Later calls do nothing. */
-  if ([[NSUserDefaults standardUserDefaults] boolForKey: @"WinUIThemeWindowTabs"])
-    {
-      GSWindowTabbingInstall();
-    }
+  {
+    if ([[NSUserDefaults standardUserDefaults] boolForKey: @"WinUIThemeWindowTabs"])
+      {
+        GSWindowTabbingInstall();
+        WinUIThemeWindowTabsInstallSingleTabBar();
+      }
+  }
   self = [super initWithBundle: bundle];
   if (self != nil)
     {
@@ -278,19 +281,23 @@ WinUIThemeRightTextAlignment(void)
 
   [self tidyMainMenu];
 
-  if (mainMenu == nil || [window isKindOfClass: [NSWindow class]] == NO)
+  if ([window isKindOfClass: [NSWindow class]] == NO)
     {
       return;
     }
-  if (NSInterfaceStyleForKey(@"NSMenuInterfaceStyle", nil) != NSWindows95InterfaceStyle)
+  if (mainMenu == nil
+      || NSInterfaceStyleForKey(@"NSMenuInterfaceStyle", nil) != NSWindows95InterfaceStyle)
     {
+      WinUIThemeWindowTabsWindowBecameKey(window);
       return;
     }
   if ([window canBecomeMainWindow] == NO || [window menu] != nil)
     {
+      WinUIThemeWindowTabsWindowBecameKey(window);
       return;
     }
   [self updateMenu: mainMenu forWindow: window];
+  WinUIThemeWindowTabsWindowBecameKey(window);
 }
 
 - (NSColorList *) colors

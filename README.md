@@ -398,6 +398,12 @@ does; a "+" right after the last tab when something answers
 `-newWindowForTab:`. High contrast uses ButtonFace, Window, WindowText,
 Hilight and HilightText as WinUI's TabView does.
 
+A window that can be a tab shows the bar from the start, with its one
+tab and the "+", as Notepad and Terminal open (#133): a titled window,
+not a panel, whose tabbing mode isn't Disallowed, with something that
+answers `-newWindowForTab:` (the "+" opens a tab through it). Hide Tab
+Bar (`-toggleTabBar:`) hides it, and Show Tab Bar brings it back.
+
 With the theme's title bar (the carried libs-back) the tabs are in the
 title bar, as Windows 11's tabbed apps have them (#83): after the app's
 icon, as wide as the tabs and the "+" need, with at least 48px of the row

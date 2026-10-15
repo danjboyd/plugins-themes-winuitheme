@@ -445,6 +445,16 @@ QuirkProbeModuleOfAddress(void *address)
 - (NSRect) newTabButtonRect;
 @end
 
+/* The tabbing API the theme installs (GSWindowTabbing.h). */
+@interface NSWindow (QuirkProbeTabGroup)
+- (id) tabGroup;
+- (void) toggleTabBar: (id)sender;
+@end
+
+@interface NSObject (QuirkProbeTabGroup)
+- (BOOL) isTabBarVisible;
+@end
+
 /* Notes whether a window was on screen when another one began to close. */
 @interface QuirkProbeCloseWatcher : NSObject
 {
@@ -616,6 +626,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkSearchField;
 - (void) checkHorizontalOnlyScroller;
 - (void) checkWindowTabs;
+- (void) checkWindowSingleTab;
 - (void) checkClientCaption;
 - (void) checkClientCaptionScaled;
 - (void) checkDPIAwareness;
@@ -7756,6 +7767,78 @@ QuirkProbeCloseButtonInkOnScreen(HWND hwnd)
   [window orderOut: nil];
 }
 
+/* One tab (#133): a window on its own shows its tab bar, with its tab
+   and a "+", once something answers -newWindowForTab: for it, as Notepad
+   and Terminal open; without a responder it has none, and Hide Tab Bar
+   (-toggleTabBar:) still hides it. */
+- (void) checkWindowSingleTab
+{
+  NSWindow *window = nil;
+  NSView *decoration = nil;
+  NSView *bar = nil;
+  Class barClass = NSClassFromString(@"GSWindowTabBarView");
+  NSMutableArray *problems = [NSMutableArray array];
+  NSNotificationCenter *center = [NSNotificationCenter defaultCenter];
+
+  if ([NSWindow instancesRespondToSelector: @selector(addTabbedWindow:ordered:)] == NO || barClass == Nil)
+    {
+      [self fail: @"window-single-tab" detail: @"no window tabbing"];
+      return;
+    }
+  window = [self windowWithFrame: NSMakeRect(160, 240, 520, 200) title: @"QuirkProbe Single Tab"];
+  decoration = [[window contentView] superview];
+  _offersNewTab = NO;
+  [window makeKeyAndOrderFront: nil];
+  [center postNotificationName: NSWindowDidBecomeKeyNotification object: window];
+  QuirkProbeDispatchEvents(0.2);
+  if (QuirkProbeFindViewOfClass(decoration, barClass) != nil || [[window tabGroup] isTabBarVisible])
+    {
+      [problems addObject: @"a bar though nothing answers -newWindowForTab:"];
+    }
+
+  _offersNewTab = YES;
+  [center postNotificationName: NSWindowDidBecomeKeyNotification object: window];
+  QuirkProbeDispatchEvents(0.2);
+  [window display];
+  bar = QuirkProbeFindViewOfClass(decoration, barClass);
+  if (bar == nil || [[window tabGroup] isTabBarVisible] == NO)
+    {
+      [problems addObject: @"no bar with a responder"];
+    }
+  else
+    {
+      if (NSIsEmptyRect([(id)bar rectForTabAtIndex: 0]))
+        {
+          [problems addObject: @"the bar has no tab"];
+        }
+      if (NSIsEmptyRect([(id)bar newTabButtonRect]))
+        {
+          [problems addObject: @"the bar has no \"+\""];
+        }
+      [self saveView: decoration named: @"window-single-tab"];
+    }
+
+  /* Hide Tab Bar. */
+  [window toggleTabBar: nil];
+  QuirkProbeDispatchEvents(0.1);
+  if ([[window tabGroup] isTabBarVisible] || [bar superview] != nil)
+    {
+      [problems addObject: @"Hide Tab Bar left the bar"];
+    }
+  _offersNewTab = NO;
+  [window orderOut: nil];
+
+  if ([problems count] == 0)
+    {
+      [self pass: @"window-single-tab" detail:
+        @"none without a responder; one tab and a \"+\" with one; Hide Tab Bar hides it"];
+    }
+  else
+    {
+      [self fail: @"window-single-tab" detail: [problems componentsJoinedByString: @"; "]];
+    }
+}
+
 - (void) checkWindowTabs
 {
   BOOL highContrast = QuirkProbeHasArgument(@"--high-contrast", @"yes");
@@ -11786,6 +11869,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkSearchField];
   [self checkHorizontalOnlyScroller];
   [self checkWindowTabs];
+  [self checkWindowSingleTab];
   [self checkClientCaption];
   [self checkClientCaptionScaled];
   [self checkDPIAwareness];
