@@ -10639,6 +10639,7 @@ QuirkProbeAnimates(NSView *view, void (*change)(NSView *, BOOL), NSString **deta
   CGFloat flyoutTarget = 0.0, flyoutStart = 0.0, flyoutEnd = 0.0;
   NSPanel *alert = nil;
   CGFloat alertOpening = -1.0, alertOpen = -1.0;
+  CGFloat alertScaleOpening = 0.0, alertScaleOpen = 0.0;
   NSSwitch *toggle = nil;
   NSButton *checkbox = nil;
   NSString *detail = nil;
@@ -10880,10 +10881,16 @@ QuirkProbeAnimates(NSView *view, void (*change)(NSView *, BOOL), NSString **deta
   alert = NSGetAlertPanel(@"QuirkProbe Motion", @"An alert fading in.", @"OK", nil, nil);
   if (alert != nil)
     {
+      NSView *alertContent = nil;
+
       [alert orderFront: nil];
+      alertContent = [alert contentView];
       alertOpening = [alert alphaValue];
+      /* The content's scale: its frame over its bounds. */
+      alertScaleOpening = NSWidth([alertContent frame]) / MAX(1.0, NSWidth([alertContent bounds]));
       QuirkProbeDispatchEvents(0.3);
       alertOpen = [alert alphaValue];
+      alertScaleOpen = NSWidth([alertContent frame]) / MAX(1.0, NSWidth([alertContent bounds]));
       [alert orderOut: nil];
       NSReleaseAlertPanel(alert);
     }
@@ -10909,6 +10916,19 @@ QuirkProbeAnimates(NSView *view, void (*change)(NSView *, BOOL), NSString **deta
     {
       [self fail: @"motion-dialog-fades-in" detail: [NSString stringWithFormat:
         @"an alert's alpha is %.2f opening, %.2f open", alertOpening, alertOpen]];
+    }
+
+  /* WinUI's ContentDialog also scales from 105% as it opens (#105). */
+  if (alertScaleOpening > 1.03 && fabs(alertScaleOpen - 1.0) < 0.001)
+    {
+      [self pass: @"motion-dialog-scales" detail: [NSString stringWithFormat:
+        @"an alert's content at %.3f opening, %.3f open", alertScaleOpening, alertScaleOpen]];
+    }
+  else
+    {
+      [self fail: @"motion-dialog-scales" detail: [NSString stringWithFormat:
+        @"an alert's content at %.3f opening, %.3f open (WinUI's from 1.05 to 1)",
+        alertScaleOpening, alertScaleOpen]];
     }
 
   if (flyoutOpening < 0.5 && flyoutOpen == 1.0 && flyoutInstant == 1.0
