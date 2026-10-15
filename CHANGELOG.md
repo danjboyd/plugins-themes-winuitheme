@@ -30,16 +30,32 @@ Apps that bundle the theme should pin a tag, not `main`.
   first. QuirkProbe `progress-states`.
 
 **Fixes**
-- On a scaled display with the DPI-aware carried backend, an item after
-  a flexible space went into the toolbar's ">>" menu with the row half
-  empty: ScreenshotTool's Copy at 125% and 150% on alpha4, found by the
-  ScreenshotTool session. libs-gui rounds the space's frame to device
-  pixels, past the toolbar's width; the space gives the excess back.
-  QuirkProbe `toolbar-flexible-space-scaled`.
+- At a fractional window scale (a 150% monitor on the DPI-aware carried
+  backend) a scroll view showed its overlay indicator over content at
+  rest after its first display: the clip view's snap to the pixel grid
+  was taken for a scroll. QuirkProbe `scroller-hidden-at-rest` in the
+  `scaled-150` configuration.
 
 **Testing**
 - QuirkProbe sets centre and right alignment as the running gui numbers
   them, so it runs clean on libs-gui master too.
+
+## 0.1.0-alpha5 (2026-10-15)
+
+One fix for alpha4 on a scaled display. Requires gnustep-gui 0.32 or
+later. Tested with the carried libs-back `carry-0.32.0.4`
+(`danjboyd/libs-back`), as alpha4 was. Apps on alpha4 should move to it,
+above all those on the carried, DPI-aware backend.
+
+**Fixes**
+- At 125% and 150% on the DPI-aware carried backend, an item after a
+  flexible space went into the toolbar's ">>" menu with the row half
+  empty (ScreenshotTool's Copy, found by the ScreenshotTool session).
+  libs-gui rounds the space's frame to device pixels, a fraction of a
+  point past the toolbar's width, and its own fit test then fails; the
+  space gives the excess back. alpha3 didn't show it: its process was
+  DPI-unaware, so the gui drew at 1.0. QuirkProbe
+  `toolbar-flexible-space-scaled`.
 
 ## 0.1.0-alpha4 (2026-10-14)
 

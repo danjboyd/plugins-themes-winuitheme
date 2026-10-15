@@ -1249,7 +1249,8 @@ static NSRect QuirkProbeOpenListRow;
 
 - (NSArray *) toolbarDefaultItemIdentifiers: (NSToolbar *)toolbar
 {
-  if ([[toolbar identifier] isEqualToString: @"QuirkProbeMenuRowToolbar"])
+  if ([[toolbar identifier] isEqualToString: @"QuirkProbeMenuRowToolbar"]
+      || [[toolbar identifier] isEqualToString: @"QuirkProbeFlexibleToolbar"])
     {
       return [NSArray arrayWithObjects: QuirkProbeImageItem, NSToolbarFlexibleSpaceItemIdentifier,
                                         QuirkProbeImageItem, nil];
@@ -1786,7 +1787,7 @@ QuirkProbeDarkest(NSBitmapImageRep *rep)
   [window setReleasedWhenClosed: NO];
   [_windows addObject: window];
   RELEASE(window);
-  toolbar = [[NSToolbar alloc] initWithIdentifier: @"QuirkProbeMenuRowToolbar"];
+  toolbar = [[NSToolbar alloc] initWithIdentifier: @"QuirkProbeFlexibleToolbar"];
   [toolbar setDelegate: self];
   [toolbar setDisplayMode: NSToolbarDisplayModeIconOnly];
   [window setToolbar: toolbar];
