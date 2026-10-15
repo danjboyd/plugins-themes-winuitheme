@@ -241,6 +241,60 @@ WinUIThemeToolbarImageSize(NSImage *image, NSToolbar *toolbar)
   return size;
 }
 
+/* In the menu bar's row a view (a segmented control, a push button) is a
+   compact control, 4pt clear of the row's top and foot, as a compact
+   CommandBar's content is; it kept its own height, as tall as the row,
+   and met the title bar (ScreenshotTool's tools and Copy). Its own
+   height, kept here, comes back in a row of its own. */
+static char WinUIThemeToolbarViewNaturalHeightKey;
+static const CGFloat WinUIThemeToolbarCompactViewInset = 4.0;
+
+static CGFloat
+WinUIThemeToolbarViewHeight(NSToolbarItem *item)
+{
+  NSView *view = [item view];
+  NSNumber *natural = objc_getAssociatedObject(view, &WinUIThemeToolbarViewNaturalHeightKey);
+  CGFloat height = (natural != nil) ? [natural doubleValue] : NSHeight([view frame]);
+  NSToolbar *toolbar = [item toolbar];
+
+  if (view != nil && WinUIThemeToolbarIsInMenuBar(toolbar))
+    {
+      CGFloat room = WinUIThemeToolbarRowHeightFor(toolbar) - 2.0 * WinUIThemeToolbarCompactViewInset;
+
+      if (room > 0.0)
+        {
+          height = MIN(height, room);
+        }
+    }
+  return height;
+}
+
+/* Gives a view item's view the height above, keeping its own the first
+   time it changes. */
+static void
+WinUIThemeToolbarSizeViewHeight(NSToolbarItem *item)
+{
+  NSView *view = [item view];
+  CGFloat height;
+
+  if (view == nil)
+    {
+      return;
+    }
+  height = WinUIThemeToolbarViewHeight(item);
+  if (fabs(NSHeight([view frame]) - height) < 0.5)
+    {
+      return;
+    }
+  if (objc_getAssociatedObject(view, &WinUIThemeToolbarViewNaturalHeightKey) == nil)
+    {
+      objc_setAssociatedObject(view, &WinUIThemeToolbarViewNaturalHeightKey,
+                               [NSNumber numberWithDouble: NSHeight([view frame])],
+                               OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+  [view setFrameSize: NSMakeSize(NSWidth([view frame]), height)];
+}
+
 /* A view item's view width: its own, within the item's minSize and
    maxSize when it has them. */
 static CGFloat
@@ -278,7 +332,7 @@ WinUIThemeToolbarContentSize(NSToolbarItem *item)
     }
   if (view != nil)
     {
-      content = NSMakeSize(WinUIThemeToolbarViewWidth(item), NSHeight([view frame]));
+      content = NSMakeSize(WinUIThemeToolbarViewWidth(item), WinUIThemeToolbarViewHeight(item));
     }
   else if (WinUIThemeToolbarIsInMenuBar(toolbar))
     {
@@ -345,6 +399,7 @@ WinUIThemePlaceToolbarView(NSView *backView, NSToolbarItem *item)
     {
       return;
     }
+  WinUIThemeToolbarSizeViewHeight(item);
   content = WinUIThemeToolbarContentRect(item, [backView bounds]);
   [view setFrameOrigin: NSMakePoint(floor(NSMidX(content) - NSWidth([view frame]) / 2.0),
                                     NSMaxY(content) - NSHeight([view frame]))];

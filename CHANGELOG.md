@@ -30,6 +30,11 @@ Apps that bundle the theme should pin a tag, not `main`.
   more`, or `GSThemeToolbarInMenuBar`) applies: the theme read the domain
   named after the process, where NSUserDefaults names it after the app's
   bundle identifier when it has one (#139).
+- In the menu bar's row a toolbar item's own view (a segmented control, a
+  push button) is a compact 24pt control, 4pt clear of the row's top and
+  foot, and a compact segmented control's icons are 16pt, as the row's
+  own; they kept their height and met the title bar (#140, ScreenshotTool's
+  tools and Copy). QuirkProbe `toolbar-in-menu-bar-views`.
 - With `WinUIThemeMenuStyle = more`, tabs in the title bar (the carried
   libs-back) and no toolbar showing, the "..." sits in the title bar right
   after the tabs' "+", as Windows Terminal has its menu, and the menu

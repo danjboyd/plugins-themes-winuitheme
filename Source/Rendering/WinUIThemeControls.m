@@ -612,6 +612,12 @@ WinUIThemeDrawSegmentedImage(NSImage *image,
     }
 
   maxIconSize = MAX(10.0, MIN(22.0, MIN(frame.size.width - 8.0, frame.size.height - 6.0)));
+  /* A compact (24pt) control's icons are 16pt, as a compact CommandBar's
+     are, beside the toolbar's own in the menu bar's row. */
+  if (frame.size.height <= 26.0)
+    {
+      maxIconSize = MIN(maxIconSize, 16.0);
+    }
   scale = MIN(1.0, MIN(maxIconSize / imageSize.width, maxIconSize / imageSize.height));
   imageSize.width = floor(imageSize.width * scale);
   imageSize.height = floor(imageSize.height * scale);

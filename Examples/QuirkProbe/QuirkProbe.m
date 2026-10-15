@@ -590,6 +590,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkDecorationFitsTallWindow;
 - (void) checkToolbarIconSize;
 - (void) checkToolbarInMenuBar;
+- (void) checkToolbarInMenuBarViews;
 - (void) checkToolbarFlexibleSpaceScaled;
 - (void) checkScrollerEdge;
 - (void) checkTextAlignment;
@@ -1272,6 +1273,37 @@ static NSRect QuirkProbeOpenListRow;
       [item setLabel: @"Go"];
       RELEASE(view);
     }
+  /* The menu row's views check: a segmented control, then a push
+     button, each 32pt tall, as ScreenshotTool's tools and Copy. */
+  if ([[toolbar identifier] isEqualToString: @"QuirkProbeMenuRowViewsToolbar"])
+    {
+      static BOOL button = NO;
+      NSView *view = nil;
+
+      if (button)
+        {
+          NSButton *push = [[NSButton alloc] initWithFrame: NSMakeRect(0, 0, 72, 32)];
+
+          [push setTitle: @"Copy"];
+          [push setBezelStyle: NSRoundedBezelStyle];
+          view = push;
+        }
+      else
+        {
+          NSSegmentedControl *segments = [[NSSegmentedControl alloc] initWithFrame: NSMakeRect(0, 0, 96, 32)];
+
+          [segments setSegmentCount: 3];
+          [segments setImage: [self magentaImage] forSegment: 0];
+          [segments setImage: [self magentaImage] forSegment: 1];
+          [segments setImage: [self magentaImage] forSegment: 2];
+          [segments setSelectedSegment: 0];
+          view = segments;
+        }
+      button = !button;
+      [item setView: view];
+      [item setLabel: @"View"];
+      RELEASE(view);
+    }
   /* An item without an action is disabled, and draws its image faded. */
   [item setTarget: self];
   [item setAction: @selector(toolbarItemClicked:)];
@@ -1286,6 +1318,10 @@ static NSRect QuirkProbeOpenListRow;
 
 - (NSArray *) toolbarDefaultItemIdentifiers: (NSToolbar *)toolbar
 {
+  if ([[toolbar identifier] isEqualToString: @"QuirkProbeMenuRowViewsToolbar"])
+    {
+      return [NSArray arrayWithObjects: QuirkProbeImageItem, QuirkProbeImageItem, nil];
+    }
   if ([[toolbar identifier] isEqualToString: @"QuirkProbeMenuRowToolbar"]
       || [[toolbar identifier] isEqualToString: @"QuirkProbeFlexibleToolbar"])
     {
@@ -2138,6 +2174,96 @@ QuirkProbeDarkest(NSBitmapImageRep *rep)
       [self fail: @"menu-style-more-toolbar" detail: [problems componentsJoinedByString: @"; "]];
     }
   [defaults removeObjectForKey: @"WinUIThemeMenuStyle"];
+  [defaults removeObjectForKey: @"GSThemeToolbarInMenuBar"];
+  [[NSNotificationCenter defaultCenter] postNotificationName: NSUserDefaultsDidChangeNotification
+                                                      object: defaults];
+  [window setToolbar: nil];
+  [window setMenu: nil];
+  [window orderOut: nil];
+}
+
+/* In the menu bar's row a view item (a segmented control, a push button)
+   is a compact 24pt control, 4pt clear of the row's top and foot, as a
+   compact CommandBar's content; it kept its 32pt and met the title bar.
+   In a row of its own it's its own height again. */
+- (void) checkToolbarInMenuBarViews
+{
+  NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+  NSWindow *window = [self windowWithFrame: NSMakeRect(300, 300, 520, 200)
+                                     title: @"QuirkProbe Toolbar Views In Menu Bar"];
+  NSMenu *menu = AUTORELEASE([[NSMenu alloc] initWithTitle: @"QuirkProbe"]);
+  NSToolbar *toolbar = [[NSToolbar alloc] initWithIdentifier: @"QuirkProbeMenuRowViewsToolbar"];
+  NSMutableArray *problems = [NSMutableArray array];
+  NSView *decoration = nil;
+  NSMenuView *bar = nil;
+  NSArray *items = nil;
+  NSUInteger index;
+
+  [defaults setBool: YES forKey: @"GSThemeToolbarInMenuBar"];
+  [[NSNotificationCenter defaultCenter] postNotificationName: NSUserDefaultsDidChangeNotification
+                                                      object: defaults];
+  [menu addItemWithTitle: @"File" action: NULL keyEquivalent: @""];
+  [toolbar setDelegate: self];
+  [toolbar setDisplayMode: NSToolbarDisplayModeIconOnly];
+  [window setToolbar: toolbar];
+  RELEASE(toolbar);
+  [window orderFront: nil];
+  [window setMenu: menu];
+  [window display];
+  QuirkProbeDispatchEvents(0.2);
+  decoration = [[window contentView] superview];
+  bar = (NSMenuView *)QuirkProbeFindViewOfClass(decoration, [NSMenuView class]);
+  items = [toolbar items];
+  if (bar == nil || [items count] != 2 || [[items objectAtIndex: 0] view] == nil)
+    {
+      [self skip: @"toolbar-in-menu-bar-views" detail: @"no menu bar or view items"];
+    }
+  else
+    {
+      NSRect row = [decoration convertRect: [bar bounds] fromView: bar];
+
+      for (index = 0; index < 2; index++)
+        {
+          NSView *view = [[items objectAtIndex: index] view];
+          NSRect frame = [decoration convertRect: [view bounds] fromView: view];
+          CGFloat above = NSMaxY(row) - NSMaxY(frame);
+          CGFloat below = NSMinY(frame) - NSMinY(row);
+
+          if (fabs(NSHeight(frame) - (NSHeight(row) - 8.0)) > 0.5 || above < 3.5 || below < 3.5
+              || fabs(above - below) > 1.0)
+            {
+              [problems addObject: [NSString stringWithFormat: @"%@ is %.0fpt tall in a %.0fpt row, %.0f above and %.0f below",
+                                                               [view class], NSHeight(frame), NSHeight(row), above, below]];
+            }
+        }
+      [self saveView: decoration named: @"toolbar-in-menu-bar-views"];
+
+      /* A row of its own: their own height again, not the compact one
+         (the push button's own is libs-gui's toolbar size, 36pt). */
+      [defaults setBool: NO forKey: @"GSThemeToolbarInMenuBar"];
+      [[NSNotificationCenter defaultCenter] postNotificationName: NSUserDefaultsDidChangeNotification
+                                                          object: defaults];
+      QuirkProbeDispatchEvents(0.2);
+      for (index = 0; index < 2; index++)
+        {
+          NSView *view = [[items objectAtIndex: index] view];
+
+          if (NSHeight([view frame]) < 31.5)
+            {
+              [problems addObject: [NSString stringWithFormat: @"in a row of its own %@ is still %.0fpt",
+                                                               [view class], NSHeight([view frame])]];
+            }
+        }
+      if ([problems count] == 0)
+        {
+          [self pass: @"toolbar-in-menu-bar-views" detail:
+            @"a segmented control and a push button 24pt and centred in the row; their own height again in their own row"];
+        }
+      else
+        {
+          [self fail: @"toolbar-in-menu-bar-views" detail: [problems componentsJoinedByString: @"; "]];
+        }
+    }
   [defaults removeObjectForKey: @"GSThemeToolbarInMenuBar"];
   [[NSNotificationCenter defaultCenter] postNotificationName: NSUserDefaultsDidChangeNotification
                                                       object: defaults];
@@ -12167,6 +12293,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkDecorationFitsTallWindow];
   [self checkToolbarIconSize];
   [self checkToolbarInMenuBar];
+  [self checkToolbarInMenuBarViews];
   [self checkToolbarFlexibleSpaceScaled];
   [self checkScrollerEdge];
   [self checkTableHeader];
