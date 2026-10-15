@@ -119,11 +119,12 @@ WinUIThemeRightTextAlignment(void)
      others calls the tabbing code's hook as its original; GSTheme loads
      the user's theme as NSApplication is made, so the API is there before
      an app sets up its first window (ObjcMarkdown checks for it then).
-     Off unless WinUIThemeWindowTabs is YES until the tabs are checked with
-     ObjcMarkdown: apps that find the API use it, and ObjcMarkdown's MSI
-     takes the theme from main. Later calls do nothing. */
+     On unless WinUIThemeWindowTabs is NO (since 0.1.0-alpha7; checked
+     with ObjcMarkdown). Later calls do nothing. */
   {
-    if ([[NSUserDefaults standardUserDefaults] boolForKey: @"WinUIThemeWindowTabs"])
+    id tabs = [[NSUserDefaults standardUserDefaults] objectForKey: @"WinUIThemeWindowTabs"];
+
+    if (tabs == nil || [tabs respondsToSelector: @selector(boolValue)] == NO || [tabs boolValue])
       {
         GSWindowTabbingInstall();
         WinUIThemeWindowTabsInstallSingleTabBar();

@@ -371,10 +371,10 @@ the API is there before an app sets up its first window. Apps that check
 `[NSWindow instancesRespondToSelector: @selector(addTabbedWindow:ordered:)]`
 (ObjcMarkdown) find it.
 
-**Off by default for now** (#72): apps that find the API use it (ObjcMarkdown
-turns its documents into window tabs). `WinUIThemeWindowTabs YES` (a user
-default, or `-WinUIThemeWindowTabs YES` on the command line) turns them on;
-QuirkProbe runs with it on.
+**On by default** since 0.1.0-alpha7 (#72): apps that find the API use
+it (ObjcMarkdown turns its documents into window tabs).
+`WinUIThemeWindowTabs NO` (a user default, or `-WinUIThemeWindowTabs NO`
+on the command line) turns them off.
 
 On Windows: the hidden tabs are ordered out, so the taskbar and Alt+Tab
 show one entry per group; selecting a tab gives it the group's frame and,

@@ -8,6 +8,9 @@ Apps that bundle the theme should pin a tag, not `main`.
 ## Unreleased
 
 **Window tabs**
+- Window tabs are on by default (#72): apps that use NSWindow's tabbing
+  API (ObjcMarkdown) get WinUI's TabView, in the title bar with the
+  carried libs-back. `WinUIThemeWindowTabs NO` turns them off.
 - A window that can be a tab shows its tab strip with one tab and a
   "+", as Notepad and Terminal open (#133); the shared code showed it
   only from the second tab. That's a titled window, not a panel, whose
