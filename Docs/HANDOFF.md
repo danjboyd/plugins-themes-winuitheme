@@ -96,13 +96,15 @@ Phases A to J and these fixes are merged into `main`:
 | #121 | `handoff-2026-10-13-late` | the previous handoff |
 | #122 | `controls-105` | the rest of #105's controls (browser hover, box titles, the combo pill, toolbar separators, text size reaching open windows), #56's gaps, context menus at the screen's edges, submenu clicks (#19, found in Gorm), the scaled-display and second-monitor fixes from the OCI runs |
 | #123 | `version-0.1.0-alpha4` | the fourth release |
+| #127 | `alpha5-overflow-fix` | the alpha4 scaled-toolbar regression alone (cherry-picked from #125) |
+| #128 | `version-0.1.0-alpha5` | the fifth release |
 
 **Open, not merged:**
 
 | PR | Branch | Issues |
 | --- | --- | --- |
 | #124 | `handoff-2026-10-14` | the 10-14 handoff (this file's base) |
-| #125 (draft) | `parity-2026-10-15` | #91 (the toolbar in the menu bar's row), slider tick marks and paused/error progress (#105), the alpha4 scaled-toolbar regression, a probe fix for libs-gui master |
+| #125 (draft) | `parity-2026-10-15` | #91 (the toolbar in the menu bar's row), slider tick marks and paused/error progress (#105), the overlay scroller at a fractional scale, the probe's `scaled-150` and libs-gui master fixes; `main` (alpha5) merged in |
 | this one | `handoff-2026-10-15` | this file, on top of #124 |
 
 **Releases.** The owner approved the release process on 2026-10-08:
@@ -112,6 +114,22 @@ Phases A to J and these fixes are merged into `main`:
 - an annotated tag on `main`;
 - a GitHub pre-release with the notes and the bundle zip built in CLANG64;
 - apps pin a tag, not `main`.
+
+**0.1.0-alpha5** is tag `0.1.0-alpha5` on `e97e54a` (the merge of #128),
+a GitHub pre-release with `WinUITheme-0.1.0-alpha5-msys2-clang64.zip`
+(SHA-256 `AC0E6F98…C1FA`), tested with `carry-0.32.0.4`.
+- **Contents:** alpha4 plus one fix, the toolbar's ">>" overflow at
+  125% and 150% on the DPI-aware carried backend (#127), and nothing
+  from #125.
+- **How it was released (night of 10-14):**
+  - the macOS release coordinator asked for it, and #127 and #128 were
+    merged under the owner's account;
+  - this session tagged it and published the pre-release, on the
+    owner's "proceed with everything we can get done overnight" given
+    in the session after the steps were listed;
+  - the zip was built by hand from `b461455`, whose tree is identical
+    to `e97e54a`'s.
+- **ScreenshotTool's PR #198** re-pins to it for v0.1.3.
 
 **0.1.0-alpha4** is tag `0.1.0-alpha4` on `d83406b` (the merge of #123),
 a GitHub pre-release with `WinUITheme-0.1.0-alpha4-msys2-clang64.zip`,
@@ -581,15 +599,13 @@ to choose differently.
 
 ### Suggested next five (the owner decides)
 
-1. **Review draft #125, then release 0.1.0-alpha5.**
-   - #125 has #91, slider ticks, paused/error progress (an API choice to
-     confirm), the alpha4 scaled-toolbar fix and the probe's alignment
-     fix.
-   - The toolbar fix matters for every app on the carried backend at
-     125% and above. ScreenshotTool's PR #198 waits on it.
+1. **Review draft #125** (alpha5 shipped its toolbar fix already).
+   - It has #91, slider ticks, paused/error progress (an API choice to
+     confirm), the overlay scroller fix at a fractional scale and the
+     probe work. `main` is merged in.
    - #91 is off unless an app declares it, but ObjcMarkdown's Info.plist
      already does, so ObjcMarkdown gets single-row chrome as soon as it
-     moves to a release with #125.
+     moves to a release with #125, an alpha6.
 2. **Upstream:** review the four libs-back topic branches, using
    `win32-per-monitor-dpi-squashed` for the DPI one (GCC done; the X11
    build of `CairoFontInfo.m` is still owed). Also #246's FSF
