@@ -19,7 +19,11 @@ Apps that bundle the theme should pin a tag, not `main`.
   QuirkProbe `window-single-tab`.
 - Selecting a tab (a click, the "+", Ctrl+Tab) shows the new tab's
   window before the old one goes, so the window no longer vanishes for a
-  moment (#137). QuirkProbe `window-tab-switch-shows-first`.
+  moment (#137). A new tab's window (the "+") is set up behind the old
+  one and brought forward 0.1s later, once the app has laid it out and
+  it has drawn: shown at once, Windows drew its own title bar over blank
+  content first. Windows' show and hide animations are off for the swap.
+  QuirkProbe `window-tab-switch-shows-first`.
 
 **Chrome**
 - With `WinUIThemeMenuStyle = more`, tabs in the title bar (the carried

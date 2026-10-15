@@ -11102,7 +11102,9 @@ QuirkProbeSendMove(NSWindow *window, NSPoint location)
   first->partnerVisibleAtOrderOut = -1;
   /* Joining as a tab selects the new window: the first orders out. */
   [first addTabbedWindow: second ordered: NSWindowAbove];
-  QuirkProbeDispatchEvents(0.2);
+  /* A new tab's window is set up behind the old one and brought forward
+     0.1s later; the old one goes 0.05s after that. */
+  QuirkProbeDispatchEvents(0.5);
   if (first->partnerVisibleAtOrderOut == 1)
     {
       [self pass: @"window-tab-switch-shows-first" detail:

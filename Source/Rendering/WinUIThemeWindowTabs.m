@@ -129,6 +129,58 @@ WinUIThemeTabGroupIsTabBarVisible(id group, SEL _cmd)
 
 static ptrdiff_t WinUIThemeSelectedWindowOffset = -1;
 
+/* Set on a tab's window once the switch has shown it. */
+static char WinUIThemeTabShownKey;
+
+static NSArray *
+WinUIThemeTabModes(void)
+{
+  return [NSArray arrayWithObjects: NSDefaultRunLoopMode, NSModalPanelRunLoopMode,
+                  NSEventTrackingRunLoopMode, nil];
+}
+
+/* The old tab's window ordered out once the new one has drawn over it,
+   unless it has been selected again since; a new tab's window, set up
+   behind the old one, brought forward. */
+@interface WinUIThemeTabHider : NSObject
++ (void) hide: (NSArray *)groupAndWindow;
++ (void) reveal: (NSArray *)groupWindowPreviousKey;
+@end
+
+@implementation WinUIThemeTabHider
++ (void) hide: (NSArray *)groupAndWindow
+{
+  NSWindowTabGroup *group = [groupAndWindow objectAtIndex: 0];
+  NSWindow *window = [groupAndWindow objectAtIndex: 1];
+
+  if ([group selectedWindow] != window && [window isVisible])
+    {
+      [window _tabbingHide];
+    }
+}
+
++ (void) reveal: (NSArray *)groupWindowPreviousKey
+{
+  NSWindowTabGroup *group = [groupWindowPreviousKey objectAtIndex: 0];
+  NSWindow *window = [groupWindowPreviousKey objectAtIndex: 1];
+  NSWindow *previous = [groupWindowPreviousKey objectAtIndex: 2];
+  BOOL key = [[groupWindowPreviousKey objectAtIndex: 3] boolValue];
+
+  if ([group selectedWindow] != window)
+    {
+      return;
+    }
+  WinUIThemeWindowIntegrationSuspendTransitions(window, previous);
+  [window _tabbingShowWithFrame: [previous frame] makeKey: (key || [previous isKeyWindow])];
+  [window display];
+  [window flushWindow];
+  [self performSelector: @selector(hide:)
+             withObject: [NSArray arrayWithObjects: group, previous, nil]
+             afterDelay: 0.05
+                inModes: WinUIThemeTabModes()];
+}
+@end
+
 /* Selecting a tab (a click, the "+", Ctrl+Tab): the shared code hid the
    old tab's window, then showed the new one in its place, so for a moment
    neither was on the screen and the window seemed to vanish. The new one
@@ -153,8 +205,43 @@ WinUIThemeTabGroupSwitchToWindow(id group, SEL _cmd, id window)
     }
   frame = [previous frame];
   key = [previous isKeyWindow];
+  if (objc_getAssociatedObject(window, &WinUIThemeTabShownKey) == nil
+      && [window isVisible] == NO)
+    {
+      /* A tab's window never on screen (the "+" or the app's new tab):
+         Windows would show it first with its own title bar and the app's
+         content not laid out yet. It's set up behind the old one, at the
+         group's frame, and brought forward once the app has returned to
+         the run loop and it has drawn. */
+      objc_setAssociatedObject(window, &WinUIThemeTabShownKey,
+                               [NSNumber numberWithBool: YES], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+      WinUIThemeWindowIntegrationSuspendTransitions(window, previous);
+      [window setFrame: frame display: NO];
+      [window orderWindow: NSWindowBelow relativeTo: [previous windowNumber]];
+      [WinUIThemeTabHider performSelector: @selector(reveal:)
+                               withObject: [NSArray arrayWithObjects: group, window, previous,
+                                                    [NSNumber numberWithBool: key], nil]
+                               afterDelay: 0.1
+                                  inModes: WinUIThemeTabModes()];
+      return;
+    }
+  objc_setAssociatedObject(window, &WinUIThemeTabShownKey,
+                           [NSNumber numberWithBool: YES], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+  /* Without Windows' show and hide animations, which would fade the old
+     window out as the new one fades in. */
+  WinUIThemeWindowIntegrationSuspendTransitions(window, previous);
   [window _tabbingShowWithFrame: frame makeKey: key];
-  [previous _tabbingHide];
+  /* libs-back's windows are layered: one shows nothing until its contents
+     are flushed, which a new window (the "+") gets only once the app has
+     set it up and the run loop draws it. Drawn and flushed now, and the old
+     one, under it at the same frame, ordered out a moment later: hidden at
+     once, it left neither window on the screen for a tenth of a second. */
+  [window display];
+  [window flushWindow];
+  [WinUIThemeTabHider performSelector: @selector(hide:)
+                           withObject: [NSArray arrayWithObjects: group, previous, nil]
+                           afterDelay: 0.05
+                              inModes: WinUIThemeTabModes()];
 }
 
 /* -toggleTabBar: as the shared code has it, against the automatic state
