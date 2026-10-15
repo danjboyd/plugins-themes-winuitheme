@@ -1,15 +1,79 @@
 # GNUstep WinUI Theme
 
-`plugins-themes-winuitheme` is a GNUstep theme project that targets WinUI 3 as
-closely as practical while preserving GNUstep desktop application conventions.
+A GNUstep theme that makes ordinary GNUstep apps look and behave like
+WinUI 3 apps on Windows 11, without changing the apps. Document windows,
+menu bars, toolbars, inspectors, tables, dialogs and split views take
+WinUI's controls, colours, type, motion and title bar. The apps keep
+GNUstep's structure; this isn't an attempt to turn GNUstep into a XAML
+framework.
 
-The target is a Windows-native result for ordinary GNUstep desktop software:
-document windows, top menu bars, toolbars, inspectors, data views, dialogs, and
-split-window layouts.
+![ThemeDemo's controls page under WinUITheme, light and dark](Docs/Images/controls-light-dark.png)
 
-This repository is intentionally not trying to recreate the Windows Settings
-app shell or turn GNUstep into a XAML application framework. The visual target
-is WinUI 3 client-area parity with GNUstep structure intact.
+| | |
+| --- | --- |
+| ![Text input and an open pop-up list](Docs/Images/popup-open-light.png) | ![Tables and outlines](Docs/Images/data-views-dark.png) |
+| ![An alert, drawn as WinUI's ContentDialog](Docs/Images/alert-light.png) | ![The Dusk contrast theme](Docs/Images/controls-dusk.png) |
+
+**What it covers:**
+- WinUI 3's controls and type: Segoe UI Variable, 32px controls, the accent
+  colour, light and dark following Windows.
+- Windows' contrast themes, followed live.
+- The app's own WinUI title bar, Mica and DWM shadows.
+- WinUI's motion: hover fades, sliding menus, the switch knob, the
+  dialog scale-in.
+- Windows' own Open, Save, Print and Page Setup dialogs.
+- Per-monitor DPI, and single-row chrome (the toolbar in the menu bar's
+  row, as in Notepad and Paint).
+- Menus behind a "..." See more button instead of a menu bar, as Edge
+  and File Explorer have them (`WinUIThemeMenuStyle = more`).
+- Window tabs in the title bar, off by default for now.
+
+The theme measures within tolerance of a WinUI 3 reference app, page for
+page, in light and dark (`Tests/Scripts/Compare-Reference.ps1`).
+
+**Status: alpha.** Releases are `0.1.0-alphaN` pre-releases; see
+[`CHANGELOG.md`](./CHANGELOG.md). Windows only, built with MSYS2's
+CLANG64 GNUstep. It's in use in
+[ScreenshotTool](https://github.com/danjboyd/ScreenshotTool) and
+[ObjcMarkdown](https://github.com/danjboyd/ObjcMarkdown)'s Windows
+installers.
+
+## Install
+
+You need MSYS2's GNUstep in the CLANG64 environment
+(`pacman -S mingw-w64-clang-x86_64-gnustep-gui mingw-w64-clang-x86_64-gnustep-back`),
+with gnustep-gui 0.32 or later.
+
+1. Download `WinUITheme-<version>-msys2-clang64.zip` from the
+   [latest release](https://github.com/danjboyd/plugins-themes-winuitheme/releases).
+2. Unzip it and copy `WinUITheme.theme` into a GNUstep `Themes` directory:
+   for every user, MSYS2's (`C:\msys64\clang64\lib\GNUstep\Themes`); for
+   yourself, your own, in a CLANG64 shell:
+
+   ```sh
+   mkdir -p "$(gnustep-config --variable=GNUSTEP_USER_LIBRARY)/Themes"
+   cp -r WinUITheme.theme "$(gnustep-config --variable=GNUSTEP_USER_LIBRARY)/Themes/"
+   ```
+
+   Put it in one of them only: a copy in your own directory hides MSYS2's.
+3. Choose it, for every app:
+
+   ```sh
+   defaults write NSGlobalDomain GSTheme WinUITheme
+   ```
+
+   or for one app (`defaults write <App> GSTheme WinUITheme`), or for one
+   run (`openapp <App> -GSTheme WinUITheme`).
+4. For the WinUI title bar, shadows and sharp text on scaled displays,
+   install the carried libs-back too (see [Requirements](#requirements)).
+   The theme works without it, with Windows' own caption.
+
+**Shipping it with an app:** put `WinUITheme.theme` in the Themes
+directory your installer's `GNUstep.conf` names, make `GSTheme WinUITheme` one of
+the app's defaults, and ship the carried libs-back with it.
+Pin a release tag, not `main`. ScreenshotTool's MSI, built with
+[gnustep-packager](https://github.com/danjboyd/gnustep-packager), is a
+worked example.
 
 ## Requirements
 
@@ -41,79 +105,6 @@ is WinUI 3 client-area parity with GNUstep structure intact.
 
   Everything else in the theme works with a stock libs-back. Each change
   is also sent to GNUstep, and leaves `carry` once GNUstep releases it.
-
-## Current Status
-
-The repository now has the full phase 1-12 implementation scaffold in place:
-
-- theme settings, metrics, palette, and runtime defaults
-- shared drawing helpers and client-area control rendering
-- menu, data-view, and container rendering
-- native Windows file/print/page-setup integration
-- DWM-backed window integration
-- GNUstep `ThemeDemo` and WinUI 3 reference harnesses
-- variant-review and real-app validation scripts
-- release-readiness and backlog documentation
-
-Current blockers are release-gate items rather than missing implementation:
-
-- the screenshot corpus still needs a final manual freeze
-- `ObjcMarkdown` is not green enough yet to close the hard real-app gate
-
-## Key Documents
-
-- [Implementation Roadmap](./Docs/IMPLEMENTATION_ROADMAP.md)
-- [Windows Build Notes](./Docs/WINDOWS_BUILD.md)
-- [Surface Ownership Matrix](./Docs/SURFACE_OWNERSHIP_MATRIX.md)
-- [Harness Review Notes](./Docs/HARNESS_REVIEW.md)
-- [Upstream Boundaries](./Docs/UPSTREAM_BOUNDARIES.md)
-- [Variant And Accessibility Review](./Docs/VARIANT_AND_ACCESSIBILITY_REVIEW.md)
-- [ObjcMarkdown Validation](./Docs/OBJCMARKDOWN_VALIDATION.md)
-- [Release Readiness](./Docs/RELEASE_READINESS.md)
-- [Post-Release Backlog](./Docs/POST_RELEASE_BACKLOG.md)
-
-## Repository Layout
-
-```text
-Source/                    Theme implementation
-Source/Settings/           Settings and metrics model
-Source/Rendering/          Palette and future rendering code
-Source/Native/             Reserved for later Windows adapters
-Source/WindowTabbing/      Shared window tabbing code (vendored)
-Resources/                 Theme bundle metadata and future assets
-Examples/ThemeDemo/        GNUstep-side review harness
-Examples/Shared/PageContract/
-Reference/WinUI3ReferenceApp/
-Tests/Scripts/             Validation and capture helpers
-Docs/                      Roadmap and design notes
-```
-
-## Build
-
-Build the theme bundle:
-
-```sh
-make
-```
-
-Build and install the theme bundle on this Windows/MSYS2 machine:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File Scripts/Build-ThemeBundle.ps1
-powershell -ExecutionPolicy Bypass -File Scripts/Install-ThemeBundle.ps1
-```
-
-Build the GNUstep demo harness:
-
-```sh
-make -C Examples/ThemeDemo
-```
-
-Build the WinUI 3 reference harness:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File Reference/WinUI3ReferenceApp/build.ps1
-```
 
 ## Metrics for Gorm and Nib Apps
 
@@ -426,10 +417,60 @@ the other defers to it (it tells them apart by module: `dladdr()`, or
 Windows; apps should rely on the theme (or libs-gui, later)
 for the API.
 
-## Real-App Gate
+## Build
 
-Before release, the theme must validate against `ObjcMarkdown` in the sibling
-directory at `C:\Users\Support\git\ObjcMarkdown`.
+Build the theme bundle:
+
+```sh
+make
+```
+
+Build and install the theme bundle on this Windows/MSYS2 machine:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File Scripts/Build-ThemeBundle.ps1
+powershell -ExecutionPolicy Bypass -File Scripts/Install-ThemeBundle.ps1
+```
+
+Build the GNUstep demo harness:
+
+```sh
+make -C Examples/ThemeDemo
+```
+
+Build the WinUI 3 reference harness:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File Reference/WinUI3ReferenceApp/build.ps1
+```
+
+## Repository Layout
+
+```text
+Source/                    Theme implementation
+Source/Settings/           Settings and metrics model
+Source/Rendering/          Palette and future rendering code
+Source/Native/             Reserved for later Windows adapters
+Source/WindowTabbing/      Shared window tabbing code (vendored)
+Resources/                 Theme bundle metadata and future assets
+Examples/ThemeDemo/        GNUstep-side review harness
+Examples/Shared/PageContract/
+Reference/WinUI3ReferenceApp/
+Tests/Scripts/             Validation and capture helpers
+Docs/                      Roadmap and design notes
+```
+
+## Key Documents
+
+- [Implementation Roadmap](./Docs/IMPLEMENTATION_ROADMAP.md)
+- [Windows Build Notes](./Docs/WINDOWS_BUILD.md)
+- [Surface Ownership Matrix](./Docs/SURFACE_OWNERSHIP_MATRIX.md)
+- [Harness Review Notes](./Docs/HARNESS_REVIEW.md)
+- [Upstream Boundaries](./Docs/UPSTREAM_BOUNDARIES.md)
+- [Variant And Accessibility Review](./Docs/VARIANT_AND_ACCESSIBILITY_REVIEW.md)
+- [ObjcMarkdown Validation](./Docs/OBJCMARKDOWN_VALIDATION.md)
+- [Release Readiness](./Docs/RELEASE_READINESS.md)
+- [Post-Release Backlog](./Docs/POST_RELEASE_BACKLOG.md)
 
 ## License
 
