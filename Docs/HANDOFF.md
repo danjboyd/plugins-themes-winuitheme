@@ -1,6 +1,6 @@
 # Handoff: Adwaita parity work
 
-State as of 2026-10-15 (afternoon: 0.1.0-alpha6 released for the GNUstep mailing list announcement), for picking the work up in a fresh session. The goal
+State as of 2026-10-15 (night: 0.1.0-alpha7 ready to release, waiting on the owner's merge; alpha6 released that afternoon), for picking the work up in a fresh session. The goal
 (tracking issue #50): unmodified GNUstep apps look like first-rate WinUI 3
 apps under this theme, at parity with what the Adwaita theme
 (`C:\Users\Support\git\plugins-themes-Adwaita`) does for GNOME. The audit
@@ -34,6 +34,11 @@ in `Docs/IMPROVEMENTS.md`.
   - The trailer `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 - **PR bodies** end with `🤖 Generated with [Claude Code](https://claude.com/claude-code)`.
 - **Pushing and opening PRs** wait until the owner asks.
+- **Real input on this VM:** SendInput mouse buttons are blocked here
+  (it returns 0; found by the ScreenshotTool session, 10-15); only
+  SetCursorPos works. Keyboard SendKeys did reach apps on 10-15. Tell the
+  owner before sending any keys: he watches the desktop, and menus
+  opening on their own looked like a bug to him.
 - **Merging:** the auto-mode permission check blocks `gh pr merge`
   ("Merge Without Review") unless it's allowed. On 10-15 the owner added
   `Bash(gh pr merge:*)` to this repo's local settings (`/permissions`).
@@ -113,6 +118,9 @@ Phases A to J and these fixes are merged into `main`:
 | --- | --- | --- |
 | #124 | `handoff-2026-10-14` | the 10-14 handoff (this file's base) |
 | #97 (draft) | `window-tabs-phase-2-review` | phase 2 of the shared window tabbing code; awaits the owner's review (#72) |
+| #135 | `alpha7-tabs` | alpha7: #133, #72 (tabs on), #134, #136-#141 (see "alpha7" below) |
+| #143 (draft) | `gsthemestyle-accent` | #142, `-setGSThemeStyle: @"accent"`, stacked on #135; waits on the owner's yes to the name |
+| (no PR yet) | `version-0.1.0-alpha7` | the Version commit `9134e99`, on top of #135 |
 | #126 (this one) | `handoff-2026-10-15` | this file, on top of #124; `main` (alpha6) merged in |
 
 **Releases.** The owner approved the release process on 2026-10-08:
@@ -335,6 +343,106 @@ in a CLANG64 shell; never install it into
 It was last installed from `b3a6b20`. If an app holds the DLL, rename it to
 `*.dll.old` first: Windows allows renaming a loaded DLL. Delete it after the
 app closes.
+
+### alpha7 (2026-10-15, evening; the owner away overnight)
+
+The owner asked for tabs in the title bar as Notepad and Terminal open,
+then tried the candidate in Markdown Viewer and ScreenshotTool and
+reported what's fixed below. ReleaseCoordinator (Remote Control) holds
+ScreenshotTool v0.1.4 and Markdown Viewer 0.2.3 for it, and wants the
+release URL and the tag's commit SHA.
+
+**In #135 (`alpha7-tabs`), one commit per issue:**
+- #133: a window that can tab shows its strip with one tab and a "+";
+  the theme replaces `-[NSWindowTabGroup isTabBarVisible]` and
+  `-_toggleTabBar` (the rule belongs in danjboyd/gnustep-window-tabbing).
+- #72 (part): tabs on by default; `WinUIThemeWindowTabs NO` turns them
+  off.
+- #134: with `WinUIThemeMenuStyle = more`, title-bar tabs and no toolbar,
+  the "..." sits right after the "+" and the menu row goes
+  (`-menuHeightForWindow:` 0; the menu view stays the decoration's
+  subview, placed over the caption).
+- #136: submenus beside their item (`-locationForSubmenu:`), the
+  safe-triangle aim (0.3s rest), menus closing as the window moves or
+  resizes.
+- #137: no flash on "+". Recordings showed two causes: layered windows
+  show nothing until flushed, then Windows drew its own title bar over
+  blank content. A never-shown tab's window now goes behind the old one
+  and comes forward 0.1s later, drawn; Windows' show/hide transitions are
+  off for the swap (`DWMWA_TRANSITIONS_FORCEDISABLED`, back on after
+  0.5s). Switching to a tab shown before is immediate (a 50ms delay there
+  broke Ctrl+Tab's check). `_switchToWindow:` is replaced too; upstream
+  it to the shared code.
+- #138, #141: segmented control: label centred over the pill; every
+  label in the primary text colour (Toolkit Segmented). #141 is one
+  commit to revert if the owner prefers grey.
+- #139: per-app defaults read from the bundle-identifier domain, as
+  NSUserDefaults names it (`defaults write com.danboyd.screenshottool
+  ...` was ignored). QuirkProbe has a bundle identifier now.
+- #140: in the single row, view items (segmented controls, push buttons)
+  are compact 24pt controls, centred, segment icons 16pt.
+
+Every new check fails on the build before its fix. Full matrix (8
+configurations, both backends): see the PR for the last run.
+
+**Release prep (ready):**
+- `version-0.1.0-alpha7` (`9134e99`), the Version commit on #135's head;
+- the zip, built from `9134e99`:
+  `WinUITheme-0.1.0-alpha7-msys2-clang64.zip`, SHA-256
+  `c8e67d70fbd0b5cd85bc46f1773930545df2bf6d1796fcb4c796ff732f47932c`, in
+  the 10-15 session's scratchpad (`rel7`); rebuild it if anything moves.
+- **To release:**
+  1. the owner merges #135 (and #143 if he says yes to the accent API; then
+     rebase the Version commit onto it, add #142 to its notes, rebuild the
+     zip);
+  2. open and merge the Version PR;
+  3. check the merge commit's tree equals the built commit's;
+  4. annotated tag `0.1.0-alpha7`;
+  5. `gh release create --prerelease` with the zip and alpha7's changelog
+     section;
+  6. download it back and compare the checksum;
+  7. send ReleaseCoordinator the URL and the tag's SHA, and ScreenshotTool
+     Windows and Markdown Viewer Windows the same.
+- **MSYS2:** don't update this VM's MSYS2 before releasing. clang 23 with
+  gnustep-base 1.31.1-10 fails on `__block` ivars (libs-base#807, fixed by
+  #809); this VM has clang 21.1.8 and gnustep-base 1.31.1-5. If it's
+  updated, patch the header as danjboyd/tools-xctest v0.5.1 does.
+
+**Decisions waiting on the owner:**
+1. Merge #135 and release.
+2. #143's name, `-setGSThemeStyle: @"accent"` on NSButton and
+   NSButtonCell, matching Adwaita's branch `gsthemestyle-accent`
+   (3c2c1da); in alpha7 or after. ScreenshotTool's Copy and Take
+   Screenshot already call it, guarded.
+3. Keep #141 (primary-colour segment labels) or revert.
+4. The two hand checks: Snap with Win+arrow on a tabbed window, and a
+   click on a new tab's close button. Real mouse buttons don't work on
+   this VM (above).
+5. Segmented control's look after alpha7: the Toolkit Segmented (ours)
+   or WinUI's own SelectorBar (a text row with an underline). Neither is
+   in the reference app yet; add both and measure.
+
+**Known gaps in alpha7:**
+- The first new tab in a session showed the wrong cursor once for the
+  owner (not caught by the recordings, which have no pointer); fixed
+  itself after a move.
+- The menu row's height is 0 while the "..." is in the title bar, and
+  libs-gui adjusts a window's frame by the theme's row height when the
+  menu is added and removed: a menu removed after the "..." moved in or
+  out leaves the window a row off.
+- The toolbar's ">>" and the "..." are separate overflows (CommandBar
+  has one).
+- NSColorWell in a toolbar is a square swatch in a bordered button;
+  WinUI's is a DropDownButton (a rounded swatch, or Paint's glyph and
+  colour bar, and a chevron). Asked for by ScreenshotTool's redesign.
+- Mica and DWM rounding still unseen on a GPU.
+
+**Other sessions tonight:** ScreenshotTool Windows (local) shares the
+desktop and asks before taking it; ScreenshotTool's WinUI redesign
+(v0.2.0, ScreenshotTool#221) leans on #140 and #142.
+plugins-themes-adwaita (Remote Control) has the same accent API on a
+branch, waiting on the owner's name. ReleaseCoordinator collects hand-offs
+into a morning digest.
 
 ### Open issues not yet addressed
 
@@ -668,29 +776,18 @@ values.
 
 ### Suggested next five (the owner decides)
 
-1. **ObjcMarkdown and ScreenshotTool on alpha6** (asked 10-15): follow
-   up on what they find, above all ObjcMarkdown's single row (the
-   viewer and the editor at several widths, ">>" folding before "...").
-2. **Upstream:** review the four libs-back topic branches, using
-   `win32-per-monitor-dpi-squashed` for the DPI one (GCC done; the X11
-   build of `CairoFontInfo.m` is still owed). Also #246's FSF
-   assignment question. This is the biggest step towards a stable
-   release: until it lands, apps must ship the carried backend.
-3. **A stable gate:** `Docs/RELEASE_READINESS.md` is from April (its
-   blockers are frozen screenshot corpora and ObjcMarkdown going
-   green). Rewrite it as the gate for a `0.1.0-beta1`: the carried
-   backend's status, one session on Windows 11 with a GPU (rounding,
-   shadows, Mica's blur, Snap), a soak with the apps on one release,
-   and the settings and APIs to freeze (`WinUIThemeMica`,
-   `WinUIThemeAnimations`, `WinUIThemeWindowTabs`,
-   `GSThemeToolbarInMenuBar`, `WinUIThemeMenuStyle`,
-   `-setGSThemeState:`).
-4. **The second-monitor edges:** an OCI run with the logging described
-   above. Then a fix in libs-back (offsets at the window's DPI) and in
-   gnustep-gui or the theme (frames at the window's screen's scale).
-5. **One overflow under `more`:** fold the toolbar's ">>" items into
-   the "..." flyout, as CommandBar does, and the real-mouse checks
-   (ScreenshotTool's Open split button at 125%, #19's Gorm drop test).
+1. **Release alpha7** (the steps under "alpha7" above), with or without
+   #143, then tell ReleaseCoordinator and both app sessions.
+2. **Upstream the theme's overrides of the shared tabbing code** to
+   danjboyd/gnustep-window-tabbing: the one-tab strip, the toggle, and the
+   switch's order and reveal (#133, #137); then the libs-back topic
+   branches (#246's FSF question).
+3. **The colour well as WinUI's DropDownButton** in toolbars
+   (ScreenshotTool#221), and one overflow under `more`.
+4. **Segmented control vs SelectorBar:** add the real Toolkit Segmented
+   and SelectorBar to the reference app, measure, and let the owner pick.
+5. **A stable gate:** rewrite `Docs/RELEASE_READINESS.md` for a
+   `0.1.0-beta1`; a GPU session (rounding, Mica, Snap).
 
 ### Known gaps in finished work
 
