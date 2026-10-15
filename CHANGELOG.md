@@ -5,6 +5,23 @@ Releases of the WinUI theme for GNUstep. Versions are semver pre-releases
 `GSThemeVersion` in `WinUIThemeInfo.plist`, and an annotated tag on `main`.
 Apps that bundle the theme should pin a tag, not `main`.
 
+## 0.1.0-alpha5 (2026-10-15)
+
+One fix for alpha4 on a scaled display. Requires gnustep-gui 0.32 or
+later. Tested with the carried libs-back `carry-0.32.0.4`
+(`danjboyd/libs-back`), as alpha4 was. Apps on alpha4 should move to it,
+above all those on the carried, DPI-aware backend.
+
+**Fixes**
+- At 125% and 150% on the DPI-aware carried backend, an item after a
+  flexible space went into the toolbar's ">>" menu with the row half
+  empty (ScreenshotTool's Copy, found by the ScreenshotTool session).
+  libs-gui rounds the space's frame to device pixels, a fraction of a
+  point past the toolbar's width, and its own fit test then fails; the
+  space gives the excess back. alpha3 didn't show it: its process was
+  DPI-unaware, so the gui drew at 1.0. QuirkProbe
+  `toolbar-flexible-space-scaled`.
+
 ## 0.1.0-alpha4 (2026-10-14)
 
 Shadows, per-monitor DPI, Mica and title-bar tabs (which came after
