@@ -26,6 +26,10 @@ Apps that bundle the theme should pin a tag, not `main`.
   QuirkProbe `window-tab-switch-shows-first`.
 
 **Chrome**
+- A user default for one app (`defaults write <bundle id> WinUIThemeMenuStyle
+  more`, or `GSThemeToolbarInMenuBar`) applies: the theme read the domain
+  named after the process, where NSUserDefaults names it after the app's
+  bundle identifier when it has one (#139).
 - With `WinUIThemeMenuStyle = more`, tabs in the title bar (the carried
   libs-back) and no toolbar showing, the "..." sits in the title bar right
   after the tabs' "+", as Windows Terminal has its menu, and the menu
