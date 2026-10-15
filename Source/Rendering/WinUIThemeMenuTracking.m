@@ -126,6 +126,36 @@ WinUIThemeEndMenuTracking(NSMenu *menu, NSTimeInterval timestamp)
 
 @end
 
+/* Dragging or resizing a window while a menu tracks closes the menus, as
+   a press outside them does. Windows runs the drag itself (the title bar
+   is its, the gui sees no press), sending the gui the window's moves as
+   it goes; the menus are hidden at the first and tracking ends after.
+   Menus' own windows, tool tips and other panels moving are left alone. */
+@interface WinUIThemeMenuMoveWatcher : NSObject
++ (void) windowMoved: (NSNotification *)notification;
+@end
+
+@implementation WinUIThemeMenuMoveWatcher
++ (void) windowMoved: (NSNotification *)notification
+{
+  NSWindow *window = [notification object];
+  NSMenuView *root = WinUIThemeTrackingRootView;
+  NSMenu *menu = nil;
+
+  if (root == nil || WinUIThemeMenuDismissed || [window isKindOfClass: [NSPanel class]])
+    {
+      return;
+    }
+  menu = [root isHorizontal] ? [[root menu] attachedMenu] : [root menu];
+  while (menu != nil)
+    {
+      [[[menu menuRepresentation] window] orderOut: nil];
+      menu = [menu attachedMenu];
+    }
+  WinUIThemeEndMenuTracking([root menu], 0);
+}
+@end
+
 static BOOL
 WinUIThemeEventIsOutsideMenus(NSEvent *event)
 {
@@ -375,9 +405,19 @@ WinUIThemeMenuIsOwnedByPopUp(NSMenu *menu)
   [[NSRunLoop currentRunLoop] addTimer: escape forMode: NSEventTrackingRunLoopMode];
   if (outerRoot == nil)
     {
+      NSNotificationCenter *center = [NSNotificationCenter defaultCenter];
+
       WinUIThemeTrackingRootView = menuView;
       WinUIThemeMenuDismissed = NO;
       WinUIThemeTrackingSession++;
+      [center addObserver: [WinUIThemeMenuMoveWatcher class]
+                 selector: @selector(windowMoved:)
+                     name: NSWindowDidMoveNotification
+                   object: nil];
+      [center addObserver: [WinUIThemeMenuMoveWatcher class]
+                 selector: @selector(windowMoved:)
+                     name: NSWindowDidResizeNotification
+                   object: nil];
     }
   if (WinUIThemeMenuTrackingEndsOnFirstRelease())
     {
@@ -394,6 +434,10 @@ WinUIThemeMenuIsOwnedByPopUp(NSMenu *menu)
   NS_HANDLER
     {
       [escape invalidate];
+      if (outerRoot == nil)
+        {
+          [[NSNotificationCenter defaultCenter] removeObserver: [WinUIThemeMenuMoveWatcher class]];
+        }
       WinUIThemeTrackingRootView = outerRoot;
       WinUIThemeTrackingMenuView = outerView;
       WinUIThemeTrackingFirstIndex = outerIndex;
@@ -404,6 +448,10 @@ WinUIThemeMenuIsOwnedByPopUp(NSMenu *menu)
   NS_ENDHANDLER
 
   [escape invalidate];
+  if (outerRoot == nil)
+    {
+      [[NSNotificationCenter defaultCenter] removeObserver: [WinUIThemeMenuMoveWatcher class]];
+    }
   /* Dismissed by Escape or a press outside: master leaves the menu bar's
      menu attached when the pointer isn't on the bar; close it. */
   if (outerRoot == nil && WinUIThemeMenuDismissed && [menuView isHorizontal])

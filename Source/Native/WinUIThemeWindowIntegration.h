@@ -64,4 +64,11 @@ void WinUIThemeWindowIntegrationFixCaptionBoxes(NSWindow *window);
    menu bar and toolbar leave their background transparent for it. */
 BOOL WinUIThemeWindowShowsMica(NSWindow *window);
 
+/* Window tabs (#137): Windows animates a top-level window coming on screen
+   and going (a fade and a slight zoom), so a tab's window replacing
+   another's, each its own window, showed both see-through for a moment.
+   Turns the transitions off for both windows for the swap, and back on
+   half a second later. */
+void WinUIThemeWindowIntegrationSuspendTransitions(NSWindow *window, NSWindow *other);
+
 #endif

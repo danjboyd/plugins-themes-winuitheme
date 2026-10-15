@@ -1,0 +1,7 @@
+{
+  /* A bundle identifier, as most apps have: NSUserDefaults then names the
+     app's own defaults domain after it rather than the process name, and
+     the checks that set the theme's defaults for the app
+     (toolbar-in-menu-bar, menu-style-more) read them back from there. */
+  CFBundleIdentifier = "org.gnustep.winuitheme.QuirkProbe";
+}

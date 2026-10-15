@@ -445,6 +445,36 @@ QuirkProbeModuleOfAddress(void *address)
 - (NSRect) newTabButtonRect;
 @end
 
+/* The tabbing API the theme installs (GSWindowTabbing.h). */
+@interface NSWindow (QuirkProbeTabGroup)
+- (id) tabGroup;
+- (void) toggleTabBar: (id)sender;
+@end
+
+@interface NSObject (QuirkProbeTabGroup)
+- (BOOL) isTabBarVisible;
+@end
+
+/* Notes whether its partner was on screen as this window ordered out. */
+@interface QuirkProbeOrderOutWindow : NSWindow
+{
+@public
+  NSWindow *partner;
+  int partnerVisibleAtOrderOut;   /* -1 until it orders out */
+}
+@end
+
+@implementation QuirkProbeOrderOutWindow
+- (void) orderWindow: (NSWindowOrderingMode)place relativeTo: (NSInteger)otherWin
+{
+  if (place == NSWindowOut && partner != nil && partnerVisibleAtOrderOut < 0)
+    {
+      partnerVisibleAtOrderOut = [partner isVisible] ? 1 : 0;
+    }
+  [super orderWindow: place relativeTo: otherWin];
+}
+@end
+
 /* Notes whether a window was on screen when another one began to close. */
 @interface QuirkProbeCloseWatcher : NSObject
 {
@@ -560,6 +590,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkDecorationFitsTallWindow;
 - (void) checkToolbarIconSize;
 - (void) checkToolbarInMenuBar;
+- (void) checkToolbarInMenuBarViews;
 - (void) checkToolbarFlexibleSpaceScaled;
 - (void) checkScrollerEdge;
 - (void) checkTextAlignment;
@@ -616,6 +647,8 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkSearchField;
 - (void) checkHorizontalOnlyScroller;
 - (void) checkWindowTabs;
+- (void) checkWindowSingleTab;
+- (void) checkMenuStyleMoreInTitleBar;
 - (void) checkClientCaption;
 - (void) checkClientCaptionScaled;
 - (void) checkDPIAwareness;
@@ -634,6 +667,10 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkMenuBarKeyboard: (NSWindow *)window;
 - (void) checkMenuBarOverflow: (NSWindow *)window;
 - (void) checkMenuStyleMore: (NSWindow *)window;
+- (void) checkFlyoutSubmenus: (NSArray *)menus window: (NSWindow *)window bar: (NSMenuView *)bar
+                      target: (NSInteger)target;
+- (void) checkWindowTabSwitchShowsFirst;
+- (void) checkSegmentLabelCentred;
 - (void) checkThemeSwitchRestoresMethods;
 - (void) finish;
 @end
@@ -1236,6 +1273,37 @@ static NSRect QuirkProbeOpenListRow;
       [item setLabel: @"Go"];
       RELEASE(view);
     }
+  /* The menu row's views check: a segmented control, then a push
+     button, each 32pt tall, as ScreenshotTool's tools and Copy. */
+  if ([[toolbar identifier] isEqualToString: @"QuirkProbeMenuRowViewsToolbar"])
+    {
+      static BOOL button = NO;
+      NSView *view = nil;
+
+      if (button)
+        {
+          NSButton *push = [[NSButton alloc] initWithFrame: NSMakeRect(0, 0, 72, 32)];
+
+          [push setTitle: @"Copy"];
+          [push setBezelStyle: NSRoundedBezelStyle];
+          view = push;
+        }
+      else
+        {
+          NSSegmentedControl *segments = [[NSSegmentedControl alloc] initWithFrame: NSMakeRect(0, 0, 96, 32)];
+
+          [segments setSegmentCount: 3];
+          [segments setImage: [self magentaImage] forSegment: 0];
+          [segments setImage: [self magentaImage] forSegment: 1];
+          [segments setImage: [self magentaImage] forSegment: 2];
+          [segments setSelectedSegment: 0];
+          view = segments;
+        }
+      button = !button;
+      [item setView: view];
+      [item setLabel: @"View"];
+      RELEASE(view);
+    }
   /* An item without an action is disabled, and draws its image faded. */
   [item setTarget: self];
   [item setAction: @selector(toolbarItemClicked:)];
@@ -1250,6 +1318,10 @@ static NSRect QuirkProbeOpenListRow;
 
 - (NSArray *) toolbarDefaultItemIdentifiers: (NSToolbar *)toolbar
 {
+  if ([[toolbar identifier] isEqualToString: @"QuirkProbeMenuRowViewsToolbar"])
+    {
+      return [NSArray arrayWithObjects: QuirkProbeImageItem, QuirkProbeImageItem, nil];
+    }
   if ([[toolbar identifier] isEqualToString: @"QuirkProbeMenuRowToolbar"]
       || [[toolbar identifier] isEqualToString: @"QuirkProbeFlexibleToolbar"])
     {
@@ -2102,6 +2174,99 @@ QuirkProbeDarkest(NSBitmapImageRep *rep)
       [self fail: @"menu-style-more-toolbar" detail: [problems componentsJoinedByString: @"; "]];
     }
   [defaults removeObjectForKey: @"WinUIThemeMenuStyle"];
+  [defaults removeObjectForKey: @"GSThemeToolbarInMenuBar"];
+  [[NSNotificationCenter defaultCenter] postNotificationName: NSUserDefaultsDidChangeNotification
+                                                      object: defaults];
+  [window setToolbar: nil];
+  [window setMenu: nil];
+  [window orderOut: nil];
+}
+
+/* In the menu bar's row a view item (a segmented control, a push button)
+   is a compact 24pt control, 4pt clear of the row's top and foot, as a
+   compact CommandBar's content; it kept its 32pt and met the title bar.
+   In a row of its own it's its own height again. */
+- (void) checkToolbarInMenuBarViews
+{
+  NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+  NSWindow *window = [self windowWithFrame: NSMakeRect(300, 300, 520, 200)
+                                     title: @"QuirkProbe Toolbar Views In Menu Bar"];
+  NSMenu *menu = AUTORELEASE([[NSMenu alloc] initWithTitle: @"QuirkProbe"]);
+  NSToolbar *toolbar = [[NSToolbar alloc] initWithIdentifier: @"QuirkProbeMenuRowViewsToolbar"];
+  NSMutableArray *problems = [NSMutableArray array];
+  NSView *decoration = nil;
+  NSMenuView *bar = nil;
+  NSArray *items = nil;
+  NSUInteger index;
+
+  [defaults setBool: YES forKey: @"GSThemeToolbarInMenuBar"];
+  [[NSNotificationCenter defaultCenter] postNotificationName: NSUserDefaultsDidChangeNotification
+                                                      object: defaults];
+  [menu addItemWithTitle: @"File" action: NULL keyEquivalent: @""];
+  [toolbar setDelegate: self];
+  [toolbar setDisplayMode: NSToolbarDisplayModeIconOnly];
+  [window setToolbar: toolbar];
+  RELEASE(toolbar);
+  [window orderFront: nil];
+  [window setMenu: menu];
+  [window display];
+  QuirkProbeDispatchEvents(0.2);
+  decoration = [[window contentView] superview];
+  bar = (NSMenuView *)QuirkProbeFindViewOfClass(decoration, [NSMenuView class]);
+  items = [toolbar items];
+  if (bar == nil || [items count] != 2 || [[items objectAtIndex: 0] view] == nil)
+    {
+      [self skip: @"toolbar-in-menu-bar-views" detail: @"no menu bar or view items"];
+    }
+  else
+    {
+      NSRect row = [decoration convertRect: [bar bounds] fromView: bar];
+
+      for (index = 0; index < 2; index++)
+        {
+          NSView *view = [[items objectAtIndex: index] view];
+          NSRect frame = [decoration convertRect: [view bounds] fromView: view];
+          CGFloat above = NSMaxY(row) - NSMaxY(frame);
+          CGFloat below = NSMinY(frame) - NSMinY(row);
+
+          /* At most the row less 4pt each side (a taller row, at a
+             larger text size or scale, leaves a shorter control alone),
+             and centred. */
+          if (NSHeight(frame) > NSHeight(row) - 8.0 + 0.5 || above < 3.5 || below < 3.5
+              || fabs(above - below) > 1.0)
+            {
+              [problems addObject: [NSString stringWithFormat: @"%@ is %.0fpt tall in a %.0fpt row, %.0f above and %.0f below",
+                                                               [view class], NSHeight(frame), NSHeight(row), above, below]];
+            }
+        }
+      [self saveView: decoration named: @"toolbar-in-menu-bar-views"];
+
+      /* A row of its own: their own height again, not the compact one
+         (the push button's own is libs-gui's toolbar size, 36pt). */
+      [defaults setBool: NO forKey: @"GSThemeToolbarInMenuBar"];
+      [[NSNotificationCenter defaultCenter] postNotificationName: NSUserDefaultsDidChangeNotification
+                                                          object: defaults];
+      QuirkProbeDispatchEvents(0.2);
+      for (index = 0; index < 2; index++)
+        {
+          NSView *view = [[items objectAtIndex: index] view];
+
+          if (NSHeight([view frame]) < 31.5)
+            {
+              [problems addObject: [NSString stringWithFormat: @"in a row of its own %@ is still %.0fpt",
+                                                               [view class], NSHeight([view frame])]];
+            }
+        }
+      if ([problems count] == 0)
+        {
+          [self pass: @"toolbar-in-menu-bar-views" detail:
+            @"a segmented control and a push button compact and centred in the row; their own height again in their own row"];
+        }
+      else
+        {
+          [self fail: @"toolbar-in-menu-bar-views" detail: [problems componentsJoinedByString: @"; "]];
+        }
+    }
   [defaults removeObjectForKey: @"GSThemeToolbarInMenuBar"];
   [[NSNotificationCenter defaultCenter] postNotificationName: NSUserDefaultsDidChangeNotification
                                                       object: defaults];
@@ -5883,8 +6048,10 @@ QuirkProbeSegments(NSView *content, NSRect frame, NSInteger mode)
   return control;
 }
 
-/* Accent runs along one pixel row: their count and the first one's centre
-   and length in points. */
+/* Accent runs along one pixel row, ignoring any shorter than 4pt (a
+   ClearType fringe on a label's descender reaching the row at a large
+   text size): their count and the first one's centre and length in
+   points. */
 static NSUInteger
 QuirkProbeAccentRuns(NSBitmapImageRep *rep, NSInteger y, CGFloat scale, CGFloat *firstCentre, CGFloat *firstLength)
 {
@@ -5901,7 +6068,7 @@ QuirkProbeAccentRuns(NSBitmapImageRep *rep, NSInteger y, CGFloat scale, CGFloat 
         {
           start = x;
         }
-      if (hit == NO && inRun)
+      if (hit == NO && inRun && (x - start) >= 4.0 * scale)
         {
           if (runs == 0)
             {
@@ -7754,6 +7921,179 @@ QuirkProbeCloseButtonInkOnScreen(HWND hwnd)
     }
   [plain orderOut: nil];
   [window orderOut: nil];
+}
+
+/* One tab (#133): a window on its own shows its tab bar, with its tab
+   and a "+", once something answers -newWindowForTab: for it, as Notepad
+   and Terminal open; without a responder it has none, and Hide Tab Bar
+   (-toggleTabBar:) still hides it. */
+- (void) checkWindowSingleTab
+{
+  NSWindow *window = nil;
+  NSView *decoration = nil;
+  NSView *bar = nil;
+  Class barClass = NSClassFromString(@"GSWindowTabBarView");
+  NSMutableArray *problems = [NSMutableArray array];
+  NSNotificationCenter *center = [NSNotificationCenter defaultCenter];
+
+  if ([NSWindow instancesRespondToSelector: @selector(addTabbedWindow:ordered:)] == NO || barClass == Nil)
+    {
+      [self fail: @"window-single-tab" detail: @"no window tabbing"];
+      return;
+    }
+  window = [self windowWithFrame: NSMakeRect(160, 240, 520, 200) title: @"QuirkProbe Single Tab"];
+  decoration = [[window contentView] superview];
+  _offersNewTab = NO;
+  [window makeKeyAndOrderFront: nil];
+  [center postNotificationName: NSWindowDidBecomeKeyNotification object: window];
+  QuirkProbeDispatchEvents(0.2);
+  if (QuirkProbeFindViewOfClass(decoration, barClass) != nil || [[window tabGroup] isTabBarVisible])
+    {
+      [problems addObject: @"a bar though nothing answers -newWindowForTab:"];
+    }
+
+  _offersNewTab = YES;
+  [center postNotificationName: NSWindowDidBecomeKeyNotification object: window];
+  QuirkProbeDispatchEvents(0.2);
+  [window display];
+  bar = QuirkProbeFindViewOfClass(decoration, barClass);
+  if (bar == nil || [[window tabGroup] isTabBarVisible] == NO)
+    {
+      [problems addObject: @"no bar with a responder"];
+    }
+  else
+    {
+      if (NSIsEmptyRect([(id)bar rectForTabAtIndex: 0]))
+        {
+          [problems addObject: @"the bar has no tab"];
+        }
+      if (NSIsEmptyRect([(id)bar newTabButtonRect]))
+        {
+          [problems addObject: @"the bar has no \"+\""];
+        }
+      [self saveView: decoration named: @"window-single-tab"];
+    }
+
+  /* Hide Tab Bar. */
+  [window toggleTabBar: nil];
+  QuirkProbeDispatchEvents(0.1);
+  if ([[window tabGroup] isTabBarVisible] || [bar superview] != nil)
+    {
+      [problems addObject: @"Hide Tab Bar left the bar"];
+    }
+  _offersNewTab = NO;
+  [window orderOut: nil];
+
+  if ([problems count] == 0)
+    {
+      [self pass: @"window-single-tab" detail:
+        @"none without a responder; one tab and a \"+\" with one; Hide Tab Bar hides it"];
+    }
+  else
+    {
+      [self fail: @"window-single-tab" detail: [problems componentsJoinedByString: @"; "]];
+    }
+}
+
+/* WinUIThemeMenuStyle `more` with the tabs in the title bar (#134), as
+   Windows Terminal has its menu beside the tab row's "+": no menu bar
+   row, the "..." in the caption right after the tabs, and the content up
+   against the caption. Back to `menubar`, the row returns. */
+- (void) checkMenuStyleMoreInTitleBar
+{
+  NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+  NSNotificationCenter *center = [NSNotificationCenter defaultCenter];
+  NSWindow *window = nil;
+  NSMenu *menu = AUTORELEASE([[NSMenu alloc] initWithTitle: @"QuirkProbe"]);
+  NSView *decoration = nil;
+  NSView *bar = nil;
+  NSMenuView *menuView = nil;
+  NSMutableArray *problems = [NSMutableArray array];
+  NSRect barFrame, menuFrame, contentFrame, overflow;
+  Class barClass = NSClassFromString(@"GSWindowTabBarView");
+
+  if ([GSCurrentServer() respondsToSelector: @selector(clientDrawsCaptions)] == NO
+      || [(id)GSCurrentServer() clientDrawsCaptions] == NO || barClass == Nil)
+    {
+      [self skip: @"menu-style-more-title-bar" detail: @"Windows draws the caption (a stock libs-back)"];
+      return;
+    }
+  [menu addItemWithTitle: @"File" action: NULL keyEquivalent: @""];
+  [menu addItemWithTitle: @"Edit" action: NULL keyEquivalent: @""];
+  window = [self windowWithFrame: NSMakeRect(180, 260, 560, 220) title: @"QuirkProbe More In Title Bar"];
+  decoration = [[window contentView] superview];
+  _offersNewTab = YES;
+  [defaults setObject: @"more" forKey: @"WinUIThemeMenuStyle"];
+  [center postNotificationName: NSUserDefaultsDidChangeNotification object: defaults];
+  [window setMenu: menu];
+  [window makeKeyAndOrderFront: nil];
+  [center postNotificationName: NSWindowDidBecomeKeyNotification object: window];
+  QuirkProbeDispatchEvents(0.3);
+  [window display];
+
+  bar = QuirkProbeFindViewOfClass(decoration, barClass);
+  menuView = (NSMenuView *)QuirkProbeFindViewOfClass(decoration, [NSMenuView class]);
+  if (bar == nil || menuView == nil)
+    {
+      [problems addObject: [NSString stringWithFormat: @"tab bar %@, menu bar %@", bar, menuView]];
+    }
+  else
+    {
+      barFrame = [decoration convertRect: [bar bounds] fromView: bar];
+      menuFrame = [decoration convertRect: [menuView bounds] fromView: menuView];
+      contentFrame = [decoration convertRect: [[window contentView] bounds] fromView: [window contentView]];
+      overflow = [menuView respondsToSelector: @selector(winUIThemeOverflowRect)]
+        ? [(id)menuView winUIThemeOverflowRect] : NSZeroRect;
+      if ([[GSTheme theme] menuHeightForWindow: window] != 0.0)
+        {
+          [problems addObject: [NSString stringWithFormat: @"the menu bar's row is %.0fpt",
+                                                           [[GSTheme theme] menuHeightForWindow: window]]];
+        }
+      if (fabs(NSMinX([decoration convertRect: overflow fromView: menuView]) - NSMaxX(barFrame)) > 0.5
+          || NSMinY(menuFrame) < NSMinY(barFrame) - 0.5
+          || NSMaxY(menuFrame) > NSMaxY(barFrame) + 0.5)
+        {
+          [problems addObject: [NSString stringWithFormat: @"the menu bar %@ isn't right after the tabs %@",
+                                                           NSStringFromRect(menuFrame), NSStringFromRect(barFrame)]];
+        }
+      if (NSIsEmptyRect(overflow) || NSWidth([menuView rectOfItemAtIndex: 0]) > 0.0)
+        {
+          [problems addObject: @"the bar isn't its \"...\" button alone"];
+        }
+      if (fabs(NSMaxY(contentFrame) - NSMinY(barFrame)) > 1.5)
+        {
+          [problems addObject: [NSString stringWithFormat: @"the content's top is %.0f, the caption's foot %.0f",
+                                                           NSMaxY(contentFrame), NSMinY(barFrame)]];
+        }
+      [self saveView: decoration named: @"menu-style-more-title-bar"];
+
+      /* Back to the menu bar: its row returns under the caption. */
+      [defaults setObject: @"menubar" forKey: @"WinUIThemeMenuStyle"];
+      [center postNotificationName: NSUserDefaultsDidChangeNotification object: defaults];
+      QuirkProbeDispatchEvents(0.2);
+      menuFrame = [decoration convertRect: [menuView bounds] fromView: menuView];
+      if ([[GSTheme theme] menuHeightForWindow: window] <= 0.0 || NSMaxY(menuFrame) > NSMinY(barFrame) + 1.5
+          || NSWidth([menuView rectOfItemAtIndex: 0]) <= 0.0)
+        {
+          [problems addObject: [NSString stringWithFormat: @"back to menubar, the menu bar is at %@ under the caption at %.0f",
+                                                           NSStringFromRect(menuFrame), NSMinY(barFrame)]];
+        }
+    }
+  [defaults removeObjectForKey: @"WinUIThemeMenuStyle"];
+  [center postNotificationName: NSUserDefaultsDidChangeNotification object: defaults];
+  _offersNewTab = NO;
+  [window setMenu: nil];
+  [window orderOut: nil];
+
+  if ([problems count] == 0)
+    {
+      [self pass: @"menu-style-more-title-bar" detail:
+        @"no menu row; the \"...\" right after the tabs; menubar brings the row back"];
+    }
+  else
+    {
+      [self fail: @"menu-style-more-title-bar" detail: [problems componentsJoinedByString: @"; "]];
+    }
 }
 
 - (void) checkWindowTabs
@@ -10651,6 +10991,7 @@ static BOOL QuirkProbeMenuItemPicked = NO;
       else
         {
           [self saveView: [[menus objectAtIndex: 0] menuRepresentation] named: @"menu-style-more-flyout"];
+          [self checkFlyoutSubmenus: menus window: window bar: bar target: target];
         }
       QuirkProbeSendKey(window, escape, 0);
       QuirkProbeSendKey(window, escape, 0);
@@ -10685,6 +11026,267 @@ static BOOL QuirkProbeMenuItemPicked = NO;
     {
       [self fail: @"menu-style-more" detail: [problems componentsJoinedByString: @"; "]];
     }
+}
+
+static void
+QuirkProbeSendMove(NSWindow *window, NSPoint location)
+{
+  [NSApp sendEvent: [NSEvent mouseEventWithType: NSMouseMoved
+                                       location: location
+                                  modifierFlags: 0
+                                      timestamp: 0
+                                   windowNumber: [window windowNumber]
+                                        context: nil
+                                    eventNumber: 0
+                                     clickCount: 0
+                                       pressure: 0.0]];
+}
+
+/* The "..." flyout's submenus (alpha7): a submenu opens beside the item
+   that opened it, its first item level with that item; the pointer
+   heading from that item to its submenu across the sibling below
+   doesn't switch the submenu until it rests there; moving the window
+   closes the menus. */
+- (void) checkFlyoutSubmenus: (NSArray *)menus window: (NSWindow *)window bar: (NSMenuView *)bar
+                      target: (NSInteger)target
+{
+  NSMenu *flyout = [menus objectAtIndex: 0];
+  NSMenu *submenu = [menus objectAtIndex: 1];
+  NSMenuView *parentView = [flyout menuRepresentation];
+  NSWindow *parentWindow = [parentView window];
+  NSMenuView *subView = [submenu menuRepresentation];
+  NSWindow *subWindow = [subView window];
+  NSRect item = [parentView convertRect: [parentView rectOfItemAtIndex: target] toView: nil];
+  NSRect first = [subView convertRect: [subView rectOfItemAtIndex: 0] toView: nil];
+  CGFloat itemTop = NSMinY([parentWindow frame]) + NSMaxY(item);
+  CGFloat firstTop = NSMinY([subWindow frame]) + NSMaxY(first);
+  NSInteger below = target + 1;
+  NSRect frame;
+  NSArray *open = nil;
+
+  if (fabs(itemTop - firstTop) <= 2.0)
+    {
+      [self pass: @"menu-submenu-beside-item" detail: [NSString stringWithFormat:
+        @"the submenu's first item at %.0f, its item at %.0f", firstTop, itemTop]];
+    }
+  else
+    {
+      [self fail: @"menu-submenu-beside-item" detail: [NSString stringWithFormat:
+        @"the submenu's first item at %.0f, its item at %.0f (the flyout's top %.0f)",
+        firstTop, itemTop, NSMaxY([parentWindow frame])]];
+    }
+
+  if (below < [flyout numberOfItems] && [submenu numberOfItems] >= 3)
+    {
+      NSRect belowRect = [parentView convertRect: [parentView rectOfItemAtIndex: below] toView: nil];
+      BOOL held, switched;
+
+      QuirkProbeSendMove(parentWindow, NSMakePoint(NSMinX(item) + 6.0, NSMidY(item)));
+      QuirkProbeSendMove(parentWindow, NSMakePoint(NSMaxX(belowRect) - 3.0, NSMidY(belowRect)));
+      open = QuirkProbeSessionMenus(bar);
+      held = ([open count] == 2 && [[[open objectAtIndex: 1] title] isEqualToString: [submenu title]]
+              && [parentView highlightedItemIndex] == target);
+      QuirkProbeDispatchEvents(0.6);
+      switched = ([parentView highlightedItemIndex] == below);
+      if (held && switched)
+        {
+          [self pass: @"menu-submenu-aim" detail:
+            @"crossing the item below on the way to the submenu kept it; resting there switched"];
+        }
+      else
+        {
+          [self fail: @"menu-submenu-aim" detail: [NSString stringWithFormat:
+            @"crossing the item below: %@; resting there: %@",
+            held ? @"kept" : @"switched at once", switched ? @"switched" : @"didn't switch"]];
+        }
+    }
+  else
+    {
+      [self skip: @"menu-submenu-aim" detail: @"no item below, or a short submenu"];
+    }
+
+  /* The window moves (Windows dragging it by its title bar sends the
+     same): the menus close. */
+  frame = [window frame];
+  [window setFrameOrigin: NSMakePoint(NSMinX(frame) + 12.0, NSMinY(frame))];
+  QuirkProbeDispatchEvents(0.1);
+  open = QuirkProbeSessionMenus(bar);
+  if ([open count] == 0 && [subWindow isVisible] == NO && [parentWindow isVisible] == NO)
+    {
+      [self pass: @"menu-closes-on-window-move" detail: @"moving the window closed the flyout and its submenu"];
+    }
+  else
+    {
+      [self fail: @"menu-closes-on-window-move" detail: [NSString stringWithFormat:
+        @"after the window moved: %lu menus open, flyout %@, submenu %@", (unsigned long)[open count],
+        [parentWindow isVisible] ? @"shown" : @"hidden", [subWindow isVisible] ? @"shown" : @"hidden"]];
+    }
+  [window setFrameOrigin: frame.origin];
+}
+
+/* A segment's label and its selection pill share a centre (alpha7): the
+   first, rounded segment, wider than its label, as Markdown Viewer's
+   Read/Edit/Split. The label was nudged 3-4pt towards the middle, so the
+   pill sat under the label's start. */
+- (void) checkSegmentLabelCentred
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(780, 600, 320, 80)
+                                     title: @"QuirkProbe Segment Centre"];
+  NSSegmentedControl *segments = AUTORELEASE([[NSSegmentedControl alloc]
+                                               initWithFrame: NSMakeRect(20, 20, 270, 32)]);
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale;
+  NSInteger x, y, width, height;
+  NSInteger inkMin = -1, inkMax = -1, pillMin = -1, pillMax = -1;
+  NSUInteger r, g, b;
+
+  if (QuirkProbeHasArgument(@"--high-contrast", nil) || QuirkProbeHasArgument(@"--contrast-theme", nil))
+    {
+      [self skip: @"segment-label-centred" detail: @"no pill in high contrast"];
+      return;
+    }
+  [segments setSegmentCount: 3];
+  [segments setLabel: @"Read" forSegment: 0];
+  [segments setLabel: @"Edit" forSegment: 1];
+  [segments setLabel: @"Split" forSegment: 2];
+  [segments setWidth: 90 forSegment: 0];
+  [segments setWidth: 90 forSegment: 1];
+  [segments setWidth: 90 forSegment: 2];
+  [segments setSelectedSegment: 0];
+  [[window contentView] addSubview: segments];
+  [window orderFront: nil];
+  [window display];
+  rep = QuirkProbeRender(segments);
+  scale = QuirkProbeScale(rep, segments);
+  width = (NSInteger)(86.0 * scale);
+  height = [rep pixelsHigh];
+  for (x = (NSInteger)(4.0 * scale); x < width; x++)
+    {
+      for (y = 0; y < height; y++)
+        {
+          if (QuirkProbePixel(rep, x, y, &r, &g, &b) == NO)
+            {
+              continue;
+            }
+          /* The accent pill: blue well above red; the label: dark (light
+             in the dark theme), neither the item's fill nor the pill. */
+          if (b > r + 60 && b > 120)
+            {
+              if (pillMin < 0) pillMin = x;
+              pillMax = x;
+            }
+          else if (QuirkProbeHasArgument(@"--mode", @"dark") ? (r + g + b > 480) : (r + g + b < 300))
+            {
+              if (inkMin < 0) inkMin = x;
+              inkMax = x;
+            }
+        }
+    }
+  [self saveView: segments named: @"segment-label-centred"];
+  /* Every label in the primary text colour, as the Toolkit's Segmented
+     draws them: the unselected "Edit" as strong as the selected "Read"
+     (the darkest ink in light, the brightest in dark). */
+  {
+    BOOL dark = QuirkProbeHasArgument(@"--mode", @"dark");
+    NSInteger extreme[2] = { dark ? 0 : 765, dark ? 0 : 765 };
+    NSInteger segment;
+
+    for (segment = 0; segment < 2; segment++)
+      {
+        NSInteger x0 = (NSInteger)((segment * 90.0 + 12.0) * scale);
+        NSInteger x1 = (NSInteger)((segment * 90.0 + 78.0) * scale);
+
+        for (x = x0; x < x1; x++)
+          {
+            for (y = (NSInteger)(6.0 * scale); y < height - (NSInteger)(9.0 * scale); y++)
+              {
+                NSInteger sum;
+
+                if (QuirkProbePixel(rep, x, y, &r, &g, &b) == NO || (b > r + 60 && b > 120))
+                  {
+                    continue;
+                  }
+                sum = (NSInteger)(r + g + b);
+                extreme[segment] = dark ? MAX(extreme[segment], sum) : MIN(extreme[segment], sum);
+              }
+          }
+      }
+    if (labs((long)(extreme[0] - extreme[1])) <= 60)
+      {
+        [self pass: @"segment-unselected-label-colour" detail: [NSString stringWithFormat:
+          @"selected label ink %ld, unselected %ld (of 765)", (long)extreme[0], (long)extreme[1]]];
+      }
+    else
+      {
+        [self fail: @"segment-unselected-label-colour" detail: [NSString stringWithFormat:
+          @"selected label ink %ld, unselected %ld (of 765): the unselected label is fainter",
+          (long)extreme[0], (long)extreme[1]]];
+      }
+  }
+  if (pillMin < 0 || inkMin < 0)
+    {
+      [self fail: @"segment-label-centred" detail: [NSString stringWithFormat:
+        @"couldn't find the pill (%ld) or the label (%ld)", (long)pillMin, (long)inkMin]];
+    }
+  else if (fabs((pillMin + pillMax) / 2.0 - (inkMin + inkMax) / 2.0) <= 1.5 * scale)
+    {
+      [self pass: @"segment-label-centred" detail: [NSString stringWithFormat:
+        @"label centred at %.1f, pill at %.1f (pixels)", (inkMin + inkMax) / 2.0, (pillMin + pillMax) / 2.0]];
+    }
+  else
+    {
+      [self fail: @"segment-label-centred" detail: [NSString stringWithFormat:
+        @"label centred at %.1f, pill at %.1f (pixels)", (inkMin + inkMax) / 2.0, (pillMin + pillMax) / 2.0]];
+    }
+  [segments removeFromSuperview];
+  [window orderOut: nil];
+}
+
+/* Selecting a tab (alpha7): the new tab's window comes on screen before
+   the old one goes, so the window never vanishes. */
+- (void) checkWindowTabSwitchShowsFirst
+{
+  QuirkProbeOrderOutWindow *first = nil;
+  NSWindow *second = nil;
+  NSRect frame = NSMakeRect(200, 260, 520, 200);
+
+  if ([NSWindow instancesRespondToSelector: @selector(addTabbedWindow:ordered:)] == NO)
+    {
+      [self fail: @"window-tab-switch-shows-first" detail: @"no window tabbing"];
+      return;
+    }
+  first = AUTORELEASE([[QuirkProbeOrderOutWindow alloc] initWithContentRect: frame
+                                                                  styleMask: (NSTitledWindowMask
+                                                                              | NSClosableWindowMask
+                                                                              | NSResizableWindowMask)
+                                                                    backing: NSBackingStoreBuffered
+                                                                      defer: NO]);
+  [first setTitle: @"QuirkProbe Switch One"];
+  [first setReleasedWhenClosed: NO];
+  [_windows addObject: first];
+  second = [self windowWithFrame: frame title: @"QuirkProbe Switch Two"];
+  [first makeKeyAndOrderFront: nil];
+  QuirkProbeDispatchEvents(0.1);
+  first->partner = second;
+  first->partnerVisibleAtOrderOut = -1;
+  /* Joining as a tab selects the new window: the first orders out. */
+  [first addTabbedWindow: second ordered: NSWindowAbove];
+  /* A new tab's window is set up behind the old one and brought forward
+     0.1s later; the old one goes 0.05s after that. */
+  QuirkProbeDispatchEvents(0.5);
+  if (first->partnerVisibleAtOrderOut == 1)
+    {
+      [self pass: @"window-tab-switch-shows-first" detail:
+        @"the new tab was on screen as the old one ordered out"];
+    }
+  else
+    {
+      [self fail: @"window-tab-switch-shows-first" detail: (first->partnerVisibleAtOrderOut < 0)
+        ? @"the old tab never ordered out" : @"the old tab ordered out before the new one was on screen"];
+    }
+  first->partner = nil;
+  [second orderOut: nil];
+  [first orderOut: nil];
 }
 
 /* Pointer-over state as the theme's tracker gets it from a tracking
@@ -11734,6 +12336,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkDecorationFitsTallWindow];
   [self checkToolbarIconSize];
   [self checkToolbarInMenuBar];
+  [self checkToolbarInMenuBarViews];
   [self checkToolbarFlexibleSpaceScaled];
   [self checkScrollerEdge];
   [self checkTableHeader];
@@ -11786,6 +12389,10 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkSearchField];
   [self checkHorizontalOnlyScroller];
   [self checkWindowTabs];
+  [self checkWindowSingleTab];
+  [self checkMenuStyleMoreInTitleBar];
+  [self checkWindowTabSwitchShowsFirst];
+  [self checkSegmentLabelCentred];
   [self checkClientCaption];
   [self checkClientCaptionScaled];
   [self checkDPIAwareness];

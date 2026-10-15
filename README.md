@@ -309,6 +309,11 @@ own, so key equivalents and validation work as before, and the keyboard
 still reaches them: Alt or F10 selects the button, Down or Enter opens
 it, and Alt plus a menu's first letter opens the flyout and that menu.
 
+With the window's tabs in the title bar (the carried libs-back) and no
+toolbar showing, the "..." goes into the title bar right after the tabs'
+"+", as Windows Terminal has its menu, and the menu bar's row goes: the
+window is its title bar and its content (#134).
+
 `menubar` is the default. A user default overrides the app, as for
 `GSThemeToolbarInMenuBar`: `defaults write <app> WinUIThemeMenuStyle
 more` for one app, or `NSGlobalDomain` for every app whose Info.plist
@@ -371,10 +376,10 @@ the API is there before an app sets up its first window. Apps that check
 `[NSWindow instancesRespondToSelector: @selector(addTabbedWindow:ordered:)]`
 (ObjcMarkdown) find it.
 
-**Off by default for now** (#72): apps that find the API use it (ObjcMarkdown
-turns its documents into window tabs). `WinUIThemeWindowTabs YES` (a user
-default, or `-WinUIThemeWindowTabs YES` on the command line) turns them on;
-QuirkProbe runs with it on.
+**On by default** since 0.1.0-alpha7 (#72): apps that find the API use
+it (ObjcMarkdown turns its documents into window tabs).
+`WinUIThemeWindowTabs NO` (a user default, or `-WinUIThemeWindowTabs NO`
+on the command line) turns them off.
 
 On Windows: the hidden tabs are ordered out, so the taskbar and Alt+Tab
 show one entry per group; selecting a tab gives it the group's frame and,
@@ -397,6 +402,12 @@ window has unsaved changes and the pointer isn't on the tab, as Notepad
 does; a "+" right after the last tab when something answers
 `-newWindowForTab:`. High contrast uses ButtonFace, Window, WindowText,
 Hilight and HilightText as WinUI's TabView does.
+
+A window that can be a tab shows the bar from the start, with its one
+tab and the "+", as Notepad and Terminal open (#133): a titled window,
+not a panel, whose tabbing mode isn't Disallowed, with something that
+answers `-newWindowForTab:` (the "+" opens a tab through it). Hide Tab
+Bar (`-toggleTabBar:`) hides it, and Show Tab Bar brings it back.
 
 With the theme's title bar (the carried libs-back) the tabs are in the
 title bar, as Windows 11's tabbed apps have them (#83): after the app's

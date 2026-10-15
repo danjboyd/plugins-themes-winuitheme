@@ -268,6 +268,12 @@ NSRange WinUIThemeMenuAccessKeyRange(NSString *title);
 /* The overflow button of a bar too narrow for its titles (empty when they
    fit), and whether it's selected. */
 NSRect WinUIThemeMenuBarOverflowRect(NSMenuView *bar);
+/* Window tabs (#133, WinUIThemeWindowTabs.m): a window that can tab
+   shows its tab bar with one tab, as Notepad and Terminal open. Install
+   once the tabbing code is installed; call for each window that becomes
+   key or main. */
+void WinUIThemeWindowTabsInstallSingleTabBar(void);
+void WinUIThemeWindowTabsWindowBecameKey(NSWindow *window);
 /* The overflow button's width, and the inset before a bar's first title
    (libs-gui's layout): WinUIThemeMenuStyle `more` sizes the bar from
    them in the toolbar's row. */
