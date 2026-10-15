@@ -2229,7 +2229,10 @@ QuirkProbeDarkest(NSBitmapImageRep *rep)
           CGFloat above = NSMaxY(row) - NSMaxY(frame);
           CGFloat below = NSMinY(frame) - NSMinY(row);
 
-          if (fabs(NSHeight(frame) - (NSHeight(row) - 8.0)) > 0.5 || above < 3.5 || below < 3.5
+          /* At most the row less 4pt each side (a taller row, at a
+             larger text size or scale, leaves a shorter control alone),
+             and centred. */
+          if (NSHeight(frame) > NSHeight(row) - 8.0 + 0.5 || above < 3.5 || below < 3.5
               || fabs(above - below) > 1.0)
             {
               [problems addObject: [NSString stringWithFormat: @"%@ is %.0fpt tall in a %.0fpt row, %.0f above and %.0f below",
@@ -2257,7 +2260,7 @@ QuirkProbeDarkest(NSBitmapImageRep *rep)
       if ([problems count] == 0)
         {
           [self pass: @"toolbar-in-menu-bar-views" detail:
-            @"a segmented control and a push button 24pt and centred in the row; their own height again in their own row"];
+            @"a segmented control and a push button compact and centred in the row; their own height again in their own row"];
         }
       else
         {
