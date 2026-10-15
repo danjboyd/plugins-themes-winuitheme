@@ -1,6 +1,6 @@
 # Handoff: Adwaita parity work
 
-State as of 2026-10-15 (morning, after an unattended overnight session), for picking the work up in a fresh session. The goal
+State as of 2026-10-15 (afternoon: 0.1.0-alpha6 released for the GNUstep mailing list announcement), for picking the work up in a fresh session. The goal
 (tracking issue #50): unmodified GNUstep apps look like first-rate WinUI 3
 apps under this theme, at parity with what the Adwaita theme
 (`C:\Users\Support\git\plugins-themes-Adwaita`) does for GNOME. The audit
@@ -34,6 +34,10 @@ in `Docs/IMPROVEMENTS.md`.
   - The trailer `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 - **PR bodies** end with `🤖 Generated with [Claude Code](https://claude.com/claude-code)`.
 - **Pushing and opening PRs** wait until the owner asks.
+- **Merging:** the auto-mode permission check blocks `gh pr merge`
+  ("Merge Without Review") unless it's allowed. On 10-15 the owner added
+  `Bash(gh pr merge:*)` to this repo's local settings (`/permissions`).
+  Merge only what the owner has approved.
 - **Stacked branches:** never `gh pr merge --delete-branch` on a branch that
   other PRs are based on. GitHub closes them, and reopening them needs the
   owner. Merge without deleting, then retarget.
@@ -98,14 +102,18 @@ Phases A to J and these fixes are merged into `main`:
 | #123 | `version-0.1.0-alpha4` | the fourth release |
 | #127 | `alpha5-overflow-fix` | the alpha4 scaled-toolbar regression alone (cherry-picked from #125) |
 | #128 | `version-0.1.0-alpha5` | the fifth release |
+| #125 | `parity-2026-10-15` | #91 (the toolbar in the menu bar's row), slider tick marks and paused/error progress (#105), ContentDialog's scale, the overlay scroller at a fractional scale, the probe's `scaled-150` and libs-gui master fixes |
+| #129 | `readme-release` | the README for the release announcement: screenshots (`Docs/Images`, captured by `Examples/ThemeDemo/Scripts/readme-screenshots.txt`), install steps, a feature list |
+| #131 | `menu-style-more` | #130 (menus behind "...", `WinUIThemeMenuStyle = more`) |
+| #132 | `version-0.1.0-alpha6` | the sixth release |
 
 **Open, not merged:**
 
 | PR | Branch | Issues |
 | --- | --- | --- |
 | #124 | `handoff-2026-10-14` | the 10-14 handoff (this file's base) |
-| #125 (draft) | `parity-2026-10-15` | #91 (the toolbar in the menu bar's row), slider tick marks and paused/error progress (#105), the overlay scroller at a fractional scale, the probe's `scaled-150` and libs-gui master fixes; `main` (alpha5) merged in |
-| this one | `handoff-2026-10-15` | this file, on top of #124 |
+| #97 (draft) | `window-tabs-phase-2-review` | phase 2 of the shared window tabbing code; awaits the owner's review (#72) |
+| #126 (this one) | `handoff-2026-10-15` | this file, on top of #124; `main` (alpha6) merged in |
 
 **Releases.** The owner approved the release process on 2026-10-08:
 - semver pre-release tags (`0.1.0-alphaN`);
@@ -114,6 +122,31 @@ Phases A to J and these fixes are merged into `main`:
 - an annotated tag on `main`;
 - a GitHub pre-release with the notes and the bundle zip built in CLANG64;
 - apps pin a tag, not `main`.
+
+**0.1.0-alpha6** is tag `0.1.0-alpha6` on `b667a54` (the merge of #132),
+a GitHub pre-release with `WinUITheme-0.1.0-alpha6-msys2-clang64.zip`
+(SHA-256 `bb900581...4eb752`), tested with `carry-0.32.0.4`.
+- **Contents:** #125 and #131 (above) and the README (#129). Both kinds
+  of new chrome are off unless an app's Info.plist or a user default asks.
+- **How it was released (10-15, afternoon):**
+  - the owner approved #125 after seeing its screenshots, and asked for
+    `WinUIThemeMenuStyle` in alpha6 ("merge 125 and let's include this
+    WinUIThemeMenuStyle in alpha6; proceed");
+  - #131, #129 and #132 were merged by this session once the owner
+    allowed `gh pr merge`;
+  - the zip was built from a clean tree at `7e47183`, whose tree is
+    identical to `b667a54`'s. QuirkProbe light and dark on the carried
+    backend and light on stock passed at that commit, the unzipped
+    bundle ran ThemeDemo, and the downloaded asset's checksum matched.
+- **The announcement:** the ReleaseCoordinator session (Remote Control)
+  gathers each project's release for one GNUstep mailing list post by
+  the owner. It has the URL, the notes and the carried-backend note.
+  Don't post to the list.
+- **Apps:** on 10-15 the owner asked for ObjcMarkdown (the "Markdown
+  Viewer Windows" session) and ScreenshotTool ("ScreenshotTool Windows")
+  to re-pin to alpha6 with `carry-0.32.0.4` at once. Both were messaged.
+  ScreenshotTool's v0.1.3 pins alpha5. ObjcMarkdown declares
+  `GSThemeToolbarInMenuBar`, so it's the first real app with #91.
 
 **0.1.0-alpha5** is tag `0.1.0-alpha5` on `e97e54a` (the merge of #128),
 a GitHub pre-release with `WinUITheme-0.1.0-alpha5-msys2-clang64.zip`
@@ -309,7 +342,7 @@ app closes.
 | --- | --- |
 | Tracking | #105 remaining WinUI gaps (checklist below); #50 Adwaita parity |
 | Windows | #72 tabs on by default (draft PR #97, phase 2 of the shared code, awaits the owner's review) |
-| Fidelity | #91 single-row chrome: done in draft #125, awaiting the owner's review |
+| Fidelity | none: #91 (single-row chrome) and #130 (menus behind "...") shipped in alpha6 and are closed |
 | System | #47 Mica: implemented (#117), the blurred backdrop unchecked on a GPU |
 | Testing | #19 real-app backlog |
 
@@ -337,16 +370,22 @@ What still separates an app from a first-rate WinUI app:
    pixels on a scaled display (gnustep-gui's frame sizes are device
    pixels; `-setContentMinSize:` is scaled). A libs-gui question, not
    changed.
-4. **Motion:** done; ContentDialog's scale is in #125.
-5. **API decision:** paused and error progress: option 1 is in #125
-   for the owner to confirm (see "Paused and error progress" below). Slider ticks needed no decision: NSSlider has
+4. **Motion:** done; ContentDialog's scale shipped in alpha6. #105's
+   checklist still shows it, and paused/error progress and slider
+   ticks, as open: tick them.
+5. **API decision:** made. Paused and error progress are
+   `-setGSThemeState:` (option 1 below), shipped in alpha6 with the
+   owner's approval of #125. Slider ticks needed no decision: NSSlider has
    `-setNumberOfTickMarks:` and `-setTickMarkPosition:`, which libs-gui
    just doesn't draw. The theme draws them now (#125).
 6. **Chrome:** tabs on by default (#72); per-window compact metrics for
    nib windows. That's a design question (how to tell a nib window from
    a code-built one); Adwaita doesn't do it either, despite #105's note
    (its HANDOFF_OPEN_ISSUES #24 lists it as open). Single-row chrome
-   (#91) is in #125.
+   (#91) and menus behind "..." (#130) shipped in alpha6. Still open
+   there: the toolbar's ">>" and the "..." are two overflows where a
+   CommandBar has one, and Terminal's placement (the menu beside the
+   tab row's "+") isn't done.
 7. **Upstreaming** the carried libs-back changes (GCC, then the owner's
    review).
 
@@ -623,33 +662,48 @@ NSProgressIndicator has neither, and Cocoa has no equivalent. Options:
 3. **Reuse `-setControlTint:`** (NSGraphiteControlTint as paused, and
    so on). No new API, but the meanings are invented.
 
-Recommendation: 1 now, with 2 proposed upstream later using the same
-values. Option 1 is implemented in #125 (`57abccd`); drop that commit
-to choose differently.
+Decided: option 1, shipped in alpha6 (`57abccd`, approved with #125 on
+10-15). Option 2 can still be proposed upstream later with the same
+values.
 
 ### Suggested next five (the owner decides)
 
-1. **Review draft #125** (alpha5 shipped its toolbar fix already).
-   - It has #91, slider ticks, paused/error progress (an API choice to
-     confirm), the overlay scroller fix at a fractional scale and the
-     probe work. `main` is merged in.
-   - #91 is off unless an app declares it, but ObjcMarkdown's Info.plist
-     already does, so ObjcMarkdown gets single-row chrome as soon as it
-     moves to a release with #125, an alpha6.
+1. **ObjcMarkdown and ScreenshotTool on alpha6** (asked 10-15): follow
+   up on what they find, above all ObjcMarkdown's single row (the
+   viewer and the editor at several widths, ">>" folding before "...").
 2. **Upstream:** review the four libs-back topic branches, using
    `win32-per-monitor-dpi-squashed` for the DPI one (GCC done; the X11
    build of `CairoFontInfo.m` is still owed). Also #246's FSF
-   assignment question.
-3. **The second-monitor edges:** an OCI run with the logging described
+   assignment question. This is the biggest step towards a stable
+   release: until it lands, apps must ship the carried backend.
+3. **A stable gate:** `Docs/RELEASE_READINESS.md` is from April (its
+   blockers are frozen screenshot corpora and ObjcMarkdown going
+   green). Rewrite it as the gate for a `0.1.0-beta1`: the carried
+   backend's status, one session on Windows 11 with a GPU (rounding,
+   shadows, Mica's blur, Snap), a soak with the apps on one release,
+   and the settings and APIs to freeze (`WinUIThemeMica`,
+   `WinUIThemeAnimations`, `WinUIThemeWindowTabs`,
+   `GSThemeToolbarInMenuBar`, `WinUIThemeMenuStyle`,
+   `-setGSThemeState:`).
+4. **The second-monitor edges:** an OCI run with the logging described
    above. Then a fix in libs-back (offsets at the window's DPI) and in
    gnustep-gui or the theme (frames at the window's screen's scale).
-4. **A real-mouse check** of ScreenshotTool's Open split button at 125%
-   (quick clicks), and #19's Gorm drop test.
-5. **ObjcMarkdown and ScreenshotTool on alpha5** with `carry-0.32.0.4`,
-   when their owners want it. TinyRetroPad is a Win32 assembly app, not
-   a GNUstep one, so it doesn't belong in #19.
+5. **One overflow under `more`:** fold the toolbar's ">>" items into
+   the "..." flyout, as CommandBar does, and the real-mouse checks
+   (ScreenshotTool's Open split button at 125%, #19's Gorm drop test).
 
 ### Known gaps in finished work
+
+- **Menus behind "..." (#130):**
+  - the toolbar's ">>" and the "..." are separate overflows;
+  - a window without a toolbar keeps a whole row for the button;
+  - the flyout's items are copies made each time it opens, as the
+    narrow bar's overflow menu's are (#77), so their submenus are
+    copies too: compare menus by title, not identity;
+  - the probe's offscreen render of the flyout is blank (its menu
+    views don't draw their items), so the visual check is ThemeDemo
+    with `-WinUIThemeMenuStyle more` and `key alt+e`. ThemeDemo's
+    command scripts have no F10 key; the probe covers it.
 
 - **Shadows (#39):** the carried backend gives a borderless window a
   thick frame and a caption with `WM_NCCALCSIZE` returning 0, and extends
