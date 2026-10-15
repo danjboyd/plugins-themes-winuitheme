@@ -337,8 +337,7 @@ What still separates an app from a first-rate WinUI app:
    pixels on a scaled display (gnustep-gui's frame sizes are device
    pixels; `-setContentMinSize:` is scaled). A libs-gui question, not
    changed.
-4. **Motion:** ContentDialog's scale (a layered window's alpha can't
-   scale it).
+4. **Motion:** done; ContentDialog's scale is in #125.
 5. **API decision:** paused and error progress: option 1 is in #125
    for the owner to confirm (see "Paused and error progress" below). Slider ticks needed no decision: NSSlider has
    `-setNumberOfTickMarks:` and `-setTickMarkPosition:`, which libs-gui
@@ -544,19 +543,20 @@ one chrome row, Read/Edit/Split at the end, no stray indicator. Making
 scaled-150 pass, by fixing the checks to measure in points, would make
 it a regression gate for the DPI-aware backend.
 
-### Tried and backed out overnight
+### Tried overnight
 
-- **ContentDialog's scale** (#105). The idea was to scale an alert's
-  content from 105% to 100% over 250ms through its content view's
-  bounds, opaque after 83ms.
-  - The probe check `motion-dialog-scales` passed.
-  - But a ThemeDemo capture 60ms in showed the buttons scaled and the
-    title and message not drawn at all; on `main`, which only fades,
-    they show.
-  - So it was reverted in #125 (`2c1a955`). The commit (`5696766`) is
-    there to pick up: find why the alert's text fields don't redraw
-    under scaled bounds, and make the check look at the drawing, not
-    the bounds.
+- **ContentDialog's scale** (#105) is done in #125 (`76b21d0`), on the
+  second try.
+  - The first (`5696766`, reverted in `2c1a955`) scaled the alert's
+    content view's bounds. Its title and message didn't draw while it
+    scaled, and the bounds-only probe check missed that.
+  - Now a snapshot of the drawn content is shown scaled over it from
+    105% to 100% over 250ms, passing clicks through, and removed at the
+    end.
+  - The check looks at the drawing: the snapshot must have the text's
+    ink in it.
+  - A ThemeDemo capture 60ms in shows everything drawn, slightly
+    larger.
 - **libs-gui rounding a non-opaque view's invalid rect** to device
   pixels, as it does an opaque one's (`NSView.m`,
   `-_setNeedsDisplayInRect_real:`). The patch is in the 10-14 night
