@@ -5,7 +5,17 @@ Releases of the WinUI theme for GNUstep. Versions are semver pre-releases
 `GSThemeVersion` in `WinUIThemeInfo.plist`, and an annotated tag on `main`.
 Apps that bundle the theme should pin a tag, not `main`.
 
-## Unreleased
+## 0.1.0-alpha6 (2026-10-15)
+
+New chrome for apps that ask for it: the toolbar in the menu bar's row,
+as Notepad and Paint have it, and menus behind a "..." button, as Edge
+and File Explorer have them. Also slider ticks, paused and error
+progress, the alert's scale-in and a scroller fix at 150%. Requires
+gnustep-gui 0.32 or later. Tested with the carried libs-back
+`carry-0.32.0.4` (`danjboyd/libs-back`), as alpha5 was. Both kinds of
+chrome are off unless an app's Info.plist or a user default turns them
+on; ObjcMarkdown already declares `GSThemeToolbarInMenuBar`, so it gets
+one row when it moves to this release.
 
 **Chrome**
 - Single-row chrome (#91): an app that declares `GSThemeToolbarInMenuBar`
