@@ -1988,12 +1988,14 @@ WinUIThemeProbeToolbarInRow(NSWindow *window)
             - NSMinY([decoration convertRect: [bar bounds] fromView: bar])) <= 0.5;
 }
 
-/* A window with its toolbar in the menu bar's row comes back from its
-   saved frame the same size, restored as an app usually does it: the
-   frame first, then the toolbar and the menu bar. libs-gui saved the
-   frame without the toolbar's row, which that toolbar doesn't add, and
-   Markdown Viewer's window came back 32px shorter at every launch. */
-- (void) checkToolbarInMenuBarSavedFrame
+/* A window comes back from its saved frame the same size, restored as
+   an app usually does it: the frame first, then the toolbar and the menu
+   bar. libs-gui saves the frame without those rows, in points, and the
+   window grows by each as it arrives, in the frame's units: Markdown
+   Viewer's window came back 32px shorter at every launch with its
+   toolbar in the menu bar's row (which adds no row), and 8px taller at
+   125%. Checked with the toolbar in the menu bar's row and in its own. */
+- (NSString *) savedFrameRoundTripInMenuBar: (BOOL)inMenuBar
 {
   NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
   NSWindow *saved = [self windowWithFrame: NSMakeRect(300, 300, 520, 300)
@@ -2002,9 +2004,10 @@ WinUIThemeProbeToolbarInRow(NSWindow *window)
   NSMenu *menu = AUTORELEASE([[NSMenu alloc] initWithTitle: @"QuirkProbe"]);
   NSToolbar *toolbar = nil;
   NSString *string = nil;
+  NSString *problem = nil;
   NSRect before, after;
 
-  [defaults setBool: YES forKey: @"GSThemeToolbarInMenuBar"];
+  [defaults setBool: inMenuBar forKey: @"GSThemeToolbarInMenuBar"];
   [menu addItemWithTitle: @"File" action: NULL keyEquivalent: @""];
   [menu addItemWithTitle: @"Edit" action: NULL keyEquivalent: @""];
   toolbar = AUTORELEASE([[NSToolbar alloc] initWithIdentifier: @"QuirkProbeSavedFrameToolbar"]);
@@ -2013,37 +2016,30 @@ WinUIThemeProbeToolbarInRow(NSWindow *window)
   [saved setMenu: menu];
   [saved orderFront: nil];
   QuirkProbeDispatchEvents(0.2);
-  if (WinUIThemeProbeToolbarInRow(saved) == NO)
+  if (WinUIThemeProbeToolbarInRow(saved) != inMenuBar)
     {
-      [self skip: @"toolbar-in-menu-bar-saved-frame" detail: @"the toolbar isn't in the menu bar's row"];
-      [defaults removeObjectForKey: @"GSThemeToolbarInMenuBar"];
-      [saved setToolbar: nil];
-      [saved setMenu: nil];
-      [saved orderOut: nil];
-      return;
-    }
-  before = [saved frame];
-  string = [saved stringWithSavedFrame];
-
-  restored = [self windowWithFrame: NSMakeRect(100, 100, 400, 200)
-                             title: @"QuirkProbe Restored Frame"];
-  [restored setFrameFromString: string];
-  toolbar = AUTORELEASE([[NSToolbar alloc] initWithIdentifier: @"QuirkProbeSavedFrameToolbar"]);
-  [toolbar setDelegate: self];
-  [restored setToolbar: toolbar];
-  [restored setMenu: AUTORELEASE([menu copy])];
-  [restored orderFront: nil];
-  QuirkProbeDispatchEvents(0.2);
-  after = [restored frame];
-  if (fabs(NSHeight(after) - NSHeight(before)) <= 0.5 && fabs(NSMaxY(after) - NSMaxY(before)) <= 0.5)
-    {
-      [self pass: @"toolbar-in-menu-bar-saved-frame" detail: [NSString stringWithFormat:
-        @"saved %@ (\"%@\"), restored %@", NSStringFromRect(before), string, NSStringFromRect(after)]];
+      problem = [NSString stringWithFormat: @"the toolbar is%@ in the menu bar's row", inMenuBar ? @"n't" : @""];
     }
   else
     {
-      [self fail: @"toolbar-in-menu-bar-saved-frame" detail: [NSString stringWithFormat:
-        @"saved %@ (\"%@\"), restored %@", NSStringFromRect(before), string, NSStringFromRect(after)]];
+      before = [saved frame];
+      string = [saved stringWithSavedFrame];
+
+      restored = [self windowWithFrame: NSMakeRect(100, 100, 400, 200)
+                                 title: @"QuirkProbe Restored Frame"];
+      [restored setFrameFromString: string];
+      toolbar = AUTORELEASE([[NSToolbar alloc] initWithIdentifier: @"QuirkProbeSavedFrameToolbar"]);
+      [toolbar setDelegate: self];
+      [restored setToolbar: toolbar];
+      [restored setMenu: AUTORELEASE([menu copy])];
+      [restored orderFront: nil];
+      QuirkProbeDispatchEvents(0.2);
+      after = [restored frame];
+      if (fabs(NSHeight(after) - NSHeight(before)) > 0.5 || fabs(NSMaxY(after) - NSMaxY(before)) > 0.5)
+        {
+          problem = [NSString stringWithFormat: @"saved %@ (\"%@\"), restored %@",
+                              NSStringFromRect(before), string, NSStringFromRect(after)];
+        }
     }
   [defaults removeObjectForKey: @"GSThemeToolbarInMenuBar"];
   [saved setToolbar: nil];
@@ -2052,6 +2048,26 @@ WinUIThemeProbeToolbarInRow(NSWindow *window)
   [restored setToolbar: nil];
   [restored setMenu: nil];
   [restored orderOut: nil];
+  return problem;
+}
+
+- (void) checkToolbarInMenuBarSavedFrame
+{
+  NSString *inRow = [self savedFrameRoundTripInMenuBar: YES];
+  NSString *ownRow = [self savedFrameRoundTripInMenuBar: NO];
+  CGFloat factor = [[NSScreen mainScreen] userSpaceScaleFactor];
+
+  if (inRow == nil && ownRow == nil)
+    {
+      [self pass: @"toolbar-in-menu-bar-saved-frame" detail: [NSString stringWithFormat:
+        @"restored the size it was saved at, the toolbar in the menu bar's row and in its own, at %.2f", factor]];
+    }
+  else
+    {
+      [self fail: @"toolbar-in-menu-bar-saved-frame" detail: [NSString stringWithFormat:
+        @"at %.2f: in the menu bar's row: %@; in its own: %@", factor,
+        inRow != nil ? inRow : @"fine", ownRow != nil ? ownRow : @"fine"]];
+    }
 }
 
 - (void) checkToolbarInMenuBar
