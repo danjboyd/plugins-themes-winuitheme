@@ -28,11 +28,50 @@
    ColorPicker flyout and of Settings: the theme's button (4px corners,
    rest, hover, pressed and disabled) holding a rounded swatch with a faint
    inner border. While the colour panel is attached, the well is checked,
-   as a ToggleButton: accent chrome. libs-gui drew NeXT's bevelled well. */
+   as a ToggleButton: accent chrome. libs-gui drew NeXT's bevelled well.
+
+   A toolbar's well wider than tall (ScreenshotTool's) is WinUI's colour
+   DropDownButton, as Paint's and the Toolkit's ColorPickerButton:
+   a small rounded swatch at the start and the drop-down chevron at the
+   end. Clicking it opens the colour panel, as before. */
 
 /* The swatch's inset from the button's edge. */
 static const CGFloat WinUIThemeColorWellInsetX = 6.0;
 static const CGFloat WinUIThemeColorWellInsetY = 5.0;
+
+/* The DropDownButton form: from 1.5 times as wide as tall. Its swatch is
+   a square 12px less than the height (16px in a 28px button), 8px in
+   from the start; the chevron's centre is 14px from the end. */
+static const CGFloat WinUIThemeColorWellDropDownRatio = 1.5;
+static const CGFloat WinUIThemeColorWellSwatchStart = 8.0;
+static const CGFloat WinUIThemeColorWellChevronInset = 14.0;
+
+/* A well in a toolbar (its item's view), as Paint's colour buttons are;
+   one in a form or a settings page stays WinUI's swatch button. */
+static BOOL
+WinUIThemeColorWellIsDropDown(NSColorWell *well, NSRect bounds)
+{
+  static Class toolbarViewClass = Nil;
+  NSView *ancestor = [well superview];
+
+  if (NSHeight(bounds) < 16.0 || NSWidth(bounds) < NSHeight(bounds) * WinUIThemeColorWellDropDownRatio)
+    {
+      return NO;
+    }
+  if (toolbarViewClass == Nil)
+    {
+      toolbarViewClass = NSClassFromString(@"GSToolbarView");
+    }
+  while (ancestor != nil && toolbarViewClass != Nil)
+    {
+      if ([ancestor isKindOfClass: toolbarViewClass])
+        {
+          return YES;
+        }
+      ancestor = [ancestor superview];
+    }
+  return NO;
+}
 
 @implementation WinUITheme (ColorWell)
 
@@ -55,6 +94,20 @@ static const CGFloat WinUIThemeColorWellInsetY = 5.0;
       hover = WinUIThemeViewIsHovered(well);
     }
   WinUIThemeDrawButtonChrome(self, bounds, well, enabled, enabled && [well isActive], pressed, hover);
+  if (WinUIThemeColorWellIsDropDown(well, bounds))
+    {
+      CGFloat side = MAX(10.0, MIN(18.0, NSHeight(bounds) - 12.0));
+      NSColor *glyph = WinUIThemeColorFromTheme(self,
+                                                enabled ? ([well isActive] && [[self settings] highContrastEnabled] == NO
+                                                           ? @"accentTextColor" : @"secondaryLabelColor")
+                                                        : @"disabledControlTextColor",
+                                                [NSColor controlTextColor]);
+
+      WinUIThemeDrawChevron(NSMakePoint(NSMaxX(bounds) - WinUIThemeColorWellChevronInset, NSMidY(bounds)),
+                            NO, glyph);
+      return NSMakeRect(NSMinX(bounds) + WinUIThemeColorWellSwatchStart,
+                        floor(NSMidY(bounds) - side / 2.0), side, side);
+    }
   return NSInsetRect(bounds,
                      MIN(WinUIThemeColorWellInsetX, floor(NSWidth(bounds) / 4.0)),
                      MIN(WinUIThemeColorWellInsetY, floor(NSHeight(bounds) / 4.0)));

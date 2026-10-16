@@ -5,6 +5,15 @@ Releases of the WinUI theme for GNUstep. Versions are semver pre-releases
 `GSThemeVersion` in `WinUIThemeInfo.plist`, and an annotated tag on `main`.
 Apps that bundle the theme should pin a tag, not `main`.
 
+## Unreleased
+
+**Controls**
+- A colour well in a toolbar, wider than tall, is WinUI's colour
+  DropDownButton, as Paint's and the Toolkit's ColorPickerButton: a small
+  rounded swatch at the start and the drop-down chevron at the end; it
+  still opens the colour panel (#151, ScreenshotTool's redesign). A well
+  in a form stays the swatch button. QuirkProbe `color-well-drop-down`.
+
 ## 0.1.0-alpha8 (2026-10-15)
 
 A fix and a refinement. Markdown Viewer crashed (a stack overflow) at
