@@ -16,6 +16,11 @@ Apps that bundle the theme should pin a tag, not `main`.
   flipped, tiling again. The theme's tile allows one nested tile (a
   scroller shown or hidden) and drops deeper ones. QuirkProbe
   `scroll-view-tile-settles`.
+- With overlay scrollers, libs-gui master's auto-hiding (3f5efad1b,
+  which Markdown Viewer ships) counted a shown scroller's width twice, so
+  the scroller flipped on every layout near its threshold and typing at
+  150% slowed to seconds a line (#145). The theme decides it as overlay
+  scrollers need: the document larger than the clip view.
 
 ## 0.1.0-alpha7 (2026-10-15)
 

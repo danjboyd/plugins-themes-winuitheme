@@ -438,6 +438,26 @@ WinUIThemeFitTableToClipView(NSScrollView *scrollView)
 
 static char WinUIThemeColumnAutoresizingStyleKey;
 
+@interface NSScrollView (WinUIThemeAutohidePrivate)
+- (void) _setHasVertScroller: (BOOL)flag;
+- (void) _setHasHorizScroller: (BOOL)flag;
+@end
+
+/* A requested-scroller flag of libs-gui master's -_autohideScrollers
+   (c97f03291), or -1 where the scroll view has none (3f5efad1b alone,
+   as Markdown Viewer ships it, decides both axes). */
+static int
+WinUIThemeScrollerRequested(NSScrollView *scrollView, const char *name)
+{
+  Ivar ivar = class_getInstanceVariable([NSScrollView class], name);
+
+  if (ivar == NULL)
+    {
+      return -1;
+    }
+  return *(BOOL *)((char *)scrollView + ivar_getOffset(ivar)) ? 1 : 0;
+}
+
 @implementation WinUITheme (ScrollerOverrides)
 
 /* The style the app asked for, kept for WinUIThemeFitTableToClipView;
@@ -644,6 +664,61 @@ static const NSUInteger WinUIThemeMaximumTileDepth = 2;
   if (state != nil && WinUIThemeUsesOverlayScrollers())
     {
       WinUIThemeUpdateOverlayTracking((NSScrollView *)self, state);
+    }
+}
+
+/* libs-gui master shows and hides auto-hiding scrollers here, from the
+   area the clip view would have without scrollers: its bounds plus each
+   shown scroller's width. Overlay scrollers sit over the content, so the
+   clip view already has that area, and a shown scroller's width counted
+   twice: shown, the content seemed to fit and the scroller hid; hidden,
+   it didn't fit and it showed again. In Markdown Viewer's editor at 125%
+   and 150% that flipped on every layout and keystroke, which the clip
+   view's pixel snap kept re-triggering (#145). With overlay scrollers a
+   scroller is needed when the document is larger than the clip view, by
+   more than half a point (a sub-pixel snap isn't content). Classic
+   scrollers keep libs-gui's way. Where libs-gui has the requested flags
+   (c97f03291) only a requested axis gets a scroller, set with its private
+   setters as it does; 3f5efad1b alone decides both axes with the public
+   ones. */
+- (void) _overrideNSScrollViewMethod__autohideScrollers
+{
+  typedef void (*AutohideIMP)(id, SEL);
+  AutohideIMP originalIMP = (AutohideIMP)WinUIThemeOriginalMethod(_cmd, self, [NSScrollView class]);
+  NSScrollView *scrollView = (NSScrollView *)self;
+  int requestsVertical = WinUIThemeScrollerRequested(scrollView, "_hasVertScrollerRequested");
+  int requestsHorizontal = WinUIThemeScrollerRequested(scrollView, "_hasHorizScrollerRequested");
+  NSView *documentView = [[scrollView contentView] documentView];
+  NSSize documentSize, clipSize;
+  BOOL needsVertical, needsHorizontal;
+
+  if (WinUIThemeUsesOverlayScrollers() == NO)
+    {
+      if (originalIMP != NULL)
+        {
+          originalIMP(self, _cmd);
+        }
+      return;
+    }
+  if (documentView == nil)
+    {
+      return;
+    }
+  documentSize = [documentView frame].size;
+  clipSize = [[scrollView contentView] bounds].size;
+  needsVertical = documentSize.height > clipSize.height + 0.5;
+  needsHorizontal = documentSize.width > clipSize.width + 0.5;
+  if (requestsVertical >= 0 && requestsHorizontal >= 0
+      && [scrollView respondsToSelector: @selector(_setHasVertScroller:)]
+      && [scrollView respondsToSelector: @selector(_setHasHorizScroller:)])
+    {
+      [scrollView _setHasVertScroller: requestsVertical && needsVertical];
+      [scrollView _setHasHorizScroller: requestsHorizontal && needsHorizontal];
+    }
+  else
+    {
+      [scrollView setHasVerticalScroller: needsVertical];
+      [scrollView setHasHorizontalScroller: needsHorizontal];
     }
 }
 
