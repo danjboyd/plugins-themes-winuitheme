@@ -495,6 +495,34 @@ WinUIThemeScrollerRequested(NSScrollView *scrollView, const char *name)
 static NSMapTable *WinUIThemeTileDepths = NULL;
 static const NSUInteger WinUIThemeMaximumTileDepth = 2;
 
+/* WinUIThemeTraceScrollers YES (a user default or argument): counts of
+   tiles, dropped nested tiles, auto-hide decisions and scroller flips,
+   logged every 100 tiles and at each flip, to tell a scroller re-tiling
+   per keystroke from the drawing (#145). */
+static int WinUIThemeTraceScrollersState = -1;
+static unsigned long WinUIThemeTraceTiles = 0;
+static unsigned long WinUIThemeTraceDropped = 0;
+static unsigned long WinUIThemeTraceDecisions = 0;
+static unsigned long WinUIThemeTraceFlips = 0;
+
+static BOOL
+WinUIThemeTracingScrollers(void)
+{
+  if (WinUIThemeTraceScrollersState < 0)
+    {
+      WinUIThemeTraceScrollersState
+        = [[NSUserDefaults standardUserDefaults] boolForKey: @"WinUIThemeTraceScrollers"] ? 1 : 0;
+    }
+  return WinUIThemeTraceScrollersState == 1;
+}
+
+static void
+WinUIThemeTraceCounts(NSString *event)
+{
+  NSLog(@"WinUITheme scrollers: %@ (tiles %lu, dropped %lu, decisions %lu, flips %lu)",
+        event, WinUIThemeTraceTiles, WinUIThemeTraceDropped, WinUIThemeTraceDecisions, WinUIThemeTraceFlips);
+}
+
 - (void) _overrideNSScrollViewMethod_tile
 {
   typedef void (*TileIMP)(id, SEL);
@@ -519,6 +547,18 @@ static const NSUInteger WinUIThemeMaximumTileDepth = 2;
                                               NSIntegerMapValueCallBacks, 16);
     }
   depth = (NSUInteger)(uintptr_t)NSMapGet(WinUIThemeTileDepths, scrollView);
+  if (WinUIThemeTracingScrollers())
+    {
+      WinUIThemeTraceTiles++;
+      if (depth >= WinUIThemeMaximumTileDepth)
+        {
+          WinUIThemeTraceDropped++;
+        }
+      if (WinUIThemeTraceTiles % 100 == 0)
+        {
+          WinUIThemeTraceCounts(@"tick");
+        }
+    }
   if (depth >= WinUIThemeMaximumTileDepth)
     {
       return;
@@ -708,6 +748,23 @@ static const NSUInteger WinUIThemeMaximumTileDepth = 2;
   clipSize = [[scrollView contentView] bounds].size;
   needsVertical = documentSize.height > clipSize.height + 0.5;
   needsHorizontal = documentSize.width > clipSize.width + 0.5;
+  if (WinUIThemeTracingScrollers())
+    {
+      BOOL shownVertical = ([scrollView verticalScroller] != nil
+                            && [[scrollView verticalScroller] superview] == scrollView);
+      BOOL shownHorizontal = ([scrollView horizontalScroller] != nil
+                              && [[scrollView horizontalScroller] superview] == scrollView);
+
+      WinUIThemeTraceDecisions++;
+      if (shownVertical != needsVertical || shownHorizontal != needsHorizontal)
+        {
+          WinUIThemeTraceFlips++;
+          WinUIThemeTraceCounts([NSString stringWithFormat:
+            @"flip %@ v %d->%d h %d->%d, document %@, clip %@", [[scrollView documentView] class],
+            shownVertical, needsVertical, shownHorizontal, needsHorizontal,
+            NSStringFromSize(documentSize), NSStringFromSize(clipSize)]);
+        }
+    }
   if (requestsVertical >= 0 && requestsHorizontal >= 0
       && [scrollView respondsToSelector: @selector(_setHasVertScroller:)]
       && [scrollView respondsToSelector: @selector(_setHasHorizScroller:)])
