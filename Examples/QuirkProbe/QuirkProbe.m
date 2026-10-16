@@ -455,6 +455,56 @@ QuirkProbeModuleOfAddress(void *address)
 - (BOOL) isTabBarVisible;
 @end
 
+/* Counts how deeply -tile nests in it, and stops a runaway (a nested
+   tile past 8 deep doesn't call super), so the probe reports the loop
+   that overflowed Markdown Viewer's stack at 1.5x instead of crashing. */
+@interface QuirkProbeTileCountingScrollView : NSScrollView
+{
+@public
+  int depth;
+  int deepest;
+  /* Its scroller re-tiles it as its frame is set: the cycle that
+     overflowed. */
+  BOOL retileOnReflect;
+}
+@end
+
+@implementation QuirkProbeTileCountingScrollView
+- (void) tile
+{
+  depth++;
+  deepest = MAX(deepest, depth);
+  if (depth <= 8)
+    {
+      [super tile];
+    }
+  depth--;
+}
+
+@end
+
+/* A scroller whose frame change re-tiles its scroll view, as the loop in
+   Markdown Viewer at 125% and 150% did: libs-gui's -tile sets the
+   scroller's frame, the clip view snaps to the pixel grid, the scroll is
+   reflected and -_autohideScrollers tiles again, all inside the first
+   -tile. */
+@interface QuirkProbeReflectingScroller : NSScroller
+@end
+
+@implementation QuirkProbeReflectingScroller
+- (void) setFrame: (NSRect)frame
+{
+  QuirkProbeTileCountingScrollView *scrollView = (QuirkProbeTileCountingScrollView *)[self superview];
+
+  [super setFrame: frame];
+  if ([scrollView isKindOfClass: [QuirkProbeTileCountingScrollView class]]
+      && scrollView->retileOnReflect)
+    {
+      [scrollView tile];
+    }
+}
+@end
+
 /* Notes whether its partner was on screen as this window ordered out. */
 @interface QuirkProbeOrderOutWindow : NSWindow
 {
@@ -672,6 +722,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkWindowTabSwitchShowsFirst;
 - (void) checkSegmentLabelCentred;
 - (void) checkButtonStyleAccent;
+- (void) checkScrollViewTileSettles;
 - (void) checkThemeSwitchRestoresMethods;
 - (void) finish;
 @end
@@ -11317,6 +11368,54 @@ QuirkProbeSendMove(NSWindow *window, NSPoint location)
   [window orderOut: nil];
 }
 
+/* A scroll view's tiling settles at a fractional scale (alpha7, found in
+   Markdown Viewer at 150%): tiling sets the scrollers' frames, the clip
+   view snaps its origin to the pixel grid, libs-gui reflects that as a
+   scroll and, with an auto-hiding scroller near its threshold, tiles
+   again, without end. An empty text view filling its clip view (the
+   new tab's source editor), at sizes across the threshold. */
+- (void) checkScrollViewTileSettles
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(200, 200, 420, 320)
+                                     title: @"QuirkProbe Tile Settles"];
+  QuirkProbeTileCountingScrollView *scrollView = AUTORELEASE([[QuirkProbeTileCountingScrollView alloc]
+    initWithFrame: NSMakeRect(10, 10, 400, 300)]);
+  NSTextView *text = nil;
+  NSSize contentSize;
+
+  [scrollView setAutohidesScrollers: NO];
+  [scrollView setVerticalScroller: AUTORELEASE([[QuirkProbeReflectingScroller alloc]
+                                                 initWithFrame: NSMakeRect(0, 0, 16, 100)])];
+  [scrollView setHasVerticalScroller: YES];
+  contentSize = [scrollView contentSize];
+  /* Taller than the view, so the scroller stays in it and tiling sets
+     its frame. */
+  text = (NSTextView *)AUTORELEASE([[NSView alloc] initWithFrame: NSMakeRect(0, 0, contentSize.width, 2000)]);
+  [scrollView setDocumentView: text];
+  [[window contentView] addSubview: scrollView];
+  [window orderFront: nil];
+  [window display];
+  /* A tile that re-enters itself from inside libs-gui's -tile must still
+     end. */
+  scrollView->deepest = 0;
+  scrollView->retileOnReflect = YES;
+  [scrollView tile];
+  scrollView->retileOnReflect = NO;
+  [window display];
+  if (scrollView->deepest <= 3)
+    {
+      [self pass: @"scroll-view-tile-settles" detail: [NSString stringWithFormat:
+        @"a tile re-entered from inside -tile stopped %d deep (scroller %@, in the view %d, hidden %d)", scrollView->deepest, [[scrollView verticalScroller] class], (int)([[scrollView verticalScroller] superview] == scrollView), (int)[[scrollView verticalScroller] isHidden]]];
+    }
+  else
+    {
+      [self fail: @"scroll-view-tile-settles" detail: [NSString stringWithFormat:
+        @"a tile re-entered from inside -tile went %d deep (the probe stops it at 8; Markdown Viewer's overflowed at 125%% and 150%%)",
+        scrollView->deepest]];
+    }
+  [window orderOut: nil];
+}
+
 /* Selecting a tab (alpha7): the new tab's window comes on screen before
    the old one goes, so the window never vanishes. */
 - (void) checkWindowTabSwitchShowsFirst
@@ -12469,6 +12568,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkWindowTabSwitchShowsFirst];
   [self checkSegmentLabelCentred];
   [self checkButtonStyleAccent];
+  [self checkScrollViewTileSettles];
   [self checkClientCaption];
   [self checkClientCaptionScaled];
   [self checkDPIAwareness];
