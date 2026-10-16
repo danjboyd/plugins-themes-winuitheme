@@ -723,6 +723,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkSegmentLabelCentred;
 - (void) checkButtonStyleAccent;
 - (void) checkDefaultButtonYieldsAccent;
+- (void) checkColorWellDropDown;
 - (void) checkScrollViewTileSettles;
 - (void) checkThemeSwitchRestoresMethods;
 - (void) finish;
@@ -1356,6 +1357,16 @@ static NSRect QuirkProbeOpenListRow;
       [item setView: view];
       [item setLabel: @"View"];
       RELEASE(view);
+    }
+  /* The colour well check: a colour well as the item's view. */
+  if ([[toolbar identifier] isEqualToString: @"QuirkProbeColorWellToolbar"])
+    {
+      NSColorWell *well = [[NSColorWell alloc] initWithFrame: NSMakeRect(0, 0, 72, 28)];
+
+      [well setColor: [NSColor colorWithCalibratedRed: 0.9 green: 0.1 blue: 0.1 alpha: 1.0]];
+      [item setView: well];
+      [item setLabel: @"Colour"];
+      RELEASE(well);
     }
   /* An item without an action is disabled, and draws its image faded. */
   [item setTarget: self];
@@ -11501,6 +11512,101 @@ QuirkProbeSendMove(NSWindow *window, NSPoint location)
   [window orderOut: nil];
 }
 
+/* A colour well wider than tall is WinUI's colour DropDownButton (as
+   ScreenshotTool's redesign wants, Paint and the Toolkit's
+   ColorPickerButton have it): a small swatch at the start and the
+   chevron at the end; a square one is still all swatch. */
+- (void) checkColorWellDropDown
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(300, 300, 420, 160)
+                                     title: @"QuirkProbe Colour Well"];
+  NSToolbar *toolbar = [[NSToolbar alloc] initWithIdentifier: @"QuirkProbeColorWellToolbar"];
+  NSColorWell *form = AUTORELEASE([[NSColorWell alloc] initWithFrame: NSMakeRect(20, 20, 72, 28)]);
+  NSColorWell *wide = nil;
+  NSMutableArray *problems = [NSMutableArray array];
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale;
+  NSInteger x, y, redMaxX = -1, inkMinX = -1, formRedMaxX = -1;
+  NSUInteger r, g, b;
+
+  [toolbar setDelegate: self];
+  [toolbar setDisplayMode: NSToolbarDisplayModeIconOnly];
+  [window setToolbar: toolbar];
+  RELEASE(toolbar);
+  [form setColor: [NSColor colorWithCalibratedRed: 0.9 green: 0.1 blue: 0.1 alpha: 1.0]];
+  [[window contentView] addSubview: form];
+  [window orderFront: nil];
+  [window display];
+  wide = (NSColorWell *)[[[toolbar items] lastObject] view];
+  if ([wide isKindOfClass: [NSColorWell class]] == NO)
+    {
+      [self skip: @"color-well-drop-down" detail: @"no colour well in the toolbar"];
+      [window setToolbar: nil];
+      [window orderOut: nil];
+      return;
+    }
+  rep = QuirkProbeRender(wide);
+  scale = QuirkProbeScale(rep, wide);
+  for (x = 0; x < [rep pixelsWide]; x++)
+    {
+      for (y = 0; y < [rep pixelsHigh]; y++)
+        {
+          if (QuirkProbePixel(rep, x, y, &r, &g, &b) == NO)
+            {
+              continue;
+            }
+          if (r > 180 && g < 90 && b < 90)
+            {
+              redMaxX = MAX(redMaxX, x);
+            }
+          else if (x > [rep pixelsWide] / 2 && labs((long)r - (long)g) < 20 && labs((long)g - (long)b) < 20
+                   && (QuirkProbeHasArgument(@"--mode", @"dark") ? (r > 150) : (r < 140)))
+            {
+              if (inkMinX < 0 || x < inkMinX)
+                {
+                  inkMinX = x;
+                }
+            }
+        }
+    }
+  if (redMaxX < 0 || redMaxX > (NSInteger)(NSWidth([wide bounds]) / 2.0 * scale))
+    {
+      [problems addObject: [NSString stringWithFormat: @"the toolbar's well's swatch reaches %.0fpt of %.0f",
+                                                       redMaxX / scale, NSWidth([wide bounds])]];
+    }
+  if (inkMinX < 0)
+    {
+      [problems addObject: @"the toolbar's well has no chevron"];
+    }
+  /* The same well in a form stays all swatch. */
+  rep = QuirkProbeRender(form);
+  for (x = 0; x < [rep pixelsWide]; x++)
+    {
+      if (QuirkProbePixel(rep, x, [rep pixelsHigh] / 2, &r, &g, &b) && r > 180 && g < 90 && b < 90)
+        {
+          formRedMaxX = MAX(formRedMaxX, x);
+        }
+    }
+  if (formRedMaxX < (NSInteger)(50.0 * QuirkProbeScale(rep, form)))
+    {
+      [problems addObject: [NSString stringWithFormat: @"the form's well's swatch reaches only %.0fpt",
+                                                       formRedMaxX / QuirkProbeScale(rep, form)]];
+    }
+  [self saveView: [[window contentView] superview] named: @"color-well-drop-down"];
+  if ([problems count] == 0)
+    {
+      [self pass: @"color-well-drop-down" detail: [NSString stringWithFormat:
+        @"in the toolbar: a swatch to %.0fpt and a chevron from %.0fpt; in a form: all swatch",
+        redMaxX / scale, inkMinX / scale]];
+    }
+  else
+    {
+      [self fail: @"color-well-drop-down" detail: [problems componentsJoinedByString: @"; "]];
+    }
+  [window setToolbar: nil];
+  [window orderOut: nil];
+}
+
 /* Selecting a tab (alpha7): the new tab's window comes on screen before
    the old one goes, so the window never vanishes. */
 - (void) checkWindowTabSwitchShowsFirst
@@ -12654,6 +12760,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkSegmentLabelCentred];
   [self checkButtonStyleAccent];
   [self checkDefaultButtonYieldsAccent];
+  [self checkColorWellDropDown];
   [self checkScrollViewTileSettles];
   [self checkClientCaption];
   [self checkClientCaptionScaled];
