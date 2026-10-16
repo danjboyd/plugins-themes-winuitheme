@@ -1,6 +1,6 @@
 # Handoff: Adwaita parity work
 
-State as of 2026-10-15 (late night: 0.1.0-alpha7 released; alpha6 that afternoon), for picking the work up in a fresh session. The goal
+State as of 2026-10-15 (late night: 0.1.0-alpha8 released, after alpha7 and alpha6 the same day), for picking the work up in a fresh session. The goal
 (tracking issue #50): unmodified GNUstep apps look like first-rate WinUI 3
 apps under this theme, at parity with what the Adwaita theme
 (`C:\Users\Support\git\plugins-themes-Adwaita`) does for GNOME. The audit
@@ -343,6 +343,38 @@ in a CLANG64 shell; never install it into
 It was last installed from `b3a6b20`. If an app holds the DLL, rename it to
 `*.dll.old` first: Windows allows renaming a loaded DLL. Delete it after the
 app closes.
+
+### alpha8 (2026-10-15, late night)
+
+**Released:** tag `0.1.0-alpha8` on `906e462` (the merge of #149), with
+#146 and #148; the zip `WinUITheme-0.1.0-alpha8-msys2-clang64.zip`,
+SHA-256 `08a75e725894e6c1eaedd7f10d48185e152b9cdc4727b3e194b786b43be4883f`,
+built from `1293c5e` (same tree), checked by downloading it back. The
+owner: "merge #146 and release alpha8", then "include 148 and 146 in
+alpha 8".
+- **#145 (#146):** Markdown Viewer overflowed its stack at 125% (launch)
+  and 150% (new tab, typing). It ships gnustep-gui 0.32.0 plus upstream
+  libs-gui 3f5efad1b, whose -_autohideScrollers adds each shown
+  scroller's width to the clip view's bounds; overlay scrollers sit
+  inside it, so the width counted twice and the scroller flipped without
+  end, the pixel snap re-triggering it, through the theme's -tile. Not
+  new in alpha7 (alpha5 and alpha6 crash too; Markdown Viewer Windows'
+  bisection). Fixes: the theme's -tile allows one nested tile; with
+  overlay scrollers the theme decides auto-hide itself (document larger
+  than the clip view by more than 0.5pt; c97f03291's requested flags
+  honoured where present, else 3f5efad1b's public setters). This VM's
+  libs-gui 0.32 has no -_autohideScrollers, so only Markdown Viewer's MSI
+  exercises the override; `WinUIThemeTraceScrollers YES` logs flips and
+  tiles (0 flips while typing, about 1.5 tiles a key). Typing at 125-150%
+  is still slow: drawing at the scale and the app's redraws, on its
+  side. ScreenshotTool's gnustep-gui lacks 3f5efad1b and never hit it.
+- **#147 (#148):** a window's default (Return) button draws plain while
+  a visible button in the window has GSThemeStyle "accent"; Return
+  stays. The owner's rule (a), the same as the Adwaita theme's
+  (6359fe4).
+- Real input for scaled displays comes from Markdown Viewer Windows' VM
+  lease (it can run any theme zip with real input at 125/150%); this VM
+  can't change its own scale without disturbing the shared desktop.
 
 ### alpha7 (2026-10-15, evening; the owner away overnight)
 
