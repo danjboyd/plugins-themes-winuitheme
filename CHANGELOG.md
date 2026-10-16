@@ -5,7 +5,14 @@ Releases of the WinUI theme for GNUstep. Versions are semver pre-releases
 `GSThemeVersion` in `WinUIThemeInfo.plist`, and an annotated tag on `main`.
 Apps that bundle the theme should pin a tag, not `main`.
 
-## Unreleased
+## 0.1.0-alpha9 (2026-10-16)
+
+A refinement and two window fixes. A colour well in a toolbar is WinUI's
+colour DropDownButton, as ScreenshotTool's redesign asked. Switching tabs
+no longer moves a snapped window, and a window with its toolbar in the
+menu bar's row no longer comes back shorter at every launch. Requires
+gnustep-gui 0.32 or later. Tested with the carried libs-back
+`carry-0.32.0.4`, as alpha8 was. Apps on alpha8 should move to it.
 
 **Controls**
 - A colour well in a toolbar, wider than tall, is WinUI's colour
@@ -13,6 +20,18 @@ Apps that bundle the theme should pin a tag, not `main`.
   rounded swatch at the start and the drop-down chevron at the end; it
   still opens the colour panel (#151, ScreenshotTool's redesign). A well
   in a form stays the swatch button. QuirkProbe `color-well-drop-down`.
+
+**Fixes**
+- Switching tabs moved a snapped window 7px (#153): the selected tab's
+  window went through libs-gui's on-screen constraint. When neither tab
+  is maximized, the selected tab now takes the previous one's exact
+  window rect. QuirkProbe `window-tab-takes-exact-rect`.
+- A window whose toolbar sits in the menu bar's row came back the
+  toolbar's height (32px) shorter at every launch (#155): its saved frame
+  left the toolbar out, though it adds no row of its own. The theme's
+  saved frames count it now. Frames saved by older builds are already
+  short; they stop shrinking but don't grow back. QuirkProbe
+  `toolbar-in-menu-bar-saved-frame`.
 
 ## 0.1.0-alpha8 (2026-10-15)
 
