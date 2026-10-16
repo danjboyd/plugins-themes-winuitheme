@@ -463,6 +463,18 @@ static char WinUIThemeColumnAutoresizingStyleKey;
                         : NSTableViewNoColumnAutoresizing;
 }
 
+/* How deeply each scroll view is tiling. At a fractional window scale
+   (Markdown Viewer at 125% and 150% on the DPI-aware carried backend)
+   tiling a scroll view whose auto-hiding scroller sits at its threshold
+   never ended: setting the scroller's and clip view's frames snaps the
+   clip view's origin to the pixel grid, libs-gui reflects that as a
+   scroll, its -_autohideScrollers flips the scroller and tiles again, and
+   the stack overflowed (0xc00000fd). One nested tile is libs-gui's own
+   (a scroller shown or hidden re-tiles once); a tile nested deeper is
+   dropped, and the scroll view keeps the layout it has. */
+static NSMapTable *WinUIThemeTileDepths = NULL;
+static const NSUInteger WinUIThemeMaximumTileDepth = 2;
+
 - (void) _overrideNSScrollViewMethod_tile
 {
   typedef void (*TileIMP)(id, SEL);
@@ -473,6 +485,7 @@ static char WinUIThemeColumnAutoresizingStyleKey;
   NSScroller *vertical, *horizontal;
   id documentView;
   WinUIThemeOverlayState *state = WinUIThemeOverlayStateFor(scrollView, NO);
+  NSUInteger depth;
 
   WinUIThemeSyncBrowserColumn(scrollView);
 
@@ -480,9 +493,37 @@ static char WinUIThemeColumnAutoresizingStyleKey;
     {
       return;
     }
+  if (WinUIThemeTileDepths == NULL)
+    {
+      WinUIThemeTileDepths = NSCreateMapTable(NSNonOwnedPointerMapKeyCallBacks,
+                                              NSIntegerMapValueCallBacks, 16);
+    }
+  depth = (NSUInteger)(uintptr_t)NSMapGet(WinUIThemeTileDepths, scrollView);
+  if (depth >= WinUIThemeMaximumTileDepth)
+    {
+      return;
+    }
+  NSMapInsert(WinUIThemeTileDepths, scrollView, (void *)(uintptr_t)(depth + 1));
   if (originalIMP != NULL)
     {
-      originalIMP(self, _cmd);
+      NS_DURING
+        {
+          originalIMP(self, _cmd);
+        }
+      NS_HANDLER
+        {
+          NSMapInsert(WinUIThemeTileDepths, scrollView, (void *)(uintptr_t)depth);
+          [localException raise];
+        }
+      NS_ENDHANDLER
+    }
+  if (depth == 0)
+    {
+      NSMapRemove(WinUIThemeTileDepths, scrollView);
+    }
+  else
+    {
+      NSMapInsert(WinUIThemeTileDepths, scrollView, (void *)(uintptr_t)depth);
     }
   if (WinUIThemeUsesOverlayScrollers() == NO)
     {
