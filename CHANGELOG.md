@@ -5,6 +5,41 @@ Releases of the WinUI theme for GNUstep. Versions are semver pre-releases
 `GSThemeVersion` in `WinUIThemeInfo.plist`, and an annotated tag on `main`.
 Apps that bundle the theme should pin a tag, not `main`.
 
+## 0.1.0-alpha8 (2026-10-15)
+
+A fix and a refinement. Markdown Viewer crashed (a stack overflow) at
+125% and 150% on the DPI-aware carried backend, at launch at 125% and on
+a new tab or typing at 150%. It needs a gnustep-gui with upstream
+3f5efad1b's -_autohideScrollers, which Markdown Viewer ships; it isn't
+new in alpha7 (alpha5 and alpha6 crash too). ScreenshotTool, whose
+gnustep-gui lacks that commit, isn't affected. And a window's default
+(Return) button no longer draws as a second accent button beside one the
+app marked accent, as in the Adwaita theme. Requires gnustep-gui 0.32 or
+later. Tested with the carried libs-back `carry-0.32.0.4`, as alpha7
+was. Apps on alpha7 should move to it.
+
+**Controls**
+- A window's default (Return) button is drawn as a regular button while
+  a visible button in the window asks for the accent
+  (`-setGSThemeStyle: @"accent"`): ScreenshotTool's Open... beside its
+  accent Take Screenshot (#147). Return still presses it. The Adwaita
+  theme has the same rule. QuirkProbe `default-button-yields-accent`.
+
+**Fixes**
+- At 125% and 150% on the DPI-aware carried backend a scroll view whose
+  auto-hiding scroller sat at its threshold tiled itself without end and
+  overflowed the stack: Markdown Viewer crashed at launch at 125% and on
+  a new tab at 150% (#145). Setting the scroller's frame snapped the clip
+  view to the pixel grid, the scroll was reflected and the scroller
+  flipped, tiling again. The theme's tile allows one nested tile (a
+  scroller shown or hidden) and drops deeper ones. QuirkProbe
+  `scroll-view-tile-settles`.
+- With overlay scrollers, libs-gui master's auto-hiding (3f5efad1b,
+  which Markdown Viewer ships) counted a shown scroller's width twice, so
+  the scroller flipped on every layout near its threshold and typing at
+  150% slowed to seconds a line (#145). The theme decides it as overlay
+  scrollers need: the document larger than the clip view.
+
 ## 0.1.0-alpha7 (2026-10-15)
 
 Window tabs from the start, as Notepad and Terminal open: on by default,

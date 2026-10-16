@@ -438,6 +438,26 @@ WinUIThemeFitTableToClipView(NSScrollView *scrollView)
 
 static char WinUIThemeColumnAutoresizingStyleKey;
 
+@interface NSScrollView (WinUIThemeAutohidePrivate)
+- (void) _setHasVertScroller: (BOOL)flag;
+- (void) _setHasHorizScroller: (BOOL)flag;
+@end
+
+/* A requested-scroller flag of libs-gui master's -_autohideScrollers
+   (c97f03291), or -1 where the scroll view has none (3f5efad1b alone,
+   as Markdown Viewer ships it, decides both axes). */
+static int
+WinUIThemeScrollerRequested(NSScrollView *scrollView, const char *name)
+{
+  Ivar ivar = class_getInstanceVariable([NSScrollView class], name);
+
+  if (ivar == NULL)
+    {
+      return -1;
+    }
+  return *(BOOL *)((char *)scrollView + ivar_getOffset(ivar)) ? 1 : 0;
+}
+
 @implementation WinUITheme (ScrollerOverrides)
 
 /* The style the app asked for, kept for WinUIThemeFitTableToClipView;
@@ -463,6 +483,46 @@ static char WinUIThemeColumnAutoresizingStyleKey;
                         : NSTableViewNoColumnAutoresizing;
 }
 
+/* How deeply each scroll view is tiling. At a fractional window scale
+   (Markdown Viewer at 125% and 150% on the DPI-aware carried backend)
+   tiling a scroll view whose auto-hiding scroller sits at its threshold
+   never ended: setting the scroller's and clip view's frames snaps the
+   clip view's origin to the pixel grid, libs-gui reflects that as a
+   scroll, its -_autohideScrollers flips the scroller and tiles again, and
+   the stack overflowed (0xc00000fd). One nested tile is libs-gui's own
+   (a scroller shown or hidden re-tiles once); a tile nested deeper is
+   dropped, and the scroll view keeps the layout it has. */
+static NSMapTable *WinUIThemeTileDepths = NULL;
+static const NSUInteger WinUIThemeMaximumTileDepth = 2;
+
+/* WinUIThemeTraceScrollers YES (a user default or argument): counts of
+   tiles, dropped nested tiles, auto-hide decisions and scroller flips,
+   logged every 100 tiles and at each flip, to tell a scroller re-tiling
+   per keystroke from the drawing (#145). */
+static int WinUIThemeTraceScrollersState = -1;
+static unsigned long WinUIThemeTraceTiles = 0;
+static unsigned long WinUIThemeTraceDropped = 0;
+static unsigned long WinUIThemeTraceDecisions = 0;
+static unsigned long WinUIThemeTraceFlips = 0;
+
+static BOOL
+WinUIThemeTracingScrollers(void)
+{
+  if (WinUIThemeTraceScrollersState < 0)
+    {
+      WinUIThemeTraceScrollersState
+        = [[NSUserDefaults standardUserDefaults] boolForKey: @"WinUIThemeTraceScrollers"] ? 1 : 0;
+    }
+  return WinUIThemeTraceScrollersState == 1;
+}
+
+static void
+WinUIThemeTraceCounts(NSString *event)
+{
+  NSLog(@"WinUITheme scrollers: %@ (tiles %lu, dropped %lu, decisions %lu, flips %lu)",
+        event, WinUIThemeTraceTiles, WinUIThemeTraceDropped, WinUIThemeTraceDecisions, WinUIThemeTraceFlips);
+}
+
 - (void) _overrideNSScrollViewMethod_tile
 {
   typedef void (*TileIMP)(id, SEL);
@@ -473,6 +533,7 @@ static char WinUIThemeColumnAutoresizingStyleKey;
   NSScroller *vertical, *horizontal;
   id documentView;
   WinUIThemeOverlayState *state = WinUIThemeOverlayStateFor(scrollView, NO);
+  NSUInteger depth;
 
   WinUIThemeSyncBrowserColumn(scrollView);
 
@@ -480,9 +541,49 @@ static char WinUIThemeColumnAutoresizingStyleKey;
     {
       return;
     }
+  if (WinUIThemeTileDepths == NULL)
+    {
+      WinUIThemeTileDepths = NSCreateMapTable(NSNonOwnedPointerMapKeyCallBacks,
+                                              NSIntegerMapValueCallBacks, 16);
+    }
+  depth = (NSUInteger)(uintptr_t)NSMapGet(WinUIThemeTileDepths, scrollView);
+  if (WinUIThemeTracingScrollers())
+    {
+      WinUIThemeTraceTiles++;
+      if (depth >= WinUIThemeMaximumTileDepth)
+        {
+          WinUIThemeTraceDropped++;
+        }
+      if (WinUIThemeTraceTiles % 100 == 0)
+        {
+          WinUIThemeTraceCounts(@"tick");
+        }
+    }
+  if (depth >= WinUIThemeMaximumTileDepth)
+    {
+      return;
+    }
+  NSMapInsert(WinUIThemeTileDepths, scrollView, (void *)(uintptr_t)(depth + 1));
   if (originalIMP != NULL)
     {
-      originalIMP(self, _cmd);
+      NS_DURING
+        {
+          originalIMP(self, _cmd);
+        }
+      NS_HANDLER
+        {
+          NSMapInsert(WinUIThemeTileDepths, scrollView, (void *)(uintptr_t)depth);
+          [localException raise];
+        }
+      NS_ENDHANDLER
+    }
+  if (depth == 0)
+    {
+      NSMapRemove(WinUIThemeTileDepths, scrollView);
+    }
+  else
+    {
+      NSMapInsert(WinUIThemeTileDepths, scrollView, (void *)(uintptr_t)depth);
     }
   if (WinUIThemeUsesOverlayScrollers() == NO)
     {
@@ -603,6 +704,78 @@ static char WinUIThemeColumnAutoresizingStyleKey;
   if (state != nil && WinUIThemeUsesOverlayScrollers())
     {
       WinUIThemeUpdateOverlayTracking((NSScrollView *)self, state);
+    }
+}
+
+/* libs-gui master shows and hides auto-hiding scrollers here, from the
+   area the clip view would have without scrollers: its bounds plus each
+   shown scroller's width. Overlay scrollers sit over the content, so the
+   clip view already has that area, and a shown scroller's width counted
+   twice: shown, the content seemed to fit and the scroller hid; hidden,
+   it didn't fit and it showed again. In Markdown Viewer's editor at 125%
+   and 150% that flipped on every layout and keystroke, which the clip
+   view's pixel snap kept re-triggering (#145). With overlay scrollers a
+   scroller is needed when the document is larger than the clip view, by
+   more than half a point (a sub-pixel snap isn't content). Classic
+   scrollers keep libs-gui's way. Where libs-gui has the requested flags
+   (c97f03291) only a requested axis gets a scroller, set with its private
+   setters as it does; 3f5efad1b alone decides both axes with the public
+   ones. */
+- (void) _overrideNSScrollViewMethod__autohideScrollers
+{
+  typedef void (*AutohideIMP)(id, SEL);
+  AutohideIMP originalIMP = (AutohideIMP)WinUIThemeOriginalMethod(_cmd, self, [NSScrollView class]);
+  NSScrollView *scrollView = (NSScrollView *)self;
+  int requestsVertical = WinUIThemeScrollerRequested(scrollView, "_hasVertScrollerRequested");
+  int requestsHorizontal = WinUIThemeScrollerRequested(scrollView, "_hasHorizScrollerRequested");
+  NSView *documentView = [[scrollView contentView] documentView];
+  NSSize documentSize, clipSize;
+  BOOL needsVertical, needsHorizontal;
+
+  if (WinUIThemeUsesOverlayScrollers() == NO)
+    {
+      if (originalIMP != NULL)
+        {
+          originalIMP(self, _cmd);
+        }
+      return;
+    }
+  if (documentView == nil)
+    {
+      return;
+    }
+  documentSize = [documentView frame].size;
+  clipSize = [[scrollView contentView] bounds].size;
+  needsVertical = documentSize.height > clipSize.height + 0.5;
+  needsHorizontal = documentSize.width > clipSize.width + 0.5;
+  if (WinUIThemeTracingScrollers())
+    {
+      BOOL shownVertical = ([scrollView verticalScroller] != nil
+                            && [[scrollView verticalScroller] superview] == scrollView);
+      BOOL shownHorizontal = ([scrollView horizontalScroller] != nil
+                              && [[scrollView horizontalScroller] superview] == scrollView);
+
+      WinUIThemeTraceDecisions++;
+      if (shownVertical != needsVertical || shownHorizontal != needsHorizontal)
+        {
+          WinUIThemeTraceFlips++;
+          WinUIThemeTraceCounts([NSString stringWithFormat:
+            @"flip %@ v %d->%d h %d->%d, document %@, clip %@", [[scrollView documentView] class],
+            shownVertical, needsVertical, shownHorizontal, needsHorizontal,
+            NSStringFromSize(documentSize), NSStringFromSize(clipSize)]);
+        }
+    }
+  if (requestsVertical >= 0 && requestsHorizontal >= 0
+      && [scrollView respondsToSelector: @selector(_setHasVertScroller:)]
+      && [scrollView respondsToSelector: @selector(_setHasHorizScroller:)])
+    {
+      [scrollView _setHasVertScroller: requestsVertical && needsVertical];
+      [scrollView _setHasHorizScroller: requestsHorizontal && needsHorizontal];
+    }
+  else
+    {
+      [scrollView setHasVerticalScroller: needsVertical];
+      [scrollView setHasHorizontalScroller: needsHorizontal];
     }
 }
 

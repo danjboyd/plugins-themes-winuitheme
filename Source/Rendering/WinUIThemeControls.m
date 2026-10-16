@@ -858,6 +858,8 @@ static char WinUIThemeButtonStyleKey;
     }
   objc_setAssociatedObject(self, &WinUIThemeButtonStyleKey, style, OBJC_ASSOCIATION_COPY_NONATOMIC);
   [[self controlView] setNeedsDisplay: YES];
+  /* The window's default button gives up or takes back the accent. */
+  [[[[[self controlView] window] defaultButtonCell] controlView] setNeedsDisplay: YES];
 }
 
 - (NSString *) GSThemeStyle

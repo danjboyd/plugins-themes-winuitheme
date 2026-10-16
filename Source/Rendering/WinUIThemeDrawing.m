@@ -469,6 +469,39 @@ WinUIThemeUsesModernPushButton(int style)
    window's default button cell (GNUstep's alerts make OK default that way).
    The bezel and the title must agree, or a white title is drawn on a
    button that isn't filled with the accent. */
+/* Whether a visible button other than `except` in a view tree asks for
+   the accent (-setGSThemeStyle: @"accent"). */
+static BOOL
+WinUIThemeViewHasAccentButton(NSView *view, NSCell *except, NSUInteger depth)
+{
+  NSEnumerator *enumerator = nil;
+  NSView *subview = nil;
+
+  if (view == nil || [view isHidden] || depth > 64)
+    {
+      return NO;
+    }
+  if ([view isKindOfClass: [NSButton class]])
+    {
+      id cell = [(NSButton *)view cell];
+
+      if (cell != except && [cell respondsToSelector: @selector(GSThemeStyle)]
+          && [[cell GSThemeStyle] isEqualToString: @"accent"])
+        {
+          return YES;
+        }
+    }
+  enumerator = [[view subviews] objectEnumerator];
+  while ((subview = [enumerator nextObject]) != nil)
+    {
+      if (WinUIThemeViewHasAccentButton(subview, except, depth + 1))
+        {
+          return YES;
+        }
+    }
+  return NO;
+}
+
 BOOL
 WinUIThemeButtonIsDefault(NSCell *cell)
 {
@@ -487,15 +520,26 @@ WinUIThemeButtonIsDefault(NSCell *cell)
       return YES;
     }
 
-  keyEquivalent = [(NSButtonCell *)cell keyEquivalent];
-  if ([keyEquivalent isEqualToString: @"\r"]
-      || [keyEquivalent isEqualToString: @"\n"])
-    {
-      return YES;
-    }
-
   window = [[cell controlView] window];
-  return (window != nil && [window defaultButtonCell] == (NSButtonCell *)cell);
+  keyEquivalent = [(NSButtonCell *)cell keyEquivalent];
+  if ([keyEquivalent isEqualToString: @"\r"] == NO
+      && [keyEquivalent isEqualToString: @"\n"] == NO
+      && (window == nil || [window defaultButtonCell] != (NSButtonCell *)cell))
+    {
+      return NO;
+    }
+  /* The default (Return) button yields the accent to a visible button
+     in its window that asks for it: the app chose that one as primary
+     (ScreenshotTool's Take Screenshot beside Open...). Return still
+     presses the default button. The same rule as the Adwaita theme's:
+     the window's views, toolbar item views included; not sheets or
+     child windows. */
+  if (window != nil
+      && WinUIThemeViewHasAccentButton([[window contentView] superview], cell, 0))
+    {
+      return NO;
+    }
+  return YES;
 }
 
 BOOL
