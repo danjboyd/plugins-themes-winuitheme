@@ -21,7 +21,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-$referenceExe = Join-Path $repoRoot "Reference\WinUI3ReferenceApp\bin\Debug\net8.0-windows10.0.19041.0\win-x64\WinUI3ReferenceApp.exe"
+$referenceExe = Join-Path $repoRoot "Reference\WinUI3ReferenceApp\bin\Debug\net8.0-windows10.0.22621.0\win-x64\WinUI3ReferenceApp.exe"
 $measure = Join-Path $PSScriptRoot "measure_specimens.py"
 # The Python with Pillow, found before ThemeDemo's runner puts MSYS2 first on PATH.
 $python = (Get-Command python -ErrorAction Stop).Source
