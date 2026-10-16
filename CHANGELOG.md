@@ -5,7 +5,18 @@ Releases of the WinUI theme for GNUstep. Versions are semver pre-releases
 `GSThemeVersion` in `WinUIThemeInfo.plist`, and an annotated tag on `main`.
 Apps that bundle the theme should pin a tag, not `main`.
 
-## Unreleased
+## 0.1.0-alpha8 (2026-10-15)
+
+A fix and a refinement. Markdown Viewer crashed (a stack overflow) at
+125% and 150% on the DPI-aware carried backend, at launch at 125% and on
+a new tab or typing at 150%. It needs a gnustep-gui with upstream
+3f5efad1b's -_autohideScrollers, which Markdown Viewer ships; it isn't
+new in alpha7 (alpha5 and alpha6 crash too). ScreenshotTool, whose
+gnustep-gui lacks that commit, isn't affected. And a window's default
+(Return) button no longer draws as a second accent button beside one the
+app marked accent, as in the Adwaita theme. Requires gnustep-gui 0.32 or
+later. Tested with the carried libs-back `carry-0.32.0.4`, as alpha7
+was. Apps on alpha7 should move to it.
 
 **Controls**
 - A window's default (Return) button is drawn as a regular button while
