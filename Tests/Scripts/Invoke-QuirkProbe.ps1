@@ -59,6 +59,7 @@ $configurationArguments = @{
   # 100% monitor (dpi-per-monitor-aware and the caption hit tests fail);
   # there, set the monitor itself to 150% instead.
   "scaled-150"    = @("--mode", "light", "-GSScaleFactor", "1.5")
+  "scaled-125"    = @("--mode", "light", "-GSScaleFactor", "1.25")
   "dusk"          = @("--mode", "light", "--high-contrast", "yes", "--contrast-theme", "dusk")
   "desert"        = @("--mode", "light", "--high-contrast", "yes", "--contrast-theme", "desert")
 }

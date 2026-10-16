@@ -45,6 +45,13 @@ BOOL WinUIThemeMenuStyleIsMore(void);
    tool tips. */
 BOOL WinUIThemeToolbarIsInMenuBar(NSToolbar *toolbar);
 
+/* The factor libs-gui scales a window's frame by (its points to the
+   frame's device units), and how much a row `points` high grows the
+   frame by as it arrives: Windows gives the frame back in whole pixels,
+   rounded down (-[GSWindowDecorationView changeWindowHeight:]). */
+CGFloat WinUIThemeWindowFrameFactor(NSWindow *window);
+CGFloat WinUIThemeWindowRowFrameHeight(NSWindow *window, CGFloat points);
+
 /* The default changed: open windows move their toolbars into or out of
    the menu bar's row, keeping their frames. */
 void WinUIThemeToolbarInMenuBarSettingChanged(void);

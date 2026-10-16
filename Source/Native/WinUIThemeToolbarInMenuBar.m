@@ -277,6 +277,24 @@ WinUIThemeToolbarIsInMenuBar(NSToolbar *toolbar)
     && WinUIThemeDecorationHoldsToolbar(decoration);
 }
 
+CGFloat
+WinUIThemeWindowFrameFactor(NSWindow *window)
+{
+  CGFloat factor = 1.0;
+
+  if (([window styleMask] & NSUnscaledWindowMask) == 0)
+    {
+      factor = [[NSScreen mainScreen] userSpaceScaleFactor];
+    }
+  return factor > 0.0 ? factor : 1.0;
+}
+
+CGFloat
+WinUIThemeWindowRowFrameHeight(NSWindow *window, CGFloat points)
+{
+  return floor(points * WinUIThemeWindowFrameFactor(window) + 0.001);
+}
+
 /* Lays every item out again, then the row: libs-gui lays an item out
    only when it's new or changed, and in the menu bar's row its button
    has no label and another size. */
@@ -490,8 +508,11 @@ WinUIThemeLayoutToolbarInMenuBar(GSWindowDecorationView *decoration, NSWindow *w
   rowHeight = NSHeight([toolbarView frame]);
   WinUIThemeDecorationSetHoldsToolbar(self, YES);
   WinUIThemeToolbarViewSetInMenuBar(toolbarView, YES);
-  /* The content keeps its size: the window gives up the toolbar's row. */
-  [self changeWindowHeight: -rowHeight];
+  /* The content keeps its size: the window gives up the toolbar's row,
+     as much of its frame as the row took. At 125% a 61pt row grew it
+     76px, and taking 61pt off took 77: a pixel less at every launch. */
+  [self changeWindowHeight: -WinUIThemeWindowRowFrameHeight(window, rowHeight)
+                           / WinUIThemeWindowFrameFactor(window)];
   [self setNeedsDisplay: YES];
 }
 
