@@ -7,6 +7,13 @@ Apps that bundle the theme should pin a tag, not `main`.
 
 ## Unreleased
 
+**Controls**
+- A window's default (Return) button is drawn as a regular button while
+  a visible button in the window asks for the accent
+  (`-setGSThemeStyle: @"accent"`): ScreenshotTool's Open... beside its
+  accent Take Screenshot (#147). Return still presses it. The Adwaita
+  theme has the same rule. QuirkProbe `default-button-yields-accent`.
+
 **Fixes**
 - At 125% and 150% on the DPI-aware carried backend a scroll view whose
   auto-hiding scroller sat at its threshold tiled itself without end and
