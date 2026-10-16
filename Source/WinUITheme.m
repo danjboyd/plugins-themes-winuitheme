@@ -27,6 +27,7 @@
 #import "Native/WinUIThemeShellDialogs.h"
 #import "Native/WinUIThemeWindowIntegration.h"
 #import "Native/WinUIThemeToolbarInMenuBar.h"
+#import "Native/WinUIThemeCaption.h"
 #import "GSWindowTabbing.h"
 
 #import <AppKit/AppKit.h>
@@ -119,13 +120,17 @@ WinUIThemeRightTextAlignment(void)
      others calls the tabbing code's hook as its original; GSTheme loads
      the user's theme as NSApplication is made, so the API is there before
      an app sets up its first window (ObjcMarkdown checks for it then).
-     Off unless WinUIThemeWindowTabs is YES until the tabs are checked with
-     ObjcMarkdown: apps that find the API use it, and ObjcMarkdown's MSI
-     takes the theme from main. Later calls do nothing. */
-  if ([[NSUserDefaults standardUserDefaults] boolForKey: @"WinUIThemeWindowTabs"])
-    {
-      GSWindowTabbingInstall();
-    }
+     On unless WinUIThemeWindowTabs is NO (since 0.1.0-alpha7; checked
+     with ObjcMarkdown). Later calls do nothing. */
+  {
+    id tabs = [[NSUserDefaults standardUserDefaults] objectForKey: @"WinUIThemeWindowTabs"];
+
+    if (tabs == nil || [tabs respondsToSelector: @selector(boolValue)] == NO || [tabs boolValue])
+      {
+        GSWindowTabbingInstall();
+        WinUIThemeWindowTabsInstallSingleTabBar();
+      }
+  }
   self = [super initWithBundle: bundle];
   if (self != nil)
     {
@@ -271,6 +276,16 @@ WinUIThemeRightTextAlignment(void)
    menu bar. Attach it when such a window becomes key or main. Windows given a
    menu of their own, and windows that can't become main (panels, menus), are
    left alone. */
+/* No menu bar row while the "..." sits in the title bar (#134). */
+- (float) menuHeightForWindow: (NSWindow *)window
+{
+  if (WinUIThemeMenuBarInTitleBar(window))
+    {
+      return 0.0;
+    }
+  return [super menuHeightForWindow: window];
+}
+
 - (void) windowNeedsMainMenu: (NSNotification *)notification
 {
   NSWindow *window = [notification object];
@@ -278,19 +293,23 @@ WinUIThemeRightTextAlignment(void)
 
   [self tidyMainMenu];
 
-  if (mainMenu == nil || [window isKindOfClass: [NSWindow class]] == NO)
+  if ([window isKindOfClass: [NSWindow class]] == NO)
     {
       return;
     }
-  if (NSInterfaceStyleForKey(@"NSMenuInterfaceStyle", nil) != NSWindows95InterfaceStyle)
+  if (mainMenu == nil
+      || NSInterfaceStyleForKey(@"NSMenuInterfaceStyle", nil) != NSWindows95InterfaceStyle)
     {
+      WinUIThemeWindowTabsWindowBecameKey(window);
       return;
     }
   if ([window canBecomeMainWindow] == NO || [window menu] != nil)
     {
+      WinUIThemeWindowTabsWindowBecameKey(window);
       return;
     }
   [self updateMenu: mainMenu forWindow: window];
+  WinUIThemeWindowTabsWindowBecameKey(window);
 }
 
 - (NSColorList *) colors

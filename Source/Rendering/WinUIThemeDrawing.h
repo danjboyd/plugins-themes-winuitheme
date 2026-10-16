@@ -268,11 +268,29 @@ NSRange WinUIThemeMenuAccessKeyRange(NSString *title);
 /* The overflow button of a bar too narrow for its titles (empty when they
    fit), and whether it's selected. */
 NSRect WinUIThemeMenuBarOverflowRect(NSMenuView *bar);
+/* Window tabs (#133, WinUIThemeWindowTabs.m): a window that can tab
+   shows its tab bar with one tab, as Notepad and Terminal open. Install
+   once the tabbing code is installed; call for each window that becomes
+   key or main. */
+void WinUIThemeWindowTabsInstallSingleTabBar(void);
+void WinUIThemeWindowTabsWindowBecameKey(NSWindow *window);
 /* The overflow button's width, and the inset before a bar's first title
    (libs-gui's layout): WinUIThemeMenuStyle `more` sizes the bar from
    them in the toolbar's row. */
 extern const CGFloat WinUIThemeMenuBarOverflowButtonWidth;
 CGFloat WinUIThemeMenuBarFirstTitleInset(NSMenuView *bar);
 BOOL WinUIThemeMenuBarOverflowSelected(NSMenuView *bar);
+
+/* An accent button without a default button's Return: -setGSThemeStyle:
+   @"accent" (WinUIThemeControls.m), as the Adwaita theme has it. */
+@interface NSButtonCell (WinUIThemeButtonStyle)
+- (void) setGSThemeStyle: (NSString *)style;
+- (NSString *) GSThemeStyle;
+@end
+
+@interface NSButton (WinUIThemeButtonStyle)
+- (void) setGSThemeStyle: (NSString *)style;
+- (NSString *) GSThemeStyle;
+@end
 
 #endif

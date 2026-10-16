@@ -5,6 +5,86 @@ Releases of the WinUI theme for GNUstep. Versions are semver pre-releases
 `GSThemeVersion` in `WinUIThemeInfo.plist`, and an annotated tag on `main`.
 Apps that bundle the theme should pin a tag, not `main`.
 
+## 0.1.0-alpha7 (2026-10-15)
+
+Window tabs from the start, as Notepad and Terminal open: on by default,
+an app that tabs shows its tab strip with one tab and a "+", and with
+the menus behind "..." the "..." sits beside the "+", as in Terminal.
+Fixes from trying it in Markdown Viewer and ScreenshotTool: submenus
+beside their item, menus closing as the window moves, no flash on "+",
+compact controls in the single row, per-app defaults under the app's
+bundle identifier, and the segmented control. Accent buttons without a
+Return key: `-setGSThemeStyle: @"accent"`, as the Adwaita theme has it.
+Requires gnustep-gui 0.32 or later. Tested with the carried libs-back
+`carry-0.32.0.4` (`danjboyd/libs-back`), as alpha6 was; tabs sit in the
+title bar only with it (a stock libs-back gives them a row of their
+own). Apps that use NSWindow's tabbing API (Markdown Viewer) get tabs
+from this release; `WinUIThemeWindowTabs NO` turns them off.
+
+**Controls**
+- Accent buttons without a default button's Return:
+  `-[NSButton setGSThemeStyle: @"accent"]` (or on its cell), a
+  theme-neutral name the Adwaita theme also implements; any other value
+  is a regular button. ScreenshotTool's Copy uses it (ScreenshotTool#221).
+  QuirkProbe `button-style-accent`.
+
+**Window tabs**
+- Window tabs are on by default (#72): apps that use NSWindow's tabbing
+  API (ObjcMarkdown) get WinUI's TabView, in the title bar with the
+  carried libs-back. `WinUIThemeWindowTabs NO` turns them off.
+- A window that can be a tab shows its tab strip with one tab and a
+  "+", as Notepad and Terminal open (#133); the shared code showed it
+  only from the second tab. That's a titled window, not a panel, whose
+  tabbing mode isn't Disallowed, with something answering
+  `-newWindowForTab:`. Hide Tab Bar (`-toggleTabBar:`) still hides it.
+  QuirkProbe `window-single-tab`.
+- Selecting a tab (a click, the "+", Ctrl+Tab) shows the new tab's
+  window before the old one goes, so the window no longer vanishes for a
+  moment (#137). A new tab's window (the "+") is set up behind the old
+  one and brought forward 0.1s later, once the app has laid it out and
+  it has drawn: shown at once, Windows drew its own title bar over blank
+  content first. Windows' show and hide animations are off for the swap.
+  QuirkProbe `window-tab-switch-shows-first`.
+
+**Chrome**
+- A user default for one app (`defaults write <bundle id> WinUIThemeMenuStyle
+  more`, or `GSThemeToolbarInMenuBar`) applies: the theme read the domain
+  named after the process, where NSUserDefaults names it after the app's
+  bundle identifier when it has one (#139).
+- In the menu bar's row a toolbar item's own view (a segmented control, a
+  push button) is a compact 24pt control, 4pt clear of the row's top and
+  foot, and a compact segmented control's icons are 16pt, as the row's
+  own; they kept their height and met the title bar (#140, ScreenshotTool's
+  tools and Copy). QuirkProbe `toolbar-in-menu-bar-views`.
+- With `WinUIThemeMenuStyle = more`, tabs in the title bar (the carried
+  libs-back) and no toolbar showing, the "..." sits in the title bar right
+  after the tabs' "+", as Windows Terminal has its menu, and the menu
+  bar's row goes (#134). QuirkProbe `menu-style-more-title-bar`.
+
+**Menus** (#136)
+- A submenu opens beside the item that opened it, its first item level
+  with that item, as on Windows; libs-gui put its top at the parent
+  menu's top, so the "..." flyout's Help and a context menu's last
+  submenu were reached across their siblings. At the screen's right edge
+  it opens to the left; at the foot it moves up. QuirkProbe
+  `menu-submenu-beside-item`.
+- Heading from an item to its open submenu, the pointer may cross the
+  item's siblings: they take over only once it rests on them (0.3s), the
+  "safe triangle" towards the submenu. QuirkProbe `menu-submenu-aim`.
+- Dragging or resizing a window closes its open menus and flyouts, as a
+  press outside them does; they stayed behind on the screen. QuirkProbe
+  `menu-closes-on-window-move`.
+
+**Controls**
+- A segmented control's label and its selection pill share a centre: in
+  an end segment wider than its label, the pill sat under the label's
+  start (#138, Markdown Viewer's Read/Edit/Split). QuirkProbe
+  `segment-label-centred`.
+- Every segment's label is in the primary text colour, as the Toolkit's
+  Segmented control draws them and as the segments' icons already were;
+  unselected labels were grey (#141). QuirkProbe
+  `segment-unselected-label-colour`.
+
 ## 0.1.0-alpha6 (2026-10-15)
 
 New chrome for apps that ask for it: the toolbar in the menu bar's row,

@@ -86,6 +86,19 @@ static const CGFloat WinUIThemeToolbarInMenuBarEndInset = 4.0;
    rows of their own. */
 static BOOL WinUIThemeToolbarInMenuBarActive = YES;
 
+/* The app's own defaults domain, as NSUserDefaults names it: the bundle
+   identifier, or the process name when the app has none. `defaults write
+   com.danboyd.screenshottool ...` went to the first while the theme read
+   the second. */
+static NSString *
+WinUIThemeAppDefaultsDomain(void)
+{
+  NSString *identifier = [[[NSBundle mainBundle] infoDictionary] objectForKey: @"CFBundleIdentifier"];
+
+  return [identifier isKindOfClass: [NSString class]] ? identifier
+                                                      : [[NSProcessInfo processInfo] processName];
+}
+
 /* The key's value in one domain, or nil when it has none. */
 static id
 WinUIThemeToolbarInMenuBarValue(NSDictionary *values)
@@ -128,7 +141,7 @@ WinUIThemeToolbarInMenuBarEnabled(void)
   if (value == nil)
     {
       value = WinUIThemeToolbarInMenuBarValue(
-        [defaults persistentDomainForName: [[NSProcessInfo processInfo] processName]]);
+        [defaults persistentDomainForName: WinUIThemeAppDefaultsDomain()]);
     }
   if (value != nil)
     {
@@ -193,7 +206,7 @@ WinUIThemeReadMenuStyleIsMore(void)
   if (value == nil)
     {
       value = WinUIThemeMenuStyleValue(
-        [defaults persistentDomainForName: [[NSProcessInfo processInfo] processName]]);
+        [defaults persistentDomainForName: WinUIThemeAppDefaultsDomain()]);
     }
   if (value != nil)
     {

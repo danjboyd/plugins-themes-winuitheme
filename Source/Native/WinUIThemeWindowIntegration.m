@@ -324,6 +324,62 @@ WinUIThemeWindowHandle(NSWindow *window)
   return (HWND)[window windowHandle];
 }
 
+#ifndef DWMWA_TRANSITIONS_FORCEDISABLED
+#define DWMWA_TRANSITIONS_FORCEDISABLED 3
+#endif
+
+static void
+WinUIThemeSetTransitionsDisabled(HWND hwnd, BOOL disabled)
+{
+  WinUIThemeDwmSetWindowAttributeFunc setAttribute = WinUIThemeDwmSetWindowAttributeProc();
+
+  if (hwnd != NULL && setAttribute != NULL && IsWindow(hwnd))
+    {
+      setAttribute(hwnd, DWMWA_TRANSITIONS_FORCEDISABLED, &disabled, sizeof(disabled));
+    }
+}
+
+@interface WinUIThemeTransitionRestorer : NSObject
++ (void) restore: (NSArray *)handles;
+@end
+
+@implementation WinUIThemeTransitionRestorer
++ (void) restore: (NSArray *)handles
+{
+  NSEnumerator *e = [handles objectEnumerator];
+  NSValue *handle;
+
+  while ((handle = [e nextObject]) != nil)
+    {
+      WinUIThemeSetTransitionsDisabled((HWND)[handle pointerValue], FALSE);
+    }
+}
+@end
+
+void
+WinUIThemeWindowIntegrationSuspendTransitions(NSWindow *window, NSWindow *other)
+{
+  NSMutableArray *handles = [NSMutableArray array];
+  HWND hwnd;
+
+  if ((hwnd = WinUIThemeWindowHandle(window)) != NULL)
+    {
+      WinUIThemeSetTransitionsDisabled(hwnd, TRUE);
+      [handles addObject: [NSValue valueWithPointer: hwnd]];
+    }
+  if ((hwnd = WinUIThemeWindowHandle(other)) != NULL)
+    {
+      WinUIThemeSetTransitionsDisabled(hwnd, TRUE);
+      [handles addObject: [NSValue valueWithPointer: hwnd]];
+    }
+  if ([handles count] > 0)
+    {
+      [WinUIThemeTransitionRestorer performSelector: @selector(restore:)
+                                         withObject: handles
+                                         afterDelay: 0.5];
+    }
+}
+
 /* Window tabs (#72): the tab that last gave up key status, not retained
    (cleared when it closes or another tab of its group takes over). */
 static NSWindow *WinUIThemeLastResignedKeyWindow = nil;
