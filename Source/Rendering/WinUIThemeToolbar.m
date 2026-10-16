@@ -896,4 +896,73 @@ WinUIThemeToolbarKeepFlexibleSpaceInside(NSView *toolbarView, NSToolbar *toolbar
     }
 }
 
+
+/* libs-gui's saved frame leaves out the toolbar's row, and restoring it
+   adds the row back only when the toolbar is already shown; an app that
+   restores before setting its toolbar has the window grow by the row as
+   the toolbar arrives. In the menu bar's row the toolbar has no row of
+   its own and the window doesn't grow, so it came back the toolbar's
+   height shorter at every launch. Both sides count the toolbar in that
+   row as part of the frame. */
+static CGFloat
+WinUIThemeToolbarInRowHeight(NSWindow *window)
+{
+  NSToolbar *toolbar = [window toolbar];
+
+  if (toolbar == nil || [toolbar isVisible] == NO || WinUIThemeToolbarIsInMenuBar(toolbar) == NO)
+    {
+      return 0.0;
+    }
+  return NSHeight([[toolbar _toolbarView] frame]);
+}
+
+/* The saved string with its frame's height grown by `delta`, its top kept. */
+static NSString *
+WinUIThemeSavedFrameGrown(NSString *string, CGFloat delta)
+{
+  NSMutableArray *fields = [NSMutableArray array];
+  NSEnumerator *enumerator = [[string componentsSeparatedByString: @" "] objectEnumerator];
+  NSString *field = nil;
+
+  while ((field = [enumerator nextObject]) != nil)
+    {
+      if ([field length] > 0)
+        {
+          [fields addObject: field];
+        }
+    }
+  if ([fields count] < 4)
+    {
+      return string;
+    }
+  [fields replaceObjectAtIndex: 1 withObject:
+    [NSString stringWithFormat: @"%d", (int)lround([[fields objectAtIndex: 1] doubleValue] - delta)]];
+  [fields replaceObjectAtIndex: 3 withObject:
+    [NSString stringWithFormat: @"%d", (int)lround([[fields objectAtIndex: 3] doubleValue] + delta)]];
+  return [[fields componentsJoinedByString: @" "] stringByAppendingString: @" "];
+}
+
+typedef NSString *(*SavedFrameIMP)(id, SEL);
+typedef void (*SetFrameFromStringIMP)(id, SEL, NSString *);
+
+- (NSString *) _overrideNSWindowMethod_stringWithSavedFrame
+{
+  SavedFrameIMP originalIMP = (SavedFrameIMP)WinUIThemeOriginalMethod(_cmd, self, [NSWindow class]);
+  NSString *string = originalIMP != NULL ? originalIMP(self, _cmd) : nil;
+  CGFloat height = WinUIThemeToolbarInRowHeight((NSWindow *)self);
+
+  return height > 0.0 ? WinUIThemeSavedFrameGrown(string, height) : string;
+}
+
+- (void) _overrideNSWindowMethod_setFrameFromString: (NSString *)string
+{
+  SetFrameFromStringIMP originalIMP = (SetFrameFromStringIMP)WinUIThemeOriginalMethod(_cmd, self, [NSWindow class]);
+  CGFloat height = WinUIThemeToolbarInRowHeight((NSWindow *)self);
+
+  if (originalIMP != NULL)
+    {
+      originalIMP(self, _cmd, height > 0.0 ? WinUIThemeSavedFrameGrown(string, -height) : string);
+    }
+}
+
 @end
