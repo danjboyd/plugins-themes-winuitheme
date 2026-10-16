@@ -408,7 +408,12 @@ WinUIThemeTabResignedKey(NSWindow *window)
    was maximized filled the screen without being maximized, so the caption
    button and double-click didn't restore it, and a tab maximized before
    came back maximized in a restored group. When key moves from one tab
-   of a group to another, the new tab takes the old one's placement. */
+   of a group to another, the new tab takes the old one's placement.
+   Neither maximized, it takes the old one's exact window rectangle: a
+   snapped window (Win+Left) hangs its invisible resize border past the
+   screen's edge (-7px), and libs-gui, ordering the new tab in, kept it
+   on the screen, so the window moved 7px at each switch (found with
+   real input in Markdown Viewer). */
 static void
 WinUIThemeTabTakeOverPlacement(NSWindow *window)
 {
@@ -452,6 +457,16 @@ WinUIThemeTabTakeOverPlacement(NSWindow *window)
   previousZoomed = IsZoomed(previousHandle) ? YES : NO;
   if (zoomed == NO && previousZoomed == NO)
     {
+      RECT rect;
+      RECT previousRect;
+
+      if (GetWindowRect(handle, &rect) && GetWindowRect(previousHandle, &previousRect)
+          && EqualRect(&rect, &previousRect) == FALSE)
+        {
+          SetWindowPos(handle, NULL, previousRect.left, previousRect.top,
+                       previousRect.right - previousRect.left, previousRect.bottom - previousRect.top,
+                       SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_NOACTIVATE);
+        }
       return;
     }
   placement.flags = 0;

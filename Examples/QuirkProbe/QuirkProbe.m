@@ -8523,6 +8523,47 @@ QuirkProbeCloseButtonInkOnScreen(HWND hwnd)
         ShowWindow(secondHandle, SW_RESTORE);
       }
     QuirkProbeDispatchEvents(0.3);
+
+    /* Neither maximized: the selected tab takes the previous one's exact
+       window rectangle, past the screen's edge as a snapped window's
+       invisible border is (-7px); libs-gui pulled it back on screen and
+       the window moved 7px at each switch. */
+    {
+      RECT before, after;
+      BOOL exact;
+
+      GetWindowRect(secondHandle, &before);
+      SetWindowPos(secondHandle, NULL, -7, before.top, before.right - before.left,
+                   before.bottom - before.top, SWP_NOZORDER | SWP_NOACTIVATE);
+      QuirkProbeDispatchEvents(0.3);
+      GetWindowRect(secondHandle, &before);
+      [second selectNextTab: nil];
+      QuirkProbeDispatchEvents(0.4);
+      GetWindowRect(firstHandle, &after);
+      exact = [first isVisible] && EqualRect(&before, &after);
+      if (exact)
+        {
+          [self pass: @"window-tab-takes-exact-rect" detail: [NSString stringWithFormat:
+            @"the selected tab at (%ld,%ld) %ldx%ld, as the previous one, past the screen's edge",
+            (long)after.left, (long)after.top, (long)(after.right - after.left), (long)(after.bottom - after.top)]];
+        }
+      else
+        {
+          [self fail: @"window-tab-takes-exact-rect" detail: [NSString stringWithFormat:
+            @"the previous tab at (%ld,%ld) %ldx%ld, the selected one at (%ld,%ld) %ldx%ld",
+            (long)before.left, (long)before.top, (long)(before.right - before.left), (long)(before.bottom - before.top),
+            (long)after.left, (long)after.top, (long)(after.right - after.left), (long)(after.bottom - after.top)]];
+        }
+      if ([second isVisible] == NO)
+        {
+          [second makeKeyAndOrderFront: nil];
+          QuirkProbeDispatchEvents(0.3);
+        }
+      GetWindowRect(secondHandle, &before);
+      SetWindowPos(secondHandle, NULL, 120, before.top, before.right - before.left,
+                   before.bottom - before.top, SWP_NOZORDER | SWP_NOACTIVATE);
+      QuirkProbeDispatchEvents(0.3);
+    }
   }
 #endif
 
