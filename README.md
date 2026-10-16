@@ -359,7 +359,11 @@ if ([button respondsToSelector: @selector(setGSThemeStyle:)])
   }
 ```
 
-The button is drawn as an AccentButton; Return is left alone.
+The button is drawn as an AccentButton; Return is left alone. While a
+visible button in a window asks for the accent, the window's default
+(Return) button is drawn as a regular button, so the app's chosen
+primary command is the only accent one; Return still presses the
+default button. The Adwaita theme does the same.
 
 ## Motion
 

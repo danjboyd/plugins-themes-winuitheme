@@ -722,6 +722,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkWindowTabSwitchShowsFirst;
 - (void) checkSegmentLabelCentred;
 - (void) checkButtonStyleAccent;
+- (void) checkDefaultButtonYieldsAccent;
 - (void) checkScrollViewTileSettles;
 - (void) checkThemeSwitchRestoresMethods;
 - (void) finish;
@@ -11416,6 +11417,90 @@ QuirkProbeSendMove(NSWindow *window, NSPoint location)
   [window orderOut: nil];
 }
 
+/* The default (Return) button yields the accent to a visible button in
+   its window that asks for it (ScreenshotTool's Take Screenshot beside
+   Open..., the owner's rule, as the Adwaita theme has it): only the
+   accent one is blue; hidden, or its style cleared, the default button
+   is blue again; Return stays on it throughout. */
+- (void) checkDefaultButtonYieldsAccent
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(780, 400, 260, 80)
+                                     title: @"QuirkProbe Default Yields"];
+  NSButton *open = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(20, 20, 100, 32)]);
+  NSButton *take = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(140, 20, 100, 32)]);
+  NSMutableArray *problems = [NSMutableArray array];
+  BOOL hc = QuirkProbeHasArgument(@"--high-contrast", nil) || QuirkProbeHasArgument(@"--contrast-theme", nil);
+  int pass;
+
+  if (hc)
+    {
+      [self skip: @"default-button-yields-accent" detail: @"high contrast draws both as the highlight"];
+      return;
+    }
+  if ([take respondsToSelector: @selector(setGSThemeStyle:)] == NO)
+    {
+      [self fail: @"default-button-yields-accent" detail: @"NSButton has no -setGSThemeStyle:"];
+      return;
+    }
+  [open setBezelStyle: NSRoundedBezelStyle];
+  [open setTitle: @"Open"];
+  [open setKeyEquivalent: @"\r"];
+  [take setBezelStyle: NSRoundedBezelStyle];
+  [take setTitle: @"Take"];
+  [[window contentView] addSubview: open];
+  [[window contentView] addSubview: take];
+  [window orderFront: nil];
+
+  /* 0: both, only Take blue; 1: Take hidden, Open blue; 2: Take shown
+     with no style, Open blue. */
+  for (pass = 0; pass < 3; pass++)
+    {
+      NSBitmapImageRep *rep = nil;
+      CGFloat scale, y;
+      NSUInteger r, g, b;
+      BOOL openBlue, takeBlue;
+
+      [take setHidden: (pass == 1)];
+      [take performSelector: @selector(setGSThemeStyle:) withObject: (pass == 2) ? nil : @"accent"];
+      [window display];
+      rep = QuirkProbeRender([window contentView]);
+      scale = QuirkProbeScale(rep, [window contentView]);
+      y = ([[window contentView] bounds].size.height - 36.0) * scale;
+      openBlue = QuirkProbePixel(rep, (NSInteger)(26.0 * scale), (NSInteger)y, &r, &g, &b)
+        && QuirkProbeIsAccentBlue(r, g, b);
+      takeBlue = QuirkProbePixel(rep, (NSInteger)(146.0 * scale), (NSInteger)y, &r, &g, &b)
+        && QuirkProbeIsAccentBlue(r, g, b);
+      if (pass == 0)
+        {
+          [self saveView: [window contentView] named: @"default-button-yields-accent"];
+          if (openBlue || takeBlue == NO)
+            {
+              [problems addObject: [NSString stringWithFormat: @"both shown: Open %@, Take %@",
+                                    openBlue ? @"blue" : @"plain", takeBlue ? @"blue" : @"plain"]];
+            }
+        }
+      else if (openBlue == NO)
+        {
+          [problems addObject: (pass == 1) ? @"with Take hidden, Open isn't blue"
+                                           : @"with Take's style cleared, Open isn't blue"];
+        }
+      if ([[open keyEquivalent] isEqualToString: @"\r"] == NO)
+        {
+          [problems addObject: @"Open lost Return"];
+        }
+    }
+  if ([problems count] == 0)
+    {
+      [self pass: @"default-button-yields-accent" detail:
+        @"only the accent button is blue; hidden or plain, the default button is blue again; Return stays"];
+    }
+  else
+    {
+      [self fail: @"default-button-yields-accent" detail: [problems componentsJoinedByString: @"; "]];
+    }
+  [window orderOut: nil];
+}
+
 /* Selecting a tab (alpha7): the new tab's window comes on screen before
    the old one goes, so the window never vanishes. */
 - (void) checkWindowTabSwitchShowsFirst
@@ -12568,6 +12653,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkWindowTabSwitchShowsFirst];
   [self checkSegmentLabelCentred];
   [self checkButtonStyleAccent];
+  [self checkDefaultButtonYieldsAccent];
   [self checkScrollViewTileSettles];
   [self checkClientCaption];
   [self checkClientCaptionScaled];
