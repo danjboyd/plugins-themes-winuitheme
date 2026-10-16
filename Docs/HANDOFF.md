@@ -344,6 +344,31 @@ It was last installed from `b3a6b20`. If an app holds the DLL, rename it to
 `*.dll.old` first: Windows allows renaming a loaded DLL. Delete it after the
 app closes.
 
+### After alpha8 (2026-10-15, late night): the "still open" items
+
+- **PRs for the owner:** #150 (the beta1 gate, `Docs/RELEASE_READINESS.md`),
+  #152 (#151: a toolbar's colour well as WinUI's colour DropDownButton),
+  danjboyd/gnustep-window-tabbing #2 (theme hooks
+  `-windowTabBarShowsSingleTabForWindow:` and
+  `-showTabbedWindow:inPlaceOfWindow:frame:maximized:makeKey:`, which
+  replace the theme's run-time replacements of `-isTabBarVisible`,
+  `-_toggleTabBar`, `-_switchToWindow:` once vendored; vendoring main also
+  brings phase 2, #97). Its display tests now build on Windows (`far` is
+  a windef.h macro) but can't run here (written for Linux/Xvfb).
+- **Hand checks** (Snap on a tabbed window, repeated real clicks on a new
+  tab's close button) are with Markdown Viewer Windows' lease; this VM
+  blocks SendInput mouse buttons.
+- **The WinUI 3 reference app draws a blank window on this VM** (on screen
+  and in PrintWindow; `Compare-Reference.ps1` reports "no magenta marker"),
+  old and new builds alike. It loads WindowsAppRuntime 1.6 as it should,
+  builds its page (the title shows), and logs nothing; the XAML isn't
+  composited, so suspect WinUI composition on this GPU-less VM (WARP).
+  It worked at alpha4. Until it's fixed the measured comparison and the
+  Segmented/SelectorBar measurement can't run. Branch `reference-segmented`
+  (the Toolkit's Segmented and a SelectorBar on the inputs page; the app
+  retargeted to net8.0-windows10.0.22621.0 for the Toolkit's package) is
+  pushed with no PR.
+
 ### alpha8 (2026-10-15, late night)
 
 **Released:** tag `0.1.0-alpha8` on `906e462` (the merge of #149), with
