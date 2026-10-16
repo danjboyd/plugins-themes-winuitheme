@@ -355,9 +355,9 @@ API, #141). The GitHub pre-release has
 built from `5edc975`, whose tree is `dee0f34`'s, and checked by
 downloading it back. ReleaseCoordinator, ScreenshotTool Windows (v0.1.4),
 Markdown Viewer Windows (0.2.3) and plugins-themes-adwaita (the accent
-API, its alpha12) were told. Markdown Viewer ships stock libs-back:
-its tabs get a row of their own there unless it moves to
-`carry-0.32.0.4`. What follows is the night's record; the "Release prep"
+API, its alpha12) were told. Markdown Viewer 0.2.3 ships
+`carry-0.32.0.4` (its #157), so its tabs sit in the title bar; it is
+checking alpha7 on its MSI. What follows is the night's record; the "Release prep"
 and "Decisions" lists are done.
 
 The owner asked for tabs in the title bar as Notepad and Terminal open,
