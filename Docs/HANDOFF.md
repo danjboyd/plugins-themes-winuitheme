@@ -1,6 +1,6 @@
 # Handoff: Adwaita parity work
 
-State as of 2026-10-15 (night: 0.1.0-alpha7 ready to release, waiting on the owner's merge; alpha6 released that afternoon), for picking the work up in a fresh session. The goal
+State as of 2026-10-15 (late night: 0.1.0-alpha7 released; alpha6 that afternoon), for picking the work up in a fresh session. The goal
 (tracking issue #50): unmodified GNUstep apps look like first-rate WinUI 3
 apps under this theme, at parity with what the Adwaita theme
 (`C:\Users\Support\git\plugins-themes-Adwaita`) does for GNOME. The audit
@@ -345,6 +345,20 @@ It was last installed from `b3a6b20`. If an app holds the DLL, rename it to
 app closes.
 
 ### alpha7 (2026-10-15, evening; the owner away overnight)
+
+**Released:** tag `0.1.0-alpha7` on `dee0f34` (the merge of #144, the
+Version PR), after #135 and #143 were merged. The owner then approved
+all three: "1) proceed 2) confirmed 3) keep it" (release, the accent
+API, #141). The GitHub pre-release has
+`WinUITheme-0.1.0-alpha7-msys2-clang64.zip`, SHA-256
+`a8b00c73767213087ff5387eb2144800805d7c67dbf85e346a6a8e94e2074a95`,
+built from `5edc975`, whose tree is `dee0f34`'s, and checked by
+downloading it back. ReleaseCoordinator, ScreenshotTool Windows (v0.1.4),
+Markdown Viewer Windows (0.2.3) and plugins-themes-adwaita (the accent
+API, its alpha12) were told. Markdown Viewer ships stock libs-back:
+its tabs get a row of their own there unless it moves to
+`carry-0.32.0.4`. What follows is the night's record; the "Release prep"
+and "Decisions" lists are done.
 
 The owner asked for tabs in the title bar as Notepad and Terminal open,
 then tried the candidate in Markdown Viewer and ScreenshotTool and
