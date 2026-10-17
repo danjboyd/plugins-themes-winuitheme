@@ -120,6 +120,7 @@ public sealed partial class MainWindow : Window
         _pages.Add(new ReferencePage("real-app", "Real App", "A document-oriented shell and editor preview for ObjcMarkdown-style review.", BuildRealAppPage));
         _pages.Add(new ReferencePage("surfaces", "More Surfaces", "Colour, date and level controls, groups, forms, column browsing, tool tips and icons.", BuildSurfacesPage));
         _pages.Add(new ReferencePage("specimens", "Specimens", "One of each control at fixed positions, measured against ThemeDemo's.", BuildSpecimensPage));
+        _pages.Add(new ReferencePage("segmented", "Segmented", "The Toolkit's Segmented and WinUI's SelectorBar alone, for capturing them.", BuildSegmentedPage));
     }
 
     private void PageSelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -185,6 +186,14 @@ public sealed partial class MainWindow : Window
        Segmented, which the theme follows today, and WinUI's own
        SelectorBar (Windows App SDK 1.5+), the view switcher Windows 11's
        apps use. Write/Preview/Split, as ThemeDemo's text-input page. */
+    private void BuildSegmentedPage(StackPanel host)
+    {
+        host.Children.Add(CreateCard(
+            "Segmented Controls",
+            "The two WinUI controls NSSegmentedControl could follow: the Toolkit's Segmented and WinUI's SelectorBar.",
+            BuildSegmentedReferenceCard()));
+    }
+
     private UIElement BuildSegmentedReferenceCard()
     {
         var stack = new StackPanel { Spacing = 8 };
