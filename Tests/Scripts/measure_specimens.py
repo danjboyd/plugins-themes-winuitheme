@@ -30,6 +30,11 @@ SPECIMENS = [
     ("slider", "slider", (284, 84, 208, 40)),
     ("progress-bar", "progress", (500, 84, 168, 40)),
     ("body-text", "text", (12, 146, 560, 34)),
+    # The rest of WinUI's type ramp: Caption, BodyStrong, Subtitle, Title.
+    ("caption-text", "text", (12, 190, 560, 26)),
+    ("body-strong-text", "text", (12, 222, 560, 30)),
+    ("subtitle-text", "text", (12, 256, 700, 40)),
+    ("title-text", "text", (12, 298, 700, 54)),
 ]
 
 INK = 4                 # a channel this far from the background is ink

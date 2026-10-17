@@ -9,7 +9,7 @@ param(
 # (Reference/WinUI3ReferenceApp) and ThemeDemo both have a "specimens" page:
 # one of each control at the same place on a canvas marked by a magenta
 # square. This captures each in each mode, measures the controls' sizes,
-# fills, strokes and the body text's width (Tests/Scripts/measure_specimens.py),
+# fills, strokes and the type ramp's text widths (Tests/Scripts/measure_specimens.py),
 # and compares them. The exit code is the number of measurements out of
 # tolerance; the report and the captures are in -OutputDirectory.
 #
