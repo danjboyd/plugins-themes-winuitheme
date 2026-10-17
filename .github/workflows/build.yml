@@ -1,0 +1,86 @@
+name: build
+
+# Builds the theme and QuirkProbe on Windows on every push and pull request,
+# with MSYS2's CLANG64 GNUstep packages (the stock libs-back, not the carried
+# one), then runs QuirkProbe's light configuration. The full matrix, the
+# carried backend and the pointer checks still run by hand (see
+# Docs/RELEASE_READINESS.md, "Tests and measurements").
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    name: Windows (MSYS2 CLANG64)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The runner's own MSYS2 in C:\msys64 (release: false), where the
+      # repository's scripts look for it.
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: CLANG64
+          release: false
+          update: true
+          install: >-
+            make
+            mingw-w64-clang-x86_64-clang
+            mingw-w64-clang-x86_64-gnustep-make
+            mingw-w64-clang-x86_64-gnustep-base
+            mingw-w64-clang-x86_64-gnustep-gui
+            mingw-w64-clang-x86_64-gnustep-back
+
+      - name: Toolchain
+        run: |
+          clang --version | head -1
+          pacman -Q mingw-w64-clang-x86_64-gnustep-make mingw-w64-clang-x86_64-gnustep-base \
+            mingw-w64-clang-x86_64-gnustep-gui mingw-w64-clang-x86_64-gnustep-back
+
+      # MSYS2's gnustep-base 1.31.1-10 puts __block on an instance variable,
+      # which clang 23 rejects; apply libs-base's fix (gnustep/libs-base#809),
+      # as danjboyd/tools-xctest's CI does.
+      - name: Patch gnustep-base header
+        run: |
+          sed -i 's/BLOCK_SCOPE GSScheduledBlock _block;/GSScheduledBlock _block;/' \
+            /clang64/include/Foundation/NSBackgroundActivityScheduler.h
+
+      - name: Build the theme
+        run: |
+          . /clang64/share/GNUstep/Makefiles/GNUstep.sh
+          make -j4 messages=yes
+
+      - name: Build QuirkProbe
+        run: |
+          . /clang64/share/GNUstep/Makefiles/GNUstep.sh
+          make -C Examples/QuirkProbe -j4
+
+      - name: QuirkProbe (light)
+        shell: pwsh
+        run: |
+          ./Tests/Scripts/Invoke-QuirkProbe.ps1 -Configuration light -TimeoutSeconds 300 -OutputDirectory "$env:RUNNER_TEMP/quirkprobe" | Tee-Object -FilePath "$env:RUNNER_TEMP/quirkprobe.txt"
+          exit $LASTEXITCODE
+
+      - name: Upload QuirkProbe output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quirkprobe-light
+          path: |
+            ${{ runner.temp }}/quirkprobe.txt
+            ${{ runner.temp }}/quirkprobe
+          if-no-files-found: ignore
