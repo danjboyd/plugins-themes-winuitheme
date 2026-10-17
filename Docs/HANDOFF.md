@@ -125,7 +125,9 @@ Phases A to J and these fixes are merged into `main`:
 | (this one) | `handoff-2026-10-16` | this file |
 | #158 | `settings-reference` | README's "Settings" section (every key the theme reads) and a proposed triage of the known gaps below (gate 6) |
 | #159 | `text-ramp-reference` | the type ramp's text widths measured against WinUI; Caption 2.5% narrow, a decision |
-| (see "Overnight") | `ci-build` | CI: the theme and QuirkProbe built on every push, QuirkProbe light run |
+| #160 | `ci-build` | CI: the theme, QuirkProbe and ThemeDemo built on every push, QuirkProbe light run |
+| #161 | `date-flyout-repeat` | the date flyout's up and down buttons repeat while held (#56's gap) |
+| #162 (draft) | `reference-segmented` | the Toolkit Segmented and SelectorBar in the reference app, measured; the owner picks |
 | danjboyd/gnustep-window-tabbing #2 | `theme-hooks-single-tab-switch` | theme hooks that would replace the theme's run-time replacements (#133, #137); the owner reviews |
 
 **Releases.** The owner approved the release process on 2026-10-08:
@@ -379,12 +381,21 @@ Nothing was merged; each item is a branch and PR for the morning.
 - **Settings and gaps (#158):** README's "Settings" section; the gate's
   table completed; gate 6's triage below proposed (fixed, eight issues to
   file, limitations, gate 3).
-- **Segmented vs SelectorBar:** the reference app on `reference-segmented`
-  builds again (net8.0-windows10.0.22621.0; it builds into its own `bin`
-  folder, so `Compare-Reference.ps1` on that branch points at it). A
-  `segmented` page (`--page segmented`) shows the Toolkit Segmented and
-  SelectorBar alone for capture. Captures and the comparison: see the
-  end of this section.
+- **Segmented vs SelectorBar (#162, draft):** the reference app on
+  `reference-segmented` builds again (net8.0-windows10.0.22621.0, its
+  own `bin` folder) and has `--page segmented`. The theme's control
+  matches the Toolkit Segmented's size (220x32 to 218x32) and look, but
+  its track is about 2.5 times as dark against its surface (14-15 levels
+  to the Toolkit's 5-6, light and dark). SelectorBar is a 25px text row
+  with an underline. The owner picks; keeping Segmented means lightening
+  the track.
+- **Date flyout repeat (#161):** a held up or down button steps every
+  250ms after 250ms (RepeatButton's defaults, from memory: check),
+  `date-picker-flyout-repeat` (4 steps; 1 before). `light` and
+  `light-150` pass locally.
+- **Desktop:** shared with ScreenshotTool Windows, which asked for it
+  back for an MSI check; every capture and probe run was cleared with it
+  first. Markdown Viewer Windows works on a remote VM tonight.
 - **The reference app's blank window** (below, 10-15) was a stale build:
   `obj` held the `reference-segmented` branch's generated code, every
   `build.ps1` failed, and the old exe ran. Clear
@@ -908,11 +919,11 @@ values.
 
 ### Suggested next five (the owner decides, 2026-10-17)
 
-1. **Merge the overnight PRs:** CI (`ci-build`), #158, #159; decide
+1. **Merge the overnight PRs:** #160 (CI), #161, #158, #159; decide
    Caption's optical size (#159) and the gate's triage (#158), then file
-   the eight issues.
-2. **Pick the segmented control's look** from the overnight captures
-   (the Toolkit Segmented, as now, or SelectorBar).
+   the remaining seven issues (#161 closes the eighth).
+2. **Pick the segmented control's look** (#162): the Toolkit Segmented
+   with a lighter track, or SelectorBar.
 3. **gnustep-window-tabbing #2** (theme hooks), then vendor the shared
    code's `main` (which also brings phase 2, #97, and #4's
    show-before-hide) and drop the theme's run-time replacements.
