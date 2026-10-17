@@ -441,6 +441,9 @@ danjboyd/gnustep-window-tabbing #4 (show the new tab before hiding the
 old, its #3) was merged there; the theme's vendored copy doesn't have it
 yet.
 
+ScreenshotTool Windows ran an alpha9 MSI pass on this VM overnight (built
+from its `main`): it looked right at 100%, 125% and 150%, light and dark.
+
 ### alpha8 (2026-10-15, late night)
 
 **Released:** tag `0.1.0-alpha8` on `906e462` (the merge of #149), with
