@@ -1,6 +1,6 @@
 name: build
 
-# Builds the theme and QuirkProbe on Windows on every push and pull request,
+# Builds the theme, QuirkProbe and ThemeDemo on Windows on every push and pull request,
 # with MSYS2's CLANG64 GNUstep packages (the stock libs-back, not the carried
 # one), then runs QuirkProbe's light configuration. The full matrix, the
 # carried backend and the pointer checks still run by hand (see
@@ -68,6 +68,11 @@ jobs:
         run: |
           . /clang64/share/GNUstep/Makefiles/GNUstep.sh
           make -C Examples/QuirkProbe -j4
+
+      - name: Build ThemeDemo
+        run: |
+          . /clang64/share/GNUstep/Makefiles/GNUstep.sh
+          make -C Examples/ThemeDemo -j4
 
       - name: QuirkProbe (light)
         shell: pwsh
