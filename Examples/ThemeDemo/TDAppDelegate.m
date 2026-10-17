@@ -1954,7 +1954,7 @@ objectValueForTableColumn: (NSTableColumn *)tableColumn
    the two in step with Tests/Scripts/measure_specimens.py. */
 - (NSView *) specimensPageViewForPage: (NSDictionary *)page
 {
-  TDSpecimenView *view = [[[TDSpecimenView alloc] initWithFrame: NSMakeRect(0.0, 0.0, 720.0, 200.0)] autorelease];
+  TDSpecimenView *view = [[[TDSpecimenView alloc] initWithFrame: NSMakeRect(0.0, 0.0, 720.0, 360.0)] autorelease];
   NSButton *button = nil;
   NSTextField *field = nil;
   NSPopUpButton *popup = nil;
@@ -2002,6 +2002,22 @@ objectValueForTableColumn: (NSTableColumn *)tableColumn
   [view addSubview: TDLabel(@"The quick brown fox jumps over the lazy dog",
                             NSMakeRect(16.0, 152.0, 500.0, 22.0),
                             [NSFont systemFontOfSize: 0.0], [NSColor controlTextColor])];
+
+  /* The rest of WinUI's type ramp, as an app asks for it: Caption is the
+     small system font, BodyStrong, Subtitle and Title are the bold system
+     font, which the theme makes Semibold. */
+  [view addSubview: TDLabel(@"The quick brown fox jumps over the lazy dog",
+                            NSMakeRect(16.0, 196.0, 500.0, 18.0),
+                            [NSFont systemFontOfSize: 12.0], [NSColor controlTextColor])];
+  [view addSubview: TDLabel(@"The quick brown fox jumps over the lazy dog",
+                            NSMakeRect(16.0, 228.0, 500.0, 22.0),
+                            [NSFont boldSystemFontOfSize: 14.0], [NSColor controlTextColor])];
+  [view addSubview: TDLabel(@"The quick brown fox jumps over the lazy dog",
+                            NSMakeRect(16.0, 262.0, 680.0, 30.0),
+                            [NSFont boldSystemFontOfSize: 20.0], [NSColor controlTextColor])];
+  [view addSubview: TDLabel(@"The quick brown fox jumps over",
+                            NSMakeRect(16.0, 304.0, 680.0, 40.0),
+                            [NSFont boldSystemFontOfSize: 28.0], [NSColor controlTextColor])];
   return view;
 }
 
