@@ -120,6 +120,7 @@ public sealed partial class MainWindow : Window
         _pages.Add(new ReferencePage("real-app", "Real App", "A document-oriented shell and editor preview for ObjcMarkdown-style review.", BuildRealAppPage));
         _pages.Add(new ReferencePage("surfaces", "More Surfaces", "Colour, date and level controls, groups, forms, column browsing, tool tips and icons.", BuildSurfacesPage));
         _pages.Add(new ReferencePage("specimens", "Specimens", "One of each control at fixed positions, measured against ThemeDemo's.", BuildSpecimensPage));
+        _pages.Add(new ReferencePage("segmented", "Segmented", "The Toolkit's Segmented and WinUI's SelectorBar alone, for capturing them.", BuildSegmentedPage));
     }
 
     private void PageSelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -174,6 +175,45 @@ public sealed partial class MainWindow : Window
             "Dense Form",
             "A metadata editor surface where spacing issues show up immediately.",
             BuildFormCard()));
+        host.Children.Add(CreateCard(
+            "Segmented Controls",
+            "The two WinUI controls NSSegmentedControl could follow: the Toolkit's Segmented and WinUI's SelectorBar.",
+            BuildSegmentedReferenceCard()));
+    }
+
+    /* The real controls, for measuring the theme's NSSegmentedControl
+       against (Docs/RELEASE_READINESS.md): the Community Toolkit's
+       Segmented, which the theme follows today, and WinUI's own
+       SelectorBar (Windows App SDK 1.5+), the view switcher Windows 11's
+       apps use. Write/Preview/Split, as ThemeDemo's text-input page. */
+    private void BuildSegmentedPage(StackPanel host)
+    {
+        host.Children.Add(CreateCard(
+            "Segmented Controls",
+            "The two WinUI controls NSSegmentedControl could follow: the Toolkit's Segmented and WinUI's SelectorBar.",
+            BuildSegmentedReferenceCard()));
+    }
+
+    private UIElement BuildSegmentedReferenceCard()
+    {
+        var stack = new StackPanel { Spacing = 8 };
+
+        var segmented = new CommunityToolkit.WinUI.Controls.Segmented { HorizontalAlignment = HorizontalAlignment.Left };
+        segmented.Items.Add(new CommunityToolkit.WinUI.Controls.SegmentedItem { Content = "Write" });
+        segmented.Items.Add(new CommunityToolkit.WinUI.Controls.SegmentedItem { Content = "Preview" });
+        segmented.Items.Add(new CommunityToolkit.WinUI.Controls.SegmentedItem { Content = "Split" });
+        segmented.SelectedIndex = 0;
+        stack.Children.Add(segmented);
+        stack.Children.Add(new TextBlock { Text = "Segmented (Community Toolkit)", FontSize = 12 });
+
+        var selectorBar = new SelectorBar();
+        selectorBar.Items.Add(new SelectorBarItem { Text = "Write", IsSelected = true });
+        selectorBar.Items.Add(new SelectorBarItem { Text = "Preview" });
+        selectorBar.Items.Add(new SelectorBarItem { Text = "Split" });
+        stack.Children.Add(selectorBar);
+        stack.Children.Add(new TextBlock { Text = "SelectorBar (Windows App SDK)", FontSize = 12 });
+
+        return stack;
     }
 
     private void BuildCommandPage(StackPanel host)
