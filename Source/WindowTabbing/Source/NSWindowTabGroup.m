@@ -49,6 +49,7 @@ GSTabGroupWindowAt(NSArray *windows, NSUInteger index)
 - (void) _windowsDidChangeAlso: (id)extra;
 - (void) _switchToWindow: (id)window;
 - (id) _neighbourOfWindowAtIndex: (NSUInteger)index;
+- (BOOL) _showsBarAutomatically;
 @end
 
 @implementation NSWindowTabGroup
@@ -117,7 +118,7 @@ GSTabGroupWindowAt(NSArray *windows, NSUInteger index)
       case GSWindowTabBarHidden:
         return NO;
       default:
-        return [_windows count] > 1;
+        return [self _showsBarAutomatically];
     }
 }
 
@@ -199,6 +200,18 @@ GSTabGroupWindowAt(NSArray *windows, NSUInteger index)
 
 
 @implementation NSWindowTabGroup (GSWindowTabGroupInternal)
+
+/* What the automatic state shows: the bar from the second tab, or for a
+   window alone when its theme wants it (Windows 11's apps open with
+   theirs, one tab and a "+"). */
+- (BOOL) _showsBarAutomatically
+{
+  NSUInteger count = [_windows count];
+
+  return count > 1
+    || (count == 1 && [GSTabGroupWindowAt(_windows, 0) _tabbingShowsBarAlone]);
+}
+
 
 - (NSUInteger) _indexOfWindow: (id)window
 {
@@ -282,12 +295,13 @@ GSTabGroupWindowAt(NSArray *windows, NSUInteger index)
     }
 }
 
-/* Shows window in place of the selected one: at its frame, and key if
-   it was, as macOS does. */
+/* Shows window in place of the selected one: at its frame, maximized
+   if it was, and key if it was, as macOS does. */
 - (void) _switchToWindow: (id)window
 {
   id previous = _selectedWindow;
   NSRect frame;
+  BOOL maximized;
   BOOL key;
 
   if (window == previous)
@@ -300,9 +314,14 @@ GSTabGroupWindowAt(NSArray *windows, NSUInteger index)
       return;
     }
   frame = [previous frame];
+  maximized = [previous _tabbingIsMaximized];
   key = [previous isKeyWindow];
-  [previous _tabbingHide];
-  [window _tabbingShowWithFrame: frame makeKey: key];
+  /* The theme's -showTabbedWindow:inPlaceOfWindow:..., whose default
+     shows the new tab before hiding the old one (#3). */
+  [window _tabbingReplace: previous
+                    frame: frame
+                maximized: maximized
+                  makeKey: key];
 }
 
 /* The window that takes the place of the window at index when it
@@ -350,7 +369,9 @@ GSTabGroupWindowAt(NSArray *windows, NSUInteger index)
 
           _selectedWindow = neighbour;
           [neighbour _tabbingShowWithFrame: [window frame]
-                                   makeKey: [window isKeyWindow]];
+                                 maximized: [window _tabbingIsMaximized]
+                                   makeKey: [window isKeyWindow]
+                                 inPlaceOf: window];
         }
       else
         {
@@ -375,7 +396,7 @@ GSTabGroupWindowAt(NSArray *windows, NSUInteger index)
 {
   BOOL show = ([self isTabBarVisible] == NO);
 
-  if (show == ([_windows count] > 1))
+  if (show == [self _showsBarAutomatically])
     {
       _barState = GSWindowTabBarAutomatic;
     }

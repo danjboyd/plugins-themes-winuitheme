@@ -234,6 +234,9 @@ typedef enum
  * <term>GSWindowTabPreviousHighlighted</term>
  * <desc>The tab before this one is selected, hovered or pressed (a
  * theme may leave out the separator between them).</desc>
+ * <term>GSWindowTabDragged</term>
+ * <desc>The tab is being dragged: drawn last, over the others, where
+ * the pointer has taken it.</desc>
  * </deflist>
  */
 enum
@@ -247,7 +250,8 @@ enum
   GSWindowTabEdited = 1 << 6,
   GSWindowTabFirst = 1 << 7,
   GSWindowTabLast = 1 << 8,
-  GSWindowTabPreviousHighlighted = 1 << 9
+  GSWindowTabPreviousHighlighted = 1 << 9,
+  GSWindowTabDragged = 1 << 10
 };
 typedef unsigned int GSWindowTabState;
 
@@ -340,6 +344,46 @@ GSWT_EXPORT NSString *const GSWindowTabBarDidChangeNotification;
 - (void) drawWindowTabNewTabButtonInRect: (NSRect)rect
                                    state: (GSWindowTabState)state
                                   window: (NSWindow *)window;
+
+/**
+ * Returns how wide the fade is at an end of the bar where tabs that
+ * don't fit are scrolled out of sight (default 24; 0 for none).
+ */
+- (CGFloat) windowTabBarScrollFadeWidthForWindow: (NSWindow *)window;
+
+/**
+ * Draws the fade over the tabs at the bar's edge (NSMinXEdge or
+ * NSMaxXEdge) where more tabs are scrolled out of sight.  The default
+ * fades the bar's background colour in towards the edge.
+ */
+- (void) drawWindowTabBarScrollFadeInRect: (NSRect)rect
+                                     edge: (NSRectEdge)edge
+                                   window: (NSWindow *)window;
+
+/**
+ * Returns whether a window alone in its group shows the tab bar, one
+ * tab and the "+", while the bar is automatic (not shown or hidden with
+ * -toggleTabBar:).  The default is NO, as macOS has it: the bar shows
+ * from the second tab.  A theme for Windows 11 returns YES for a window
+ * that can be a tab and has somewhere for "+" to go, as Notepad and
+ * Terminal open with their tab strip.
+ */
+- (BOOL) windowTabBarShowsSingleTabForWindow: (NSWindow *)window;
+
+/**
+ * Makes window, a tab of previous's group, the selected one in
+ * previous's place: on screen at frame (maximized or not, key if
+ * makeKey) and previous off it.  The default puts window on screen
+ * first and then takes previous off, so the group never leaves the
+ * screen empty.  A theme may do it otherwise (a window never yet on
+ * screen set up behind previous first, say); it must end with window
+ * shown as the default does and previous hidden.
+ */
+- (void) showTabbedWindow: (NSWindow *)window
+          inPlaceOfWindow: (NSWindow *)previous
+                    frame: (NSRect)frame
+                maximized: (BOOL)maximized
+                  makeKey: (BOOL)makeKey;
 
 @end
 
