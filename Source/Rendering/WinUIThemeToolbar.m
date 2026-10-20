@@ -689,8 +689,11 @@ WinUIThemeToolbarPackKeptItems(NSView *toolbarView, NSToolbar *toolbar)
         }
       if (view != nil && [view superview] == backView && [item minSize].width > 0.0)
         {
-          [view setFrameSize: NSMakeSize([item minSize].width, NSHeight([view frame]))];
-          [backView setFrameSize: NSMakeSize([item minSize].width + 2.0 * WinUIThemeToolbarSpacing,
+          /* A colour well keeps its DropDownButton width. */
+          CGFloat least = MAX([item minSize].width, WinUIThemeToolbarViewLeastWidth(item));
+
+          [view setFrameSize: NSMakeSize(least, NSHeight([view frame]))];
+          [backView setFrameSize: NSMakeSize(least + 2.0 * WinUIThemeToolbarSpacing,
                                              NSHeight([backView frame]))];
           WinUIThemePlaceToolbarView(backView, item);
         }
