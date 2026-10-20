@@ -5,6 +5,34 @@ Releases of the WinUI theme for GNUstep. Versions are semver pre-releases
 `GSThemeVersion` in `WinUIThemeInfo.plist`, and an annotated tag on `main`.
 Apps that bundle the theme should pin a tag, not `main`.
 
+## 0.1.0-alpha11 (2026-10-20)
+
+The toolbar in the menu bar's row is CommandBar's standard size, easier
+to hit by touch, and a toolbar too narrow for its items puts the least
+important ones in its ">>" menu first. Requires gnustep-gui 0.32 or
+later. Tested with the carried libs-back `carry-0.32.0.4`, as alpha10
+was. ScreenshotTool 0.3.2 moves to it.
+
+**Toolbar**
+- The menu bar's row holding the toolbar (#91) is 40pt, not 32: its
+  buttons are 36pt with 20pt icons (from 32 and 16), and its view items
+  (segmented controls, push buttons, the colour well) 32pt tall (from
+  24). A segmented control's icons in a toolbar are at most 20pt, as
+  its buttons'. Compact metrics keep the 32pt row. Windows with a
+  toolbar in the row are 8pt taller; the content keeps its size, and a
+  frame saved by an older build comes back 8pt shorter once (#170).
+- Toolbar items have 8pt between them, from 4, in either row (#170).
+- A colour well in a toolbar stays WinUI's colour DropDownButton, with
+  its chevron, at the 40pt row's height: it's at least 1.5 times as
+  wide as tall (#170).
+- A toolbar too narrow for its items keeps them by `visibilityPriority`,
+  as AppKit does: the lowest priority goes into ">>" first, the last of
+  equals first, a separator with the item before it, and the rest close
+  up; the ">>" menu lists them in the toolbar's order. With every item
+  at the default it's as before, the last ones first. An app can ask
+  `[[GSTheme theme] toolbarHonoursVisibilityPriority]`; the Adwaita
+  theme keeps the same rules (#171).
+
 ## 0.1.0-alpha10 (2026-10-20)
 
 A data-loss fix and two refinements. Save As and Save a Copy replaced an
