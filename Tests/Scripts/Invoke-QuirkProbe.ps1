@@ -108,6 +108,9 @@ foreach ($name in $Configuration) {
   }
   if (-not $finished) {
     Write-Output "FAIL  probe: timed out after $TimeoutSeconds s"
+    # What it had got through, and anything it said, to show where it hung.
+    Get-Content $stdout -Tail 20 -ErrorAction SilentlyContinue | ForEach-Object { "  out: $_" }
+    Get-Content $stderr -Tail 40 -ErrorAction SilentlyContinue | ForEach-Object { "  err: $_" }
     $totalFailed += 1
     continue
   }

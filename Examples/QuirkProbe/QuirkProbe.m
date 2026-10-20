@@ -4667,6 +4667,23 @@ QuirkProbeTwelveHourClock(void)
            atStart: NO];
 }
 
+/* An event posted from a timer can wait in the queue: a timer that fires
+   as the run loop starts leaves it waiting for input, and with no timer
+   left and the mouse and keyboard idle (CI) none comes. A timer just after
+   brings it back to the queue. */
+- (void) wakeEventLoop: (NSTimer *)timer
+{
+}
+
+- (void) postEventFromTimer: (NSEvent *)event
+{
+  [NSApp postEvent: event atStart: NO];
+  [[NSRunLoop currentRunLoop] addTimer: [NSTimer timerWithTimeInterval: 0.05 target: self
+                                                              selector: @selector(wakeEventLoop:)
+                                                              userInfo: nil repeats: NO]
+                               forMode: NSEventTrackingRunLoopMode];
+}
+
 /* Holding the day column's down button (#56): presses it, lets it go
    0.85s later, and accepts the flyout 0.55s after that. */
 - (void) holdDatePickerFlyoutArrow: (NSTimer *)timer
@@ -4708,21 +4725,19 @@ QuirkProbeTwelveHourClock(void)
 {
   NSWindow *owner = [timer userInfo];
 
-  [NSApp postEvent: [NSEvent mouseEventWithType: NSLeftMouseUp location: NSZeroPoint
-                                  modifierFlags: 0 timestamp: 0 windowNumber: [owner windowNumber]
-                                        context: nil eventNumber: 0 clickCount: 1 pressure: 0.0]
-           atStart: NO];
+  [self postEventFromTimer: [NSEvent mouseEventWithType: NSLeftMouseUp location: NSZeroPoint
+                                          modifierFlags: 0 timestamp: 0 windowNumber: [owner windowNumber]
+                                                context: nil eventNumber: 0 clickCount: 1 pressure: 0.0]];
 }
 
 - (void) acceptDatePickerFlyout: (NSTimer *)timer
 {
   NSWindow *owner = [timer userInfo];
 
-  [NSApp postEvent: [NSEvent keyEventWithType: NSKeyDown location: NSZeroPoint modifierFlags: 0
-                                    timestamp: 0 windowNumber: [owner windowNumber] context: nil
-                                   characters: @"\r" charactersIgnoringModifiers: @"\r"
-                                    isARepeat: NO keyCode: 0]
-           atStart: NO];
+  [self postEventFromTimer: [NSEvent keyEventWithType: NSKeyDown location: NSZeroPoint modifierFlags: 0
+                                            timestamp: 0 windowNumber: [owner windowNumber] context: nil
+                                           characters: @"\r" charactersIgnoringModifiers: @"\r"
+                                            isARepeat: NO keyCode: 0]];
 }
 
 - (void) inspectDatePickerFlyout: (NSTimer *)timer
