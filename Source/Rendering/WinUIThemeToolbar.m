@@ -308,6 +308,20 @@ WinUIThemeToolbarSizeViewHeight(NSToolbarItem *item)
   [view setFrameSize: NSMakeSize(NSWidth([view frame]), height)];
 }
 
+/* The least a view item's view is wide whatever its maxSize: a colour
+   well 1.5 times its height, the theme's colour DropDownButton (#151),
+   which the 40pt row's 32pt height took to a plain swatch at
+   ScreenshotTool's 40pt. */
+static CGFloat
+WinUIThemeToolbarViewLeastWidth(NSToolbarItem *item)
+{
+  if ([[item view] isKindOfClass: [NSColorWell class]])
+    {
+      return ceil(WinUIThemeToolbarViewHeight(item) * 1.5);
+    }
+  return 0.0;
+}
+
 /* A view item's view width: its own, within the item's minSize and
    maxSize when it has them. */
 static CGFloat
@@ -325,7 +339,7 @@ WinUIThemeToolbarViewWidth(NSToolbarItem *item)
     {
       width = MIN(width, maxWidth);
     }
-  return width;
+  return MAX(width, WinUIThemeToolbarViewLeastWidth(item));
 }
 
 /* An item's content: the button an image item is drawn as, or a view
@@ -746,7 +760,7 @@ WinUIThemeToolbarKeepFlexibleSpaceInside(NSView *toolbarView, NSToolbar *toolbar
         {
           width = MIN(width, maxWidth);
         }
-      width = MAX(width, MAX(minWidth, 0.0));
+      width = MAX(width, MAX(minWidth, WinUIThemeToolbarViewLeastWidth(item)));
       [view setFrameSize: NSMakeSize(width, NSHeight([view frame]))];
       WinUIThemePlaceToolbarView(backView, item);
     }
