@@ -65,14 +65,19 @@
 static const CGFloat WinUIThemeToolbarRowHeight = 48.0;
 static const CGFloat WinUIThemeToolbarButtonSize = 40.0;
 static const CGFloat WinUIThemeToolbarTextButtonHeight = 32.0;
-static const CGFloat WinUIThemeToolbarSpacing = 2.0;
+/* Each side of an item: 8pt between items, as CommandBar's. */
+static const CGFloat WinUIThemeToolbarSpacing = 4.0;
 static const CGFloat WinUIThemeToolbarIconPadding = 10.0;
 static const CGFloat WinUIThemeToolbarLabeledIconPadding = 6.0;
 static const CGFloat WinUIThemeToolbarLabelPadding = 12.0;
 static const CGFloat WinUIThemeToolbarLabelGap = 4.0;
 static const CGFloat WinUIThemeToolbarIconSize = 20.0;
 static const CGFloat WinUIThemeToolbarSmallIconSize = 16.0;
-/* In the menu bar's row (#91): a compact CommandBar's 32pt buttons. */
+/* In the menu bar's row (#91): CommandBar's 36pt buttons and 20pt icons
+   in its 40pt row; a compact CommandBar's 32pt buttons and 16pt icons in
+   the 32pt row compact metrics keep. */
+static const CGFloat WinUIThemeToolbarMenuRowButtonSize = 36.0;
+static const CGFloat WinUIThemeToolbarMenuRowIconSize = 20.0;
 static const CGFloat WinUIThemeToolbarCompactButtonSize = 32.0;
 static const CGFloat WinUIThemeToolbarCompactIconSize = 16.0;
 
@@ -153,6 +158,13 @@ WinUIThemeToolbarRowHeightFor(NSToolbar *toolbar)
   return WinUIThemeToolbarRowHeight;
 }
 
+/* Whether the menu bar's row is CommandBar's 40pt, not compact's 32. */
+static BOOL
+WinUIThemeToolbarMenuRowIsFull(NSToolbar *toolbar)
+{
+  return WinUIThemeToolbarRowHeightFor(toolbar) >= WinUIThemeToolbarInMenuBarRowHeight - 0.5;
+}
+
 /* Labels under icons; none in the menu bar's row, where a label-only
    toolbar keeps its text buttons. */
 static BOOL
@@ -212,7 +224,7 @@ WinUIThemeToolbarLabelSize(NSToolbarItem *item)
 }
 
 /* The size an item's image is drawn at: its own, scaled down to fit 20pt
-   (16pt in small mode). The item's image keeps its own size (the button
+   (16pt in small mode and in a compact menu bar row). The item's image keeps its own size (the button
    layout puts back the size libs-gui gives it), so this is always the
    app's. */
 static NSSize
@@ -224,7 +236,8 @@ WinUIThemeToolbarImageSize(NSImage *image, NSToolbar *toolbar)
 
   if (WinUIThemeToolbarIsInMenuBar(toolbar))
     {
-      limit = WinUIThemeToolbarCompactIconSize;
+      limit = WinUIThemeToolbarMenuRowIsFull(toolbar)
+        ? WinUIThemeToolbarMenuRowIconSize : WinUIThemeToolbarCompactIconSize;
     }
 
   if (image == nil)
@@ -337,9 +350,11 @@ WinUIThemeToolbarContentSize(NSToolbarItem *item)
   else if (WinUIThemeToolbarIsInMenuBar(toolbar))
     {
       NSSize image = WinUIThemeToolbarImageSize([item image], toolbar);
+      CGFloat button = WinUIThemeToolbarMenuRowIsFull(toolbar)
+        ? WinUIThemeToolbarMenuRowButtonSize : WinUIThemeToolbarCompactButtonSize;
 
-      return NSMakeSize(MAX(image.width + 2.0 * 8.0, WinUIThemeToolbarCompactButtonSize),
-                        MAX(image.height + 2.0 * 8.0, WinUIThemeToolbarCompactButtonSize));
+      return NSMakeSize(MAX(image.width + 2.0 * 8.0, button),
+                        MAX(image.height + 2.0 * 8.0, button));
     }
   else
     {

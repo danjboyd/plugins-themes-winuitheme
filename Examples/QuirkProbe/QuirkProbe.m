@@ -2152,7 +2152,8 @@ WinUIThemeProbeToolbarInRow(NSWindow *window)
       [problems addObject: [NSString stringWithFormat: @"the last item ends at %.0f, the row at %.0f",
                                                        NSMaxX(lastFrame), NSMaxX(toolbarFrame)]];
     }
-  if (fabs(NSHeight(firstFrame) - menuHeight) > 0.5 || NSWidth(firstFrame) > 40.0)
+  /* A 36pt button and 4pt either side (32 and 4 under compact metrics). */
+  if (fabs(NSHeight(firstFrame) - menuHeight) > 0.5 || NSWidth(firstFrame) > 44.5)
     {
       [problems addObject: [NSString stringWithFormat: @"an item is %.0fx%.0f, not a %.0fpt icon button",
                                                        NSWidth(firstFrame), NSHeight(firstFrame), menuHeight]];
@@ -2343,8 +2344,9 @@ WinUIThemeProbeToolbarInRow(NSWindow *window)
 }
 
 /* In the menu bar's row a view item (a segmented control, a push button)
-   is a compact 24pt control, 4pt clear of the row's top and foot, as a
-   compact CommandBar's content; it kept its 32pt and met the title bar.
+   is 4pt clear of the row's top and foot, 32pt in the 40pt row (24pt in
+   compact's 32pt row), as CommandBar's content; it kept its own height
+   and met the title bar.
    In a row of its own it's its own height again. */
 - (void) checkToolbarInMenuBarViews
 {

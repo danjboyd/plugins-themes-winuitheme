@@ -577,6 +577,26 @@ WinUIThemeDrawSegmentedLabel(NSSegmentedCell *cell,
   RELEASE(attributes);
 }
 
+/* Whether `view` is a toolbar item's view (GSToolbarView holds it). */
+static BOOL
+WinUIThemeViewIsInToolbar(NSView *view)
+{
+  static Class toolbarViewClass = Nil;
+
+  if (toolbarViewClass == Nil)
+    {
+      toolbarViewClass = NSClassFromString(@"GSToolbarView");
+    }
+  for (; view != nil && toolbarViewClass != Nil; view = [view superview])
+    {
+      if ([view isKindOfClass: toolbarViewClass])
+        {
+          return YES;
+        }
+    }
+  return NO;
+}
+
 static void
 WinUIThemeDrawSegmentedImage(NSImage *image,
                              NSRect frame,
@@ -618,6 +638,11 @@ WinUIThemeDrawSegmentedImage(NSImage *image,
   if (frame.size.height <= 26.0)
     {
       maxIconSize = MIN(maxIconSize, 16.0);
+    }
+  /* In a toolbar, the toolbar's own 20pt icons beside it. */
+  else if (WinUIThemeViewIsInToolbar(view))
+    {
+      maxIconSize = MIN(maxIconSize, 20.0);
     }
   scale = MIN(1.0, MIN(maxIconSize / imageSize.width, maxIconSize / imageSize.height));
   imageSize.width = floor(imageSize.width * scale);
