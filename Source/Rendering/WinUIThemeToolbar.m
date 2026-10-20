@@ -707,6 +707,16 @@ WinUIThemeToolbarPackKeptItems(NSView *toolbarView, NSToolbar *toolbar)
 
 @implementation WinUITheme (Toolbar)
 
+/* For apps: a toolbar too narrow for its items keeps them by
+   visibilityPriority, not the run from the start libs-gui keeps, so an
+   app needn't hold a minimum width for an item it must keep. Asked of
+   the current theme ([GSTheme theme]), which the Adwaita theme answers
+   too. */
+- (BOOL) honoursToolbarVisibilityPriority
+{
+  return YES;
+}
+
 /* The toolbar sits on the window background with a hairline under it
    (DividerStrokeColorDefault), not libs-gui's dark grey line. */
 - (NSColor *) toolbarBackgroundColor
