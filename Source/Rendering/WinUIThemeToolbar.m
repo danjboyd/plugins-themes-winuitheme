@@ -535,8 +535,9 @@ WinUIThemeToolbarKeepFlexibleSpaceInside(NSView *toolbarView, NSToolbar *toolbar
    - Only items go, never a separator or space on its own: the lowest
      priority first, the last of equals first, until the rest fit
      beside the ">>".
-   - The separators and fixed spaces after an item go with it (those
-     before the first item, with that item). A flexible space stays.
+   - The separators and fixed spaces after an item go with it; those
+     with no item before them (first, or after a flexible space) go
+     with the item after them. A flexible space stays.
    - When the priorities never rise along the toolbar (all at the
      default, say) that's the run from the start: libs-gui's own, to
      the pixel. nil then. */
@@ -612,16 +613,24 @@ WinUIThemeToolbarKeptItems(NSView *toolbarView, NSToolbar *toolbar)
   while (total + WinUIThemeToolbarClippedItemsWidth > width && (index = [enumerator nextObject]) != nil)
     {
       NSUInteger dropped = [index unsignedIntegerValue];
-      NSUInteger j = dropped;
-      BOOL first = YES;
+      NSUInteger from = dropped;
+      NSUInteger j;
 
-      /* The item, the separators and spaces after it, and before it
-         when it's the first item. */
-      for (j = 0; j < dropped && first; j++)
+      /* The item, the separators and spaces after it, and those before
+         it with no item before them (at the start, or after a flexible
+         space). */
+      while (from > 0 && WinUIThemeToolbarItemIsSpace([items objectAtIndex: from - 1])
+             && [[[items objectAtIndex: from - 1] itemIdentifier]
+                  isEqualToString: NSToolbarFlexibleSpaceItemIdentifier] == NO)
         {
-          first = WinUIThemeToolbarItemIsSpace([items objectAtIndex: j]);
+          from--;
         }
-      for (j = first ? 0 : dropped; j < count; j++)
+      if (from > 0 && [[[items objectAtIndex: from - 1] itemIdentifier]
+                        isEqualToString: NSToolbarFlexibleSpaceItemIdentifier] == NO)
+        {
+          from = dropped;
+        }
+      for (j = from; j < count; j++)
         {
           NSToolbarItem *item = [items objectAtIndex: j];
 
@@ -712,7 +721,7 @@ WinUIThemeToolbarPackKeptItems(NSView *toolbarView, NSToolbar *toolbar)
    app needn't hold a minimum width for an item it must keep. Asked of
    the current theme ([GSTheme theme]), which the Adwaita theme answers
    too. */
-- (BOOL) honoursToolbarVisibilityPriority
+- (BOOL) toolbarHonoursVisibilityPriority
 {
   return YES;
 }
