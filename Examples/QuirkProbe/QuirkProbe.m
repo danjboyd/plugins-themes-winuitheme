@@ -1360,9 +1360,17 @@ static NSRect QuirkProbeOpenListRow;
       RELEASE(view);
     }
   /* The colour well check: a colour well as the item's view. */
-  if ([[toolbar identifier] isEqualToString: @"QuirkProbeColorWellToolbar"])
+  if ([[toolbar identifier] hasPrefix: @"QuirkProbeColorWell"])
     {
-      NSColorWell *well = [[NSColorWell alloc] initWithFrame: NSMakeRect(0, 0, 72, 28)];
+      /* ScreenshotTool's in the menu bar's row: 40pt, no wider. */
+      BOOL narrow = [[toolbar identifier] isEqualToString: @"QuirkProbeColorWellMenuRowToolbar"];
+      NSColorWell *well = [[NSColorWell alloc] initWithFrame: NSMakeRect(0, 0, narrow ? 40 : 72, 28)];
+
+      if (narrow)
+        {
+          [item setMinSize: NSMakeSize(40, 28)];
+          [item setMaxSize: NSMakeSize(40, 28)];
+        }
 
       [well setColor: [NSColor colorWithCalibratedRed: 0.9 green: 0.1 blue: 0.1 alpha: 1.0]];
       [item setView: well];
@@ -2152,7 +2160,8 @@ WinUIThemeProbeToolbarInRow(NSWindow *window)
       [problems addObject: [NSString stringWithFormat: @"the last item ends at %.0f, the row at %.0f",
                                                        NSMaxX(lastFrame), NSMaxX(toolbarFrame)]];
     }
-  if (fabs(NSHeight(firstFrame) - menuHeight) > 0.5 || NSWidth(firstFrame) > 40.0)
+  /* A 36pt button and 4pt either side (32 and 4 under compact metrics). */
+  if (fabs(NSHeight(firstFrame) - menuHeight) > 0.5 || NSWidth(firstFrame) > 44.5)
     {
       [problems addObject: [NSString stringWithFormat: @"an item is %.0fx%.0f, not a %.0fpt icon button",
                                                        NSWidth(firstFrame), NSHeight(firstFrame), menuHeight]];
@@ -2343,8 +2352,9 @@ WinUIThemeProbeToolbarInRow(NSWindow *window)
 }
 
 /* In the menu bar's row a view item (a segmented control, a push button)
-   is a compact 24pt control, 4pt clear of the row's top and foot, as a
-   compact CommandBar's content; it kept its 32pt and met the title bar.
+   is 4pt clear of the row's top and foot, 32pt in the 40pt row (24pt in
+   compact's 32pt row), as CommandBar's content; it kept its own height
+   and met the title bar.
    In a row of its own it's its own height again. */
 - (void) checkToolbarInMenuBarViews
 {
@@ -11850,6 +11860,39 @@ QuirkProbeSendMove(NSWindow *window, NSPoint location)
                                                        formRedMaxX / QuirkProbeScale(rep, form)]];
     }
   [self saveView: [[window contentView] superview] named: @"color-well-drop-down"];
+  /* ScreenshotTool's 40pt well in the menu bar's 40pt row: 32pt tall,
+     it's widened to stay a DropDownButton (1.5 times as wide as tall),
+     whatever its maxSize. */
+  {
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    NSWindow *rowWindow = [self windowWithFrame: NSMakeRect(300, 300, 420, 160)
+                                          title: @"QuirkProbe Colour Well In Menu Bar"];
+    NSToolbar *rowToolbar = [[NSToolbar alloc] initWithIdentifier: @"QuirkProbeColorWellMenuRowToolbar"];
+    NSMenu *menu = AUTORELEASE([[NSMenu alloc] initWithTitle: @"QuirkProbe"]);
+    NSView *rowWell = nil;
+
+    [defaults setBool: YES forKey: @"GSThemeToolbarInMenuBar"];
+    [menu addItemWithTitle: @"File" action: NULL keyEquivalent: @""];
+    [rowToolbar setDelegate: self];
+    [rowToolbar setDisplayMode: NSToolbarDisplayModeIconOnly];
+    [rowWindow setToolbar: rowToolbar];
+    RELEASE(rowToolbar);
+    [rowWindow setMenu: menu];
+    [rowWindow orderFront: nil];
+    QuirkProbeDispatchEvents(0.2);
+    rowWell = [[[rowToolbar items] lastObject] view];
+    if ([rowWell isKindOfClass: [NSColorWell class]]
+        && NSWidth([rowWell frame]) < NSHeight([rowWell frame]) * 1.5 - 0.5)
+      {
+        [problems addObject: [NSString stringWithFormat: @"in the menu bar's row the 40pt well is %.0fx%.0f, a plain swatch",
+                                                         NSWidth([rowWell frame]), NSHeight([rowWell frame])]];
+      }
+    [self saveView: [[rowWindow contentView] superview] named: @"color-well-drop-down-menu-row"];
+    [defaults removeObjectForKey: @"GSThemeToolbarInMenuBar"];
+    [rowWindow setToolbar: nil];
+    [rowWindow setMenu: nil];
+    [rowWindow orderOut: nil];
+  }
   if ([problems count] == 0)
     {
       [self pass: @"color-well-drop-down" detail: [NSString stringWithFormat:

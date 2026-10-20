@@ -1252,7 +1252,8 @@ WinUIThemeMenuBarOverflowMouseDown(NSMenuView *bar, NSEvent *event)
 @implementation WinUITheme (MenuBarKeyboard)
 
 /* A folded title has no size, past the bar's end, so nothing draws or
-   hits it. */
+   hits it. A title is the bar's height: libs-gui makes it the menu bar's
+   32pt at the bar's foot, and the row holding a toolbar is taller. */
 - (NSRect) _overrideNSMenuViewMethod_rectOfItemAtIndex: (NSInteger)index
 {
   typedef NSRect (*RectIMP)(id, SEL, NSInteger);
@@ -1269,6 +1270,11 @@ WinUIThemeMenuBarOverflowMouseDown(NSMenuView *bar, NSEvent *event)
   if (fold.folded != NSNotFound && index >= fold.folded)
     {
       return NSMakeRect(NSMaxX([menuView bounds]), NSMinY(rect), 0.0, 0.0);
+    }
+  if (NSHeight([menuView bounds]) > NSHeight(rect) && NSWidth(rect) > 0.0)
+    {
+      rect.origin.y = NSMinY([menuView bounds]);
+      rect.size.height = NSHeight([menuView bounds]);
     }
   return rect;
 }
