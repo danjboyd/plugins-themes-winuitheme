@@ -5,6 +5,40 @@ Releases of the WinUI theme for GNUstep. Versions are semver pre-releases
 `GSThemeVersion` in `WinUIThemeInfo.plist`, and an annotated tag on `main`.
 Apps that bundle the theme should pin a tag, not `main`.
 
+## 0.1.0-alpha10 (2026-10-20)
+
+A data-loss fix and two refinements. Save As and Save a Copy replaced an
+existing file without asking, in every app; Windows' replace prompt is
+back. Compact metrics draw control titles at the size they were measured
+at, and the date flyout's up and down buttons repeat while held.
+Requires gnustep-gui 0.32 or later. Tested with the carried libs-back
+`carry-0.32.0.4`, as alpha9 was. Window tabs are unchanged from alpha9.
+Apps on alpha8 or alpha9 should move to it.
+
+**Fixes**
+- Saving over an existing file replaced it without asking (#168): the
+  theme's native Save dialog set its options without
+  `FOS_OVERWRITEPROMPT`, and GNUstep's own check doesn't run when the
+  theme answers the panel. Windows now asks "already exists. Do you want
+  to replace it?", with No the default; No leaves the file and keeps the
+  dialog open (#166).
+- Under `WinUIThemeMetrics=compact`, control titles were measured in the
+  cell's 12pt font but drawn at 13pt, so they were cut off at both ends
+  (libs-sharing's share sheet). Compact now draws them in the 12pt font;
+  popups, browsers and the date picker follow. Normal metrics keep the
+  13pt minimum (#164).
+
+**Controls**
+- The date and time flyout's up and down buttons repeat while held, as
+  WinUI's RepeatButton: after 250ms, every 250ms, until the button comes
+  up, the pointer leaves or the flyout closes (#161). QuirkProbe
+  `date-picker-flyout-repeat`.
+
+**Development**
+- CI builds the theme, QuirkProbe and ThemeDemo on every push, with
+  MSYS2's stock CLANG64 GNUstep, and runs QuirkProbe's light
+  configuration (#160, #167).
+
 ## 0.1.0-alpha9 (2026-10-16)
 
 A refinement and two window fixes. A colour well in a toolbar is WinUI's
