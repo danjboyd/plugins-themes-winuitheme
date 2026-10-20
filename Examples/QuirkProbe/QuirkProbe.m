@@ -1377,6 +1377,15 @@ static NSRect QuirkProbeOpenListRow;
       [item setLabel: @"Colour"];
       RELEASE(well);
     }
+  /* The overflow priority check: items A to F, in order. */
+  if ([[toolbar identifier] hasPrefix: @"QuirkProbeOverflowPriority"]
+      && [identifier isEqualToString: QuirkProbeImageItem])
+    {
+      static NSUInteger next = 0;
+
+      [item setLabel: [NSString stringWithFormat: @"%c", (char)('A' + next % 6)]];
+      next++;
+    }
   /* An item without an action is disabled, and draws its image faded. */
   [item setTarget: self];
   [item setAction: @selector(toolbarItemClicked:)];
@@ -1400,6 +1409,13 @@ static NSRect QuirkProbeOpenListRow;
     {
       return [NSArray arrayWithObjects: QuirkProbeImageItem, NSToolbarFlexibleSpaceItemIdentifier,
                                         QuirkProbeImageItem, nil];
+    }
+  /* A B | C D E F: the separator goes with B or C. */
+  if ([[toolbar identifier] hasPrefix: @"QuirkProbeOverflowPriority"])
+    {
+      return [NSArray arrayWithObjects: QuirkProbeImageItem, QuirkProbeImageItem,
+                                        NSToolbarSeparatorItemIdentifier, QuirkProbeImageItem,
+                                        QuirkProbeImageItem, QuirkProbeImageItem, QuirkProbeImageItem, nil];
     }
   if ([[toolbar identifier] isEqualToString: @"QuirkProbeSeparatorToolbar"])
     {
@@ -2443,6 +2459,199 @@ WinUIThemeProbeToolbarInRow(NSWindow *window)
   [window setToolbar: nil];
   [window setMenu: nil];
   [window orderOut: nil];
+}
+
+/* What a toolbar too narrow for its items shows: the labels shown
+   ("|" for the separator), the ">>" menu's, and a problem with the
+   layout (shown items not end to end or hidden, the menu not the rest
+   in order), or nil. */
+- (NSString *) overflowLayoutProblemIn: (NSToolbar *)toolbar
+                                 shown: (NSMutableString *)shown
+                                  menu: (NSMutableString *)menu
+{
+  NSView *toolbarView = [(id)toolbar _toolbarView];
+  NSView *mark = QuirkProbeFindViewOfClass(toolbarView, NSClassFromString(@"GSToolbarClippedItemsButton"));
+  NSArray *visible = [toolbar visibleItems];
+  NSMutableString *rest = [NSMutableString string];
+  NSEnumerator *enumerator = [[toolbar items] objectEnumerator];
+  NSToolbarItem *item = nil;
+  CGFloat x = -1.0;
+
+  while ((item = [enumerator nextObject]) != nil)
+    {
+      NSView *backView = [item _backView];
+      NSRect frame = [toolbarView convertRect: [backView bounds] fromView: backView];
+      BOOL separator = [[item itemIdentifier] isEqualToString: NSToolbarSeparatorItemIdentifier];
+      NSString *label = separator ? @"|" : [item label];
+
+      if ([visible containsObject: item] == NO)
+        {
+          if (separator == NO)
+            {
+              [rest appendString: label];
+            }
+          continue;
+        }
+      [shown appendString: label];
+      if ([backView isHiddenOrHasHiddenAncestor] || (x >= 0.0 && fabs(NSMinX(frame) - x) > 0.5))
+        {
+          return [NSString stringWithFormat: @"%@ at %.0f%@ after an item ending at %.0f",
+                           label, NSMinX(frame), [backView isHiddenOrHasHiddenAncestor] ? @", hidden," : @"", x];
+        }
+      x = NSMaxX(frame);
+    }
+  if ([mark respondsToSelector: @selector(overflowMenu)] && [mark superview] != nil)
+    {
+      NSMenu *overflow = [mark performSelector: @selector(overflowMenu)];
+      NSInteger i;
+
+      for (i = 0; i < [overflow numberOfItems]; i++)
+        {
+          if ([[overflow itemAtIndex: i] isSeparatorItem] == NO)
+            {
+              [menu appendString: [[overflow itemAtIndex: i] title]];
+            }
+        }
+    }
+  if ([menu length] == 0)
+    {
+      return [NSString stringWithFormat: @"no \">>\" menu with %@ shown", shown];
+    }
+  if ([menu isEqualToString: rest] == NO)
+    {
+      return [NSString stringWithFormat: @"the \">>\" menu has %@, not %@", menu, rest];
+    }
+  return nil;
+}
+
+/* A toolbar too narrow for its items puts the least important in the
+   ">>" menu first, by visibilityPriority, as AppKit does, the last of
+   equals first; libs-gui only ever clipped the end. A separator goes
+   with the item beside it. The rest stay end to end, and the menu has
+   what's gone in the toolbar's order. With every item at the default
+   the end goes, as before. In a row of its own and in the menu bar's
+   (#91). */
+- (void) checkToolbarOverflowPriority
+{
+  NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+  NSMutableArray *problems = [NSMutableArray array];
+  NSMutableArray *details = [NSMutableArray array];
+  NSUInteger pass;
+
+  for (pass = 0; pass < 2; pass++)
+    {
+      BOOL inMenuBar = (pass == 1);
+      NSString *where = inMenuBar ? @"menu bar row" : @"own row";
+      NSWindow *window = [self windowWithFrame: NSMakeRect(300, 300, inMenuBar ? 300 : 240, 160)
+                                         title: @"QuirkProbe Overflow"];
+      NSToolbar *toolbar = [[NSToolbar alloc] initWithIdentifier:
+        inMenuBar ? @"QuirkProbeOverflowPriorityMenuRow" : @"QuirkProbeOverflowPriority"];
+      NSMenu *menu = AUTORELEASE([[NSMenu alloc] initWithTitle: @"QuirkProbe"]);
+      NSMutableString *shown = [NSMutableString string];
+      NSMutableString *overflow = [NSMutableString string];
+      NSString *problem = nil;
+      NSArray *items = nil;
+      NSRect frame;
+
+      [defaults setBool: inMenuBar forKey: @"GSThemeToolbarInMenuBar"];
+      [toolbar setDelegate: self];
+      [toolbar setDisplayMode: NSToolbarDisplayModeIconOnly];
+      [window setToolbar: toolbar];
+      RELEASE(toolbar);
+      if (inMenuBar)
+        {
+          [menu addItemWithTitle: @"File" action: NULL keyEquivalent: @""];
+          [window setMenu: menu];
+        }
+      [window orderFront: nil];
+      QuirkProbeDispatchEvents(0.2);
+      items = [toolbar items];
+      if ([items count] != 7 || [[toolbar visibleItems] count] >= 7)
+        {
+          [problems addObject: [NSString stringWithFormat: @"%@: %lu items, %lu shown", where,
+                                         (unsigned long)[items count], (unsigned long)[[toolbar visibleItems] count]]];
+        }
+      else
+        {
+          /* All at the default: a run from A, the end in the menu. */
+          problem = [self overflowLayoutProblemIn: toolbar shown: shown menu: overflow];
+          if (problem == nil && [@"AB|CDEF" hasPrefix: shown] == NO)
+            {
+              problem = [NSString stringWithFormat: @"%@ shown, not a run from A", shown];
+            }
+          if (problem == nil && [shown hasSuffix: @"|"])
+            {
+              problem = [NSString stringWithFormat: @"%@ shown: the separator stayed without C", shown];
+            }
+          if (problem != nil)
+            {
+              [problems addObject: [NSString stringWithFormat: @"%@, all standard: %@", where, problem]];
+            }
+          else
+            {
+              [details addObject: [NSString stringWithFormat: @"%@, all standard: %@ shown, %@ in >>",
+                                            where, shown, overflow]];
+            }
+
+          /* B and D low, F high: D goes, then B with the separator;
+             in a row of its own A, C, E and F then fit. */
+          [shown setString: @""];
+          [overflow setString: @""];
+          [[items objectAtIndex: 1] setVisibilityPriority: NSToolbarItemVisibilityPriorityLow];
+          [[items objectAtIndex: 4] setVisibilityPriority: NSToolbarItemVisibilityPriorityLow];
+          [[items objectAtIndex: 6] setVisibilityPriority: NSToolbarItemVisibilityPriorityHigh];
+          frame = [window frame];
+          [window setFrame: NSMakeRect(NSMinX(frame), NSMinY(frame), NSWidth(frame) + 1.0, NSHeight(frame))
+                   display: YES];
+          [window setFrame: frame display: YES];
+          QuirkProbeDispatchEvents(0.1);
+          problem = [self overflowLayoutProblemIn: toolbar shown: shown menu: overflow];
+          if (problem == nil && [shown rangeOfString: @"F"].location == NSNotFound)
+            {
+              problem = [NSString stringWithFormat: @"%@ shown: F, high, went", shown];
+            }
+          if (problem == nil && ([shown rangeOfString: @"B"].location != NSNotFound
+                                 || [shown rangeOfString: @"D"].location != NSNotFound)
+              && ([shown rangeOfString: @"A"].location == NSNotFound
+                  || [shown rangeOfString: @"C"].location == NSNotFound
+                  || [shown rangeOfString: @"E"].location == NSNotFound))
+            {
+              problem = [NSString stringWithFormat: @"%@ shown: a low item stayed while a standard one went", shown];
+            }
+          if (problem == nil && [shown rangeOfString: @"B"].location == NSNotFound
+              && [shown rangeOfString: @"|"].location != NSNotFound)
+            {
+              problem = [NSString stringWithFormat: @"%@ shown: the separator stayed without B", shown];
+            }
+          if (problem == nil && inMenuBar == NO && [shown isEqualToString: @"ACEF"] == NO)
+            {
+              problem = [NSString stringWithFormat: @"%@ shown and %@ in >>, not ACEF", shown, overflow];
+            }
+          if (problem != nil)
+            {
+              [problems addObject: [NSString stringWithFormat: @"%@, B and D low, F high: %@", where, problem]];
+            }
+          else
+            {
+              [details addObject: [NSString stringWithFormat: @"%@, B and D low, F high: %@ shown, %@ in >>",
+                                            where, shown, overflow]];
+            }
+          [self saveView: [[window contentView] superview]
+                   named: inMenuBar ? @"toolbar-overflow-priority-menu-row" : @"toolbar-overflow-priority"];
+        }
+      [defaults removeObjectForKey: @"GSThemeToolbarInMenuBar"];
+      [window setToolbar: nil];
+      [window setMenu: nil];
+      [window orderOut: nil];
+    }
+  if ([problems count] == 0)
+    {
+      [self pass: @"toolbar-overflow-priority" detail: [details componentsJoinedByString: @"; "]];
+    }
+  else
+    {
+      [self fail: @"toolbar-overflow-priority" detail: [problems componentsJoinedByString: @"; "]];
+    }
 }
 
 /* Vertical scrollers sit on the trailing (right) edge (issue #4). */
@@ -13003,6 +13212,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkToolbarInMenuBar];
   [self checkToolbarInMenuBarSavedFrame];
   [self checkToolbarInMenuBarViews];
+  [self checkToolbarOverflowPriority];
   [self checkToolbarFlexibleSpaceScaled];
   [self checkScrollerEdge];
   [self checkTableHeader];
