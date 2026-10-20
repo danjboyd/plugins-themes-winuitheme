@@ -5199,9 +5199,24 @@ QuirkProbeTwelveHourClock(void)
                                    modifierFlags: 0 timestamp: 0 windowNumber: [window windowNumber]
                                          context: nil eventNumber: 0 clickCount: 1 pressure: 1.0];
     NSRect field = [date convertRect: [date bounds] toView: nil];
+    NSRect visible = [[NSScreen mainScreen] visibleFrame];
     CGFloat bandY;
 
+    /* The flyout reaches 270px above the field's middle and 331px below:
+       put the field where both fit (on CI's 1024x768 screen a fixed
+       origin left too little room above). */
+    if (NSHeight(visible) < 401.0 * 1.5 + 8.0)
+      {
+        [self skip: @"date-picker-flyout-scaled" detail: [NSString stringWithFormat:
+          @"the screen's visible frame is %.0fpx high, too short for a 602px flyout", NSHeight(visible)]];
+        [window orderOut: nil];
+        return;
+      }
     [window setFrameOrigin: NSMakePoint(400, 300)];
+    field = [date convertRect: [date bounds] toView: nil];
+    field.origin = [window convertBaseToScreen: field.origin];
+    [window setFrameOrigin: NSMakePoint(400, 300 + floor(NSMinY(visible) + 331.0 + 0.5 * (NSHeight(visible) - 601.0)
+                                                              - NSMidY(field)))];
     field = [date convertRect: [date bounds] toView: nil];
     field.origin = [window convertBaseToScreen: field.origin];
     _scaledFlyoutFrame = NSZeroRect;
