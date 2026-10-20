@@ -4667,6 +4667,64 @@ QuirkProbeTwelveHourClock(void)
            atStart: NO];
 }
 
+/* Holding the day column's down button (#56): presses it, lets it go
+   0.85s later, and accepts the flyout 0.55s after that. */
+- (void) holdDatePickerFlyoutArrow: (NSTimer *)timer
+{
+  NSEnumerator *enumerator = [[NSApp windows] objectEnumerator];
+  NSWindow *window;
+  NSView *flyout = nil;
+
+  while ((window = [enumerator nextObject]) != nil)
+    {
+      if ([window isVisible]
+          && [NSStringFromClass([[window contentView] class]) isEqualToString: @"WinUIThemeDatePickerFlyoutView"])
+        {
+          flyout = [window contentView];
+        }
+    }
+  if (flyout == nil)
+    {
+      [self releaseDatePickerFlyoutArrow: timer];
+      [self acceptDatePickerFlyout: timer];
+      return;
+    }
+  [NSApp postEvent: [NSEvent mouseEventWithType: NSLeftMouseDown
+                                       location: [flyout convertPoint: NSMakePoint(176, 340) toView: nil]
+                                  modifierFlags: 0 timestamp: 0 windowNumber: [[flyout window] windowNumber]
+                                        context: nil eventNumber: 0 clickCount: 1 pressure: 1.0]
+           atStart: NO];
+  [[NSRunLoop currentRunLoop] addTimer: [NSTimer timerWithTimeInterval: 0.85 target: self
+                                                              selector: @selector(releaseDatePickerFlyoutArrow:)
+                                                              userInfo: [timer userInfo] repeats: NO]
+                               forMode: NSEventTrackingRunLoopMode];
+  [[NSRunLoop currentRunLoop] addTimer: [NSTimer timerWithTimeInterval: 1.4 target: self
+                                                              selector: @selector(acceptDatePickerFlyout:)
+                                                              userInfo: [timer userInfo] repeats: NO]
+                               forMode: NSEventTrackingRunLoopMode];
+}
+
+- (void) releaseDatePickerFlyoutArrow: (NSTimer *)timer
+{
+  NSWindow *owner = [timer userInfo];
+
+  [NSApp postEvent: [NSEvent mouseEventWithType: NSLeftMouseUp location: NSZeroPoint
+                                  modifierFlags: 0 timestamp: 0 windowNumber: [owner windowNumber]
+                                        context: nil eventNumber: 0 clickCount: 1 pressure: 0.0]
+           atStart: NO];
+}
+
+- (void) acceptDatePickerFlyout: (NSTimer *)timer
+{
+  NSWindow *owner = [timer userInfo];
+
+  [NSApp postEvent: [NSEvent keyEventWithType: NSKeyDown location: NSZeroPoint modifierFlags: 0
+                                    timestamp: 0 windowNumber: [owner windowNumber] context: nil
+                                   characters: @"\r" charactersIgnoringModifiers: @"\r"
+                                    isARepeat: NO keyCode: 0]
+           atStart: NO];
+}
+
 - (void) inspectDatePickerFlyout: (NSTimer *)timer
 {
   NSEnumerator *enumerator = [[NSApp windows] objectEnumerator];
@@ -5092,6 +5150,38 @@ QuirkProbeTwelveHourClock(void)
           @"after Down, the day's down button and Enter the date is %@ (%lu actions); expected 2026-11-06",
           [picked descriptionWithCalendarFormat: @"%Y-%m-%d %H:%M %z"],
           (unsigned long)_datePickerActions]];
+      }
+  }
+
+  /* A held up or down button steps on, as WinUI's RepeatButton (#56):
+     after the first step, one each 250ms from 250ms on while it's held,
+     and none once it's let go. Held 0.85s: four steps, three to five
+     allowing for the timers. */
+  {
+    NSTimer *timer = [NSTimer timerWithTimeInterval: 0.3 target: self
+                                           selector: @selector(holdDatePickerFlyoutArrow:)
+                                           userInfo: window repeats: NO];
+    NSEvent *click = [NSEvent mouseEventWithType: NSLeftMouseDown
+                                        location: [date convertPoint: NSMakePoint(60, 16) toView: nil]
+                                   modifierFlags: 0 timestamp: 0 windowNumber: [window windowNumber]
+                                         context: nil eventNumber: 0 clickCount: 1 pressure: 1.0];
+    NSTimeZone *zone = [NSTimeZone timeZoneWithName: @"America/Chicago"];
+    NSInteger before = [[[date dateValue] dateWithCalendarFormat: nil timeZone: zone] dayOfCommonEra];
+    NSInteger steps;
+
+    [[NSRunLoop currentRunLoop] addTimer: timer forMode: NSEventTrackingRunLoopMode];
+    [date mouseDown: click];
+    [timer invalidate];
+    steps = [[[date dateValue] dateWithCalendarFormat: nil timeZone: zone] dayOfCommonEra] - before;
+    if (steps >= 3 && steps <= 5)
+      {
+        [self pass: @"date-picker-flyout-repeat" detail: [NSString stringWithFormat:
+          @"the day's down button held 0.85s stepped the day %ld times, and stopped when let go", (long)steps]];
+      }
+    else
+      {
+        [self fail: @"date-picker-flyout-repeat" detail: [NSString stringWithFormat:
+          @"the day's down button held 0.85s stepped the day %ld times (expected 3 to 5)", (long)steps]];
       }
   }
 
