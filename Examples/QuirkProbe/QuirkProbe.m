@@ -687,6 +687,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkOverlayScrollers;
 - (void) checkOverlayAutohide;
 - (void) checkFocusVisual;
+- (void) checkFocusRedisplayPerKey;
 - (void) checkTextBox;
 - (void) checkFocusedPlaceholder;
 - (void) checkContrastPopUpSelection;
@@ -783,6 +784,49 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (BOOL) isOpaque
 {
   return YES;
+}
+
+@end
+
+/* Counts the redisplays asked of it that reach past `child`'s frame: the
+   focus ring's margin, which only the theme asks for (ObjcMarkdown #164).
+   A child's own invalidation, passed up, stays inside its frame. */
+@interface QuirkProbeMarginCountingView : NSView
+{
+@public
+  NSView *child;
+  NSUInteger margins;
+}
+@end
+
+@implementation QuirkProbeMarginCountingView
+
+- (void) setNeedsDisplayInRect: (NSRect)rect
+{
+  if (child != nil && NSContainsRect(rect, [child frame])
+      && NSEqualRects(rect, [child frame]) == NO)
+    {
+      margins++;
+    }
+  [super setNeedsDisplayInRect: rect];
+}
+
+@end
+
+/* A view that takes focus and ignores keys, as a custom canvas might. */
+@interface QuirkProbeKeyIgnoringView : NSView
+@end
+
+@implementation QuirkProbeKeyIgnoringView
+
+- (BOOL) acceptsFirstResponder
+{
+  return YES;
+}
+
+- (void) keyDown: (NSEvent *)event
+{
+  (void)event;
 }
 
 @end
@@ -9540,6 +9584,113 @@ QuirkProbeBrightnessLeftOf(NSView *view)
   [window orderOut: nil];
 }
 
+/* A key redraws no focused view that has no ring (ObjcMarkdown #164): a
+   text view, or a custom view that takes focus. The theme redisplayed
+   each with its ring's margin on every key, a whole extra redraw of an
+   editor per keystroke. A button keeps its ring's margin (Tab). */
+- (void) checkFocusRedisplayPerKey
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(420, 420, 300, 140)
+                                     title: @"QuirkProbe Focus Keys"];
+  QuirkProbeMarginCountingView *textBox = AUTORELEASE([[QuirkProbeMarginCountingView alloc]
+    initWithFrame: NSMakeRect(10, 70, 280, 60)]);
+  QuirkProbeMarginCountingView *canvasBox = AUTORELEASE([[QuirkProbeMarginCountingView alloc]
+    initWithFrame: NSMakeRect(10, 10, 130, 50)]);
+  QuirkProbeMarginCountingView *buttonBox = AUTORELEASE([[QuirkProbeMarginCountingView alloc]
+    initWithFrame: NSMakeRect(150, 10, 140, 50)]);
+  NSTextView *text = AUTORELEASE([[NSTextView alloc] initWithFrame: NSMakeRect(10, 10, 260, 40)]);
+  QuirkProbeKeyIgnoringView *canvas = AUTORELEASE([[QuirkProbeKeyIgnoringView alloc]
+    initWithFrame: NSMakeRect(10, 10, 110, 30)]);
+  NSButton *first = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(10, 10, 55, 30)]);
+  NSButton *second = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(75, 10, 55, 30)]);
+  NSMutableArray *problems = [NSMutableArray array];
+  NSEvent *tab = nil;
+  int index;
+
+  [text setEditable: YES];
+  [first setTitle: @"A"];
+  [second setTitle: @"B"];
+  [first setNextKeyView: second];
+  [second setNextKeyView: first];
+  [textBox addSubview: text];
+  [canvasBox addSubview: canvas];
+  [buttonBox addSubview: first];
+  [buttonBox addSubview: second];
+  textBox->child = text;
+  canvasBox->child = canvas;
+  buttonBox->child = second;
+  [[window contentView] addSubview: textBox];
+  [[window contentView] addSubview: canvasBox];
+  [[window contentView] addSubview: buttonBox];
+  [window makeKeyAndOrderFront: nil];
+
+  /* Ten keys typed into the text view, then ten into the canvas: the
+     first shows focus from the keyboard, the rest only repeat it. */
+  [window makeFirstResponder: text];
+  [window display];
+  textBox->margins = 0;
+  for (index = 0; index < 10; index++)
+    {
+      [NSApp sendEvent: [NSEvent keyEventWithType: NSKeyDown location: NSZeroPoint modifierFlags: 0
+                                        timestamp: 0 windowNumber: [window windowNumber] context: nil
+                                       characters: @"a" charactersIgnoringModifiers: @"a"
+                                        isARepeat: NO keyCode: 0x41]];
+      [window displayIfNeeded];
+    }
+  if (textBox->margins != 0)
+    {
+      [problems addObject: [NSString stringWithFormat: @"10 keys in a text view redisplayed it with a ring's margin %lu times",
+        (unsigned long)textBox->margins]];
+    }
+
+  [window makeFirstResponder: canvas];
+  [window display];
+  canvasBox->margins = 0;
+  for (index = 0; index < 10; index++)
+    {
+      [NSApp sendEvent: [NSEvent keyEventWithType: NSKeyDown location: NSZeroPoint modifierFlags: 0
+                                        timestamp: 0 windowNumber: [window windowNumber] context: nil
+                                       characters: @"a" charactersIgnoringModifiers: @"a"
+                                        isARepeat: NO keyCode: 0x41]];
+      [window displayIfNeeded];
+    }
+  if (canvasBox->margins != 0)
+    {
+      [problems addObject: [NSString stringWithFormat: @"10 keys in a custom view redisplayed it with a ring's margin %lu times",
+        (unsigned long)canvasBox->margins]];
+    }
+
+  /* Tab to a button still asks for its ring's margin. */
+  [window makeFirstResponder: first];
+  [window display];
+  buttonBox->margins = 0;
+  tab = [NSEvent keyEventWithType: NSKeyDown location: NSZeroPoint modifierFlags: 0 timestamp: 0
+                     windowNumber: [window windowNumber] context: nil characters: @"\t"
+      charactersIgnoringModifiers: @"\t" isARepeat: NO keyCode: 0x09];
+  [NSApp sendEvent: tab];
+  [window displayIfNeeded];
+  if ([window firstResponder] != second)
+    {
+      [problems addObject: @"Tab didn't move focus to the second button"];
+    }
+  else if (buttonBox->margins == 0)
+    {
+      [problems addObject: @"Tab to a button didn't redisplay its ring's margin"];
+    }
+
+  if ([problems count] == 0)
+    {
+      [self pass: @"focus-no-redisplay-per-key" detail: [NSString stringWithFormat:
+        @"keys in a text view and a custom view ask no ring's margin; Tab to a button asks %lu",
+        (unsigned long)buttonBox->margins]];
+    }
+  else
+    {
+      [self fail: @"focus-no-redisplay-per-key" detail: [problems componentsJoinedByString: @"; "]];
+    }
+  [window orderOut: nil];
+}
+
 /* WinUI's TextBox (issue #37): filled with ControlFillColorDefault, a
    step off the window rather than the window's own colour; a darker
    bottom edge; focused, a 2px accent underline. */
@@ -13253,6 +13404,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkOverlayScrollers];
   [self checkOverlayAutohide];
   [self checkFocusVisual];
+  [self checkFocusRedisplayPerKey];
   [self checkTextBox];
   [self checkFocusedPlaceholder];
   [self checkContrastPopUpSelection];
