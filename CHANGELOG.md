@@ -5,6 +5,24 @@ Releases of the WinUI theme for GNUstep. Versions are semver pre-releases
 `GSThemeVersion` in `WinUIThemeInfo.plist`, and an annotated tag on `main`.
 Apps that bundle the theme should pin a tag, not `main`.
 
+## 0.1.0-alpha12 (2026-10-21)
+
+One performance fix: typing in a text view no longer redraws it a second
+time on every key. Requires gnustep-gui 0.32 or later. Tested with the
+carried libs-back `carry-0.32.0.4`, as alpha11 was. Window tabs are
+unchanged from alpha9; the new tab code (#165) moves to alpha13.
+Markdown Viewer 0.2.5 moves to it.
+
+**Fixes**
+- Every key press redisplayed the focused view whole, with its focus
+  ring's margin, unless the ring was already drawn around it. Text views
+  never draw one (text inputs show an underline), nor do custom views
+  that take focus or disabled controls, so each keystroke in an editor
+  cost an extra full redraw (ObjcMarkdown #164). Only enabled controls
+  that draw the ring are redisplayed for it now, after a key and when
+  keyboard focus is shown or hidden (#173). QuirkProbe
+  `focus-no-redisplay-per-key`.
+
 ## 0.1.0-alpha11 (2026-10-20)
 
 The toolbar in the menu bar's row is CommandBar's standard size, easier
