@@ -445,6 +445,28 @@ QuirkProbeModuleOfAddress(void *address)
 + (void) setDraggedItemIndex: (NSUInteger)sourceIndex;
 @end
 
+/* ScreenshotTool's toolbar priorities, as its #303 sets them. */
+static NSString * const QuirkProbeReturnsItemPrefix = @"QuirkProbeReturns.";
+
+static NSInteger
+QuirkProbeReturnsPriority(NSString *name)
+{
+  if ([name isEqualToString: @"Undo"] || [name isEqualToString: @"Redo"])
+    {
+      return NSToolbarItemVisibilityPriorityLow;
+    }
+  if ([name isEqualToString: @"Save"] || [name isEqualToString: @"Share"])
+    {
+      return NSToolbarItemVisibilityPriorityHigh;
+    }
+  if ([name isEqualToString: @"Tools"] || [name isEqualToString: @"Colour"]
+      || [name isEqualToString: @"Copy"])
+    {
+      return NSToolbarItemVisibilityPriorityUser;
+    }
+  return NSToolbarItemVisibilityPriorityStandard;
+}
+
 @interface NSView (QuirkProbeTabBar)
 - (NSUInteger) numberOfTabs;
 - (NSRect) rectForTabAtIndex: (NSUInteger)index;
@@ -1365,6 +1387,23 @@ static NSRect QuirkProbeOpenListRow;
   [item setLabel: @"Image"];
   [item setImage: [[toolbar identifier] isEqualToString: @"QuirkProbeIconSizeToolbar"]
                    ? QuirkProbeToolbarSymbolicImage() : [self magentaImage]];
+  /* The overflow return check: ScreenshotTool's items, as views 60pt
+     wide, Tools 300pt (Adwaita#82's). */
+  if ([identifier hasPrefix: QuirkProbeReturnsItemPrefix])
+    {
+      NSString *name = [identifier substringFromIndex: [QuirkProbeReturnsItemPrefix length]];
+      CGFloat width = [name isEqualToString: @"Tools"] ? 300.0 : 60.0;
+      NSButton *button = [[NSButton alloc] initWithFrame: NSMakeRect(0, 0, width, 24)];
+
+      [button setTitle: name];
+      [item setView: button];
+      [item setMinSize: NSMakeSize(width, 24)];
+      [item setMaxSize: NSMakeSize(width, 24)];
+      [item setLabel: name];
+      [item setVisibilityPriority: QuirkProbeReturnsPriority(name)];
+      RELEASE(button);
+      return AUTORELEASE(item);
+    }
   /* The alignment check needs a view item (the theme draws its label)
      with a label much narrower than the view. */
   if ([[toolbar identifier] isEqualToString: @"QuirkProbeAlignmentToolbar"])
@@ -1445,6 +1484,10 @@ static NSRect QuirkProbeOpenListRow;
 
 - (NSArray *) toolbarAllowedItemIdentifiers: (NSToolbar *)toolbar
 {
+  if ([[toolbar identifier] isEqualToString: @"QuirkProbeOverflowReturns"])
+    {
+      return [[self toolbarDefaultItemIdentifiers: toolbar] arrayByAddingObject: NSToolbarSeparatorItemIdentifier];
+    }
   return [NSArray arrayWithObjects: QuirkProbeImageItem, NSToolbarSeparatorItemIdentifier,
                                     NSToolbarFlexibleSpaceItemIdentifier, nil];
 }
@@ -1460,6 +1503,21 @@ static NSRect QuirkProbeOpenListRow;
     {
       return [NSArray arrayWithObjects: QuirkProbeImageItem, NSToolbarFlexibleSpaceItemIdentifier,
                                         QuirkProbeImageItem, nil];
+    }
+  if ([[toolbar identifier] isEqualToString: @"QuirkProbeOverflowReturns"])
+    {
+      NSArray *names = [NSArray arrayWithObjects: @"Undo", @"Redo", @"Tools", @"Colour", @"~",
+                                                  @"Save", @"Copy", @"Share", @"Action", nil];
+      NSMutableArray *identifiers = [NSMutableArray array];
+      NSEnumerator *enumerator = [names objectEnumerator];
+      NSString *name = nil;
+
+      while ((name = [enumerator nextObject]) != nil)
+        {
+          [identifiers addObject: [name isEqualToString: @"~"] ? NSToolbarFlexibleSpaceItemIdentifier
+                                    : [QuirkProbeReturnsItemPrefix stringByAppendingString: name]];
+        }
+      return identifiers;
     }
   /* A B | C D E F: the separator goes with B or C. */
   if ([[toolbar identifier] hasPrefix: @"QuirkProbeOverflowPriority"])
@@ -2772,6 +2830,8 @@ WinUIThemeProbeToolbarInRow(NSWindow *window)
             { NSNotFound, fMiddle + 2.0, 7, @"new item past F" },
             { 0, eMiddle + 2.0, 5, @"A past E's middle" },
             { 5, cMiddle - 2.0, 3, @"E before C's middle" },
+            /* Out of the ">>" menu first, so E is then at 4. */
+            { 1, (cMiddle + eMiddle) / 2.0, 4, @"B (in >>) between C and E" },
           };
           NSUInteger index;
 
@@ -2790,13 +2850,67 @@ WinUIThemeProbeToolbarInRow(NSWindow *window)
           [toolbarViewClass setDraggedItemIndex: NSNotFound];
           if ([problems count] == 0)
             {
-              [self pass: @"toolbar-insertion-index" detail: @"ACEF shown: 3, 7, 5 and 3"];
+              [self pass: @"toolbar-insertion-index" detail: @"ACEF shown: 3, 7, 5, 3 and 4"];
             }
           else
             {
               [self fail: @"toolbar-insertion-index" detail: [problems componentsJoinedByString: @"; "]];
             }
         }
+    }
+  [window setToolbar: nil];
+  [window orderOut: nil];
+}
+
+/* When the last item to go leaves room for some that went before it with
+   its priority, they come back (Adwaita#81): ScreenshotTool's toolbar
+   with a 300pt Tools, about 300pt wide. Low, Standard and High go, then
+   Copy, Colour and Tools (User, right to left); without Tools, Colour and
+   Copy fit again. Save and Share (High) stay in ">>", so no item is
+   kept while one above it isn't. */
+- (void) checkToolbarOverflowReturns
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(300, 300, 300, 160)
+                                     title: @"QuirkProbe Returns"];
+  NSToolbar *toolbar = [[NSToolbar alloc] initWithIdentifier: @"QuirkProbeOverflowReturns"];
+  NSView *toolbarView = nil;
+  NSMutableArray *shown = [NSMutableArray array];
+  NSEnumerator *enumerator = nil;
+  NSToolbarItem *item = nil;
+  NSString *names = nil;
+  CGFloat width;
+
+  [toolbar setDelegate: self];
+  [toolbar setDisplayMode: NSToolbarDisplayModeIconOnly];
+  [window setToolbar: toolbar];
+  RELEASE(toolbar);
+  [window orderFront: nil];
+  QuirkProbeDispatchEvents(0.2);
+  toolbarView = QuirkProbeFindViewOfClass([[window contentView] superview], NSClassFromString(@"GSToolbarView"));
+  width = NSWidth([toolbarView frame]);
+  enumerator = [[toolbar visibleItems] objectEnumerator];
+  while ((item = [enumerator nextObject]) != nil)
+    {
+      [shown addObject: [[item itemIdentifier] isEqualToString: NSToolbarFlexibleSpaceItemIdentifier]
+                          ? @"~" : [item label]];
+    }
+  names = [shown componentsJoinedByString: @" "];
+  /* Colour and Copy (160pt) and the ">>" fit; Tools alone (320pt) doesn't. */
+  if (toolbarView == nil || [[toolbar items] count] != 9 || width < 188.0 || width >= 348.0)
+    {
+      [self skip: @"toolbar-overflow-same-priority-returns"
+          detail: [NSString stringWithFormat: @"%lu items, toolbar %.0fpt wide",
+                            (unsigned long)[[toolbar items] count], width]];
+    }
+  else if ([names isEqualToString: @"Colour ~ Copy"])
+    {
+      [self pass: @"toolbar-overflow-same-priority-returns"
+          detail: [NSString stringWithFormat: @"%.0fpt: %@ shown", width, names]];
+    }
+  else
+    {
+      [self fail: @"toolbar-overflow-same-priority-returns"
+          detail: [NSString stringWithFormat: @"%.0fpt: %@ shown, not Colour ~ Copy", width, names]];
     }
   [window setToolbar: nil];
   [window orderOut: nil];
@@ -13469,6 +13583,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkToolbarInMenuBarViews];
   [self checkToolbarOverflowPriority];
   [self checkToolbarInsertionIndex];
+  [self checkToolbarOverflowReturns];
   [self checkToolbarFlexibleSpaceScaled];
   [self checkScrollerEdge];
   [self checkTableHeader];

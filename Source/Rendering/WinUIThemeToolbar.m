@@ -538,9 +538,12 @@ WinUIThemeToolbarKeepFlexibleSpaceInside(NSView *toolbarView, NSToolbar *toolbar
    - The separators and fixed spaces after an item go with it; those
      with no item before them (first, or after a flexible space) go
      with the item after them. A flexible space stays.
+   - Items that went before the last to go, with its priority, come
+     back leftmost first where they fit (Adwaita#81).
    - When the priorities never rise along the toolbar (all at the
-     default, say) that's the run from the start: libs-gui's own, to
-     the pixel. nil then. */
+     default, say) and nothing came back, or every item has the same
+     priority, that's the run from the start: libs-gui's own, to the
+     pixel. nil then. */
 static const CGFloat WinUIThemeToolbarClippedItemsWidth = 28.0;
 static const CGFloat WinUIThemeToolbarClippedItemViewInset = 10.0;
 
@@ -582,8 +585,12 @@ WinUIThemeToolbarKeptItems(NSView *toolbarView, NSToolbar *toolbar)
   NSMutableIndexSet *kept = [NSMutableIndexSet indexSetWithIndexesInRange: NSMakeRange(0, count)];
   CGFloat width = NSWidth([toolbarView frame]);
   CGFloat total = 0.0;
+  NSMutableArray *gone = [NSMutableArray array];
   NSInteger last = NSIntegerMax;
+  NSInteger lastGone;
   BOOL rises = NO;
+  BOOL same = YES;
+  NSUInteger returned = 0;
   NSEnumerator *enumerator = nil;
   NSNumber *index = nil;
   NSUInteger i;
@@ -596,6 +603,7 @@ WinUIThemeToolbarKeptItems(NSView *toolbarView, NSToolbar *toolbar)
       if (WinUIThemeToolbarItemIsSpace(item) == NO)
         {
           rises = rises || [item visibilityPriority] > last;
+          same = same && (last == NSIntegerMax || [item visibilityPriority] == last);
           last = [item visibilityPriority];
           [order addObject: [NSNumber numberWithUnsignedInteger: i]];
         }
@@ -604,16 +612,13 @@ WinUIThemeToolbarKeptItems(NSView *toolbarView, NSToolbar *toolbar)
     {
       return items;
     }
-  if (rises == NO)
-    {
-      return nil;
-    }
   [order sortUsingFunction: WinUIThemeToolbarDropOrder context: items];
   enumerator = [order objectEnumerator];
   while (total + WinUIThemeToolbarClippedItemsWidth > width && (index = [enumerator nextObject]) != nil)
     {
       NSUInteger dropped = [index unsignedIntegerValue];
       NSUInteger from = dropped;
+      NSMutableIndexSet *group = [NSMutableIndexSet indexSet];
       NSUInteger j;
 
       /* The item, the separators and spaces after it, and those before
@@ -644,8 +649,45 @@ WinUIThemeToolbarKeptItems(NSView *toolbarView, NSToolbar *toolbar)
             {
               total -= WinUIThemeToolbarOverflowWidth(item);
               [kept removeIndex: j];
+              [group addIndex: j];
             }
         }
+      [gone addObject: [NSArray arrayWithObjects: index, group, nil]];
+    }
+  /* The last item to go can leave room for some that went before it
+     with the same priority: those come back, leftmost first, where they
+     fit (ScreenshotTool's Colour and Copy, which went before its wide
+     Tools). Lower ones stay in the ">>", so no item is kept while one
+     above it isn't. */
+  lastGone = ([gone count] > 0)
+    ? [[items objectAtIndex: [[[gone lastObject] objectAtIndex: 0] unsignedIntegerValue]] visibilityPriority] : 0;
+  for (i = [gone count] > 0 ? [gone count] - 1 : 0; i > 0; i--)
+    {
+      NSArray *drop = [gone objectAtIndex: i - 1];
+      NSIndexSet *group = [drop objectAtIndex: 1];
+      CGFloat groupWidth = 0.0;
+      NSUInteger j;
+
+      if ([[items objectAtIndex: [[drop objectAtIndex: 0] unsignedIntegerValue]] visibilityPriority] != lastGone)
+        {
+          break;
+        }
+      for (j = [group firstIndex]; j != NSNotFound; j = [group indexGreaterThanIndex: j])
+        {
+          groupWidth += WinUIThemeToolbarOverflowWidth([items objectAtIndex: j]);
+        }
+      if (total + groupWidth + WinUIThemeToolbarClippedItemsWidth <= width)
+        {
+          [kept addIndexes: group];
+          total += groupWidth;
+          returned++;
+        }
+    }
+  /* Priorities that never rise, with nothing back (or all the same):
+     libs-gui's run from the start. */
+  if (rises == NO && (returned == 0 || same))
+    {
+      return nil;
     }
   return [items objectsAtIndexes: kept];
 }
@@ -998,7 +1040,8 @@ WinUIThemeToolbarPackKeptItems(NSView *toolbarView, NSToolbar *toolbar)
    one or more places early. The same rules, counted in the toolbar's
    items: in front of the first kept item whose middle is past the
    point, else after the last; an item being moved only moves once the
-   point crosses a neighbour's middle. */
+   point crosses a neighbour's middle; one from the ">>" menu goes where
+   a new one would. Adwaita#80 does the same. */
 - (int) _overrideGSToolbarViewMethod__insertionIndexAtPoint: (NSPoint)location
 {
   typedef int (*InsertionIMP)(id, SEL, NSPoint);
@@ -1037,18 +1080,22 @@ WinUIThemeToolbarPackKeptItems(NSView *toolbarView, NSToolbar *toolbar)
       return (originalIMP != NULL) ? originalIMP(self, _cmd, location) : 0;
     }
 
-  if (dragged == NSNotFound)
+  if (draggedKept == NSNotFound)
     {
+      /* A new item, or one from the ">>" menu, which is taken out first,
+         so the indexes past it are one less (as Adwaita#80). */
       for (index = 0; index < count; index++)
         {
           if (location.x < middles[index])
             {
-              return (int)itemIndexes[index];
+              return (int)((dragged != NSNotFound && dragged < itemIndexes[index])
+                           ? itemIndexes[index] - 1 : itemIndexes[index]);
             }
         }
-      return (int)(itemIndexes[count - 1] + 1);
+      return (int)((dragged != NSNotFound && dragged < itemIndexes[count - 1])
+                   ? itemIndexes[count - 1] : itemIndexes[count - 1] + 1);
     }
-  if (draggedKept == NSNotFound || location.x < middles[draggedKept])
+  if (location.x < middles[draggedKept])
     {
       for (index = 0; index < count && itemIndexes[index] < dragged; index++)
         {
