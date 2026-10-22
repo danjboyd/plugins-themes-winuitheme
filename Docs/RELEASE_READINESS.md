@@ -125,33 +125,35 @@ Already fixed (the handoff's text is stale):
 - No paused or error progress, no slider ticks: alpha6 (#125).
 - Hover when the pointer is already inside a control: #120.
 - A toolbar's colour well as a square swatch: alpha9 (#151).
+- The date flyout's up and down buttons repeat while held: #161
+  (alpha10).
+- Title-bar tabs narrowing to 40px and running past the bar: the shared
+  code's phase 2 scrolls them, with #165 (alpha13). Whether the "+"
+  button's hit area still covers the empty strip after the tabs, which
+  Windows makes a drag area (#72), is checked there.
 - `setmaxsize` toggling the maximize box: fixed in `carry-0.32.0.2`; the
   theme's correction stays for a stock libs-back.
 
 Proposed issues (real gaps the theme could close):
 1. Under `WinUIThemeMenuStyle = more`, a window without a toolbar keeps
    a whole row for the "..." button (#130).
-2. Title-bar tabs narrow to 40px, then run past the bar; WinUI scrolls
-   them. And the "+" button's hit area covers the empty strip after the
-   tabs, which Windows makes a drag area (#72).
-3. The menu row's height is 0 while the "..." is in the title bar, so a
+2. The menu row's height is 0 while the "..." is in the title bar, so a
    menu removed after the "..." moved leaves the window a row off.
-4. The second-monitor edges: the first menu's dark strip, a pop-up list
+3. The second-monitor edges: the first menu's dark strip, a pop-up list
    sized at the previous monitor's scale, and a window growing about
    6px per round trip (`AdjustWindowRectEx` at the system DPI). Needs
    two monitors to check (OCI).
-5. `motion-row-hover-fades` shows no hover fill at 150% in the probe,
+4. `motion-row-hover-fades` shows no hover fill at 150% in the probe,
    cause not found.
-6. The date flyout's up and down buttons step once per click; WinUI's
-   repeat while held (#56).
-7. Caption-size text (12px) is 2.5% narrower than WinUI's: WinUI uses
-   Segoe UI Variable's optical size axis, the theme its Text instance at
-   every size. Using the Small instance at 12px would also widen every
-   compact-metrics (Gorm and nib) app's text, so it needs a decision.
-8. Dropping a palette control into a real .gorm file and reopening it
+5. Dropping a palette control into a real .gorm file and reopening it
    (#32, part of #19's real-app pass).
 
 Limitations, documented and not planned for beta1:
+- Caption-size text (12px) is 2.5% narrower than WinUI's: WinUI uses
+  Segoe UI Variable's optical size axis, the theme its Text instance at
+  every size. The Small instance at 12px would also widen every
+  compact-metrics (Gorm and nib) app's text, so the theme keeps Text
+  (#159 measures the whole ramp).
 - The "..." flyout's items are copies made each time it opens (as the
   narrow bar's overflow menu's are, #77); compare menus by title.
 - The theme's opaque blended fills on the menu bar and toolbar are tuned
