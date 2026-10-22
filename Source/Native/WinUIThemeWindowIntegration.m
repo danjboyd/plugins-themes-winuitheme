@@ -1149,9 +1149,9 @@ WinUIThemeApplyWindowIdentity(NSWindow *window,
    add it to every window when the menu changes; a tab (#72) has by then
    taken its group's frame, so each new tab grew the group by a menu bar.
    A window tabbed with others keeps its frame, and its content gives up
-   the row. The shared tabbing code (4cb1b63) gives a selected tab its
-   group's frame but doesn't see a menu bar added later, so this stays
-   (QuirkProbe window-tab-keeps-group-frame fails without it). */
+   the row. The shared tabbing code now keeps a tab's frame itself as a
+   menu bar comes or goes (its -changeWindowHeight: wrapper); this
+   restores the same frame (QuirkProbe window-tab-keeps-group-frame). */
 @class GSToolbarView;
 
 @interface GSWindowDecorationView (WinUIThemeMenuView)

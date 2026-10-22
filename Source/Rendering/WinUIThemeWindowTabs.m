@@ -64,72 +64,38 @@
      Hilight outline and Hilight text, Hilight with HilightText under the
      pointer, WindowText separators. */
 
-/* One tab (#133). The shared code's group shows its bar from the second
-   tab, as macOS does; Notepad and Terminal open with theirs, one tab and
-   a "+". While a group's bar is automatic (not shown or hidden with
-   -toggleTabBar:), a window on its own shows it when it can be a tab
-   (titled, not a panel, its tabbing mode not Disallowed) and something
-   answers -newWindowForTab: for it, so the "+" has something to do. The
-   shared code builds a window's bar only when its group changes; a
-   window on its own gets it as it first becomes key. The rule belongs in
-   the shared code (a theme's say over the automatic state); until then
-   the theme replaces -[NSWindowTabGroup isTabBarVisible]. */
+/* One tab (#133): Notepad and Terminal open with their tab bar, one tab
+   and a "+", where the shared code's default shows it from the second
+   tab, as macOS does. A window on its own shows it while its group's bar
+   is automatic (-windowTabBarShowsSingleTabForWindow:) when it can be a
+   tab (titled, not a panel, its tabbing mode not Disallowed) and
+   something answers -newWindowForTab: for it, so the "+" has something
+   to do. */
 
 @interface NSWindow (WinUIThemeSingleTabPrivate)
 - (BOOL) _canBeTabbed;
 - (void) _updateTabBar;
-- (NSWindowTabGroup *) _tabbingGroup;
 - (id) _tabBarView;
 @end
-
-static BOOL (*WinUIThemeOriginalIsTabBarVisible)(id, SEL) = NULL;
-static ptrdiff_t WinUIThemeBarStateOffset = -1;
 
 static BOOL
 WinUIThemeWindowShowsSingleTab(NSWindow *window)
 {
   return window != nil
-    && [[GSTheme theme] isKindOfClass: [WinUITheme class]]
     && [window respondsToSelector: @selector(_canBeTabbed)]
     && [window _canBeTabbed]
     && [NSApp targetForAction: @selector(newWindowForTab:) to: nil from: window] != nil;
 }
 
-/* What the automatic state shows: the bar from two tabs, or one tab
-   that can have company. */
-static BOOL
-WinUIThemeTabGroupShowsAutomatically(NSWindowTabGroup *group)
-{
-  NSArray *windows = [group windows];
-
-  return [windows count] > 1
-    || ([windows count] == 1 && WinUIThemeWindowShowsSingleTab([windows objectAtIndex: 0]));
-}
-
-static BOOL
-WinUIThemeTabGroupIsTabBarVisible(id group, SEL _cmd)
-{
-  if (WinUIThemeBarStateOffset >= 0
-      && *(int *)((char *)group + WinUIThemeBarStateOffset) != 0)
-    {
-      /* Shown or hidden with -toggleTabBar:. */
-      return WinUIThemeOriginalIsTabBarVisible(group, _cmd);
-    }
-  return WinUIThemeTabGroupShowsAutomatically(group);
-}
-
-@interface NSWindowTabGroup (WinUIThemeSingleTabPrivate)
-- (void) _windowsDidChangeAlso: (id)extra;
-@end
-
 @interface NSWindow (WinUIThemeTabSwitchPrivate)
-- (void) _tabbingShowWithFrame: (NSRect)frame makeKey: (BOOL)makeKey;
+- (void) _tabbingShowWithFrame: (NSRect)frame
+                     maximized: (BOOL)maximized
+                       makeKey: (BOOL)makeKey
+                     inPlaceOf: (id)previous;
 - (void) _tabbingHide;
 @end
 
-static ptrdiff_t WinUIThemeSelectedWindowOffset = -1;
-
-/* Set on a tab's window once the switch has shown it. */
+/* Set on a tab's window once a switch has shown it. */
 static char WinUIThemeTabShownKey;
 
 static NSArray *
@@ -165,13 +131,17 @@ WinUIThemeTabModes(void)
   NSWindow *window = [groupWindowPreviousKey objectAtIndex: 1];
   NSWindow *previous = [groupWindowPreviousKey objectAtIndex: 2];
   BOOL key = [[groupWindowPreviousKey objectAtIndex: 3] boolValue];
+  BOOL maximized = [[groupWindowPreviousKey objectAtIndex: 4] boolValue];
 
   if ([group selectedWindow] != window)
     {
       return;
     }
   WinUIThemeWindowIntegrationSuspendTransitions(window, previous);
-  [window _tabbingShowWithFrame: [previous frame] makeKey: (key || [previous isKeyWindow])];
+  [window _tabbingShowWithFrame: [previous frame]
+                      maximized: maximized
+                        makeKey: (key || [previous isKeyWindow])
+                      inPlaceOf: previous];
   [window display];
   [window flushWindow];
   [self performSelector: @selector(hide:)
@@ -181,123 +151,15 @@ WinUIThemeTabModes(void)
 }
 @end
 
-/* Selecting a tab (a click, the "+", Ctrl+Tab): the shared code hid the
-   old tab's window, then showed the new one in its place, so for a moment
-   neither was on the screen and the window seemed to vanish. The new one
-   comes on screen first, at the group's frame, then the old one goes. The
-   selected window isn't retained, as in the shared code. */
-static void
-WinUIThemeTabGroupSwitchToWindow(id group, SEL _cmd, id window)
-{
-  id *selected = (id *)((char *)group + WinUIThemeSelectedWindowOffset);
-  id previous = *selected;
-  NSRect frame;
-  BOOL key;
-
-  if (window == previous)
-    {
-      return;
-    }
-  *selected = window;
-  if (previous == nil)
-    {
-      return;
-    }
-  frame = [previous frame];
-  key = [previous isKeyWindow];
-  if (objc_getAssociatedObject(window, &WinUIThemeTabShownKey) == nil
-      && [window isVisible] == NO)
-    {
-      /* A tab's window never on screen (the "+" or the app's new tab):
-         Windows would show it first with its own title bar and the app's
-         content not laid out yet. It's set up behind the old one, at the
-         group's frame, and brought forward once the app has returned to
-         the run loop and it has drawn. */
-      objc_setAssociatedObject(window, &WinUIThemeTabShownKey,
-                               [NSNumber numberWithBool: YES], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-      WinUIThemeWindowIntegrationSuspendTransitions(window, previous);
-      [window setFrame: frame display: NO];
-      [window orderWindow: NSWindowBelow relativeTo: [previous windowNumber]];
-      [WinUIThemeTabHider performSelector: @selector(reveal:)
-                               withObject: [NSArray arrayWithObjects: group, window, previous,
-                                                    [NSNumber numberWithBool: key], nil]
-                               afterDelay: 0.1
-                                  inModes: WinUIThemeTabModes()];
-      return;
-    }
-  objc_setAssociatedObject(window, &WinUIThemeTabShownKey,
-                           [NSNumber numberWithBool: YES], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-  /* Without Windows' show and hide animations, which would fade the old
-     window out as the new one fades in. */
-  WinUIThemeWindowIntegrationSuspendTransitions(window, previous);
-  [window _tabbingShowWithFrame: frame makeKey: key];
-  /* A tab shown before keeps its contents while ordered out (libs-back's
-     windows are layered, and show nothing until flushed); drawn and
-     flushed again, it covers the old one, which goes at once, as the
-     shared code and apps expect. */
-  [window display];
-  [window flushWindow];
-  [previous _tabbingHide];
-}
-
-/* -toggleTabBar: as the shared code has it, against the automatic state
-   above: back to automatic when that's what automatic would show, else
-   shown (1) or hidden (2). */
-static void
-WinUIThemeTabGroupToggleTabBar(id group, SEL _cmd)
-{
-  BOOL show = ([(NSWindowTabGroup *)group isTabBarVisible] == NO);
-  int *state = (int *)((char *)group + WinUIThemeBarStateOffset);
-
-  *state = (show == WinUIThemeTabGroupShowsAutomatically(group)) ? 0 : (show ? 1 : 2);
-  [(NSWindowTabGroup *)group _windowsDidChangeAlso: nil];
-}
-
-void
-WinUIThemeWindowTabsInstallSingleTabBar(void)
-{
-  Class groupClass = NSClassFromString(@"NSWindowTabGroup");
-  Method method = NULL;
-  Method toggle = NULL;
-  Ivar state = NULL;
-
-  if (WinUIThemeOriginalIsTabBarVisible != NULL || groupClass == Nil)
-    {
-      return;
-    }
-  method = class_getInstanceMethod(groupClass, @selector(isTabBarVisible));
-  toggle = class_getInstanceMethod(groupClass, NSSelectorFromString(@"_toggleTabBar"));
-  state = class_getInstanceVariable(groupClass, "_barState");
-  if (method == NULL || toggle == NULL || state == NULL
-      || [groupClass instancesRespondToSelector: @selector(_windowsDidChangeAlso:)] == NO)
-    {
-      return;
-    }
-  WinUIThemeBarStateOffset = ivar_getOffset(state);
-  WinUIThemeOriginalIsTabBarVisible = (BOOL (*)(id, SEL))method_getImplementation(method);
-  method_setImplementation(method, (IMP)WinUIThemeTabGroupIsTabBarVisible);
-  method_setImplementation(toggle, (IMP)WinUIThemeTabGroupToggleTabBar);
-
-  {
-    Method switchMethod = class_getInstanceMethod(groupClass, NSSelectorFromString(@"_switchToWindow:"));
-    Ivar selected = class_getInstanceVariable(groupClass, "_selectedWindow");
-
-    if (switchMethod != NULL && selected != NULL
-        && [NSWindow instancesRespondToSelector: @selector(_tabbingShowWithFrame:makeKey:)]
-        && [NSWindow instancesRespondToSelector: @selector(_tabbingHide)])
-      {
-        WinUIThemeSelectedWindowOffset = ivar_getOffset(selected);
-        method_setImplementation(switchMethod, (IMP)WinUIThemeTabGroupSwitchToWindow);
-      }
-  }
-}
-
+/* A window that tabs shows its bar when it becomes key, if it couldn't
+   when it was first shown: something may answer -newWindowForTab: for it
+   only once it's key. */
 void
 WinUIThemeWindowTabsWindowBecameKey(NSWindow *window)
 {
   NSWindowTabGroup *group = nil;
 
-  if (WinUIThemeOriginalIsTabBarVisible == NULL
+  if ([window respondsToSelector: @selector(tabGroup)] == NO
       || [window respondsToSelector: @selector(_updateTabBar)] == NO
       || WinUIThemeWindowShowsSingleTab(window) == NO)
     {
@@ -608,6 +470,60 @@ WinUIThemeTabsTitleShowsEdited(NSString *title)
 static BOOL WinUIThemeTabsLastTitleShowsEdited = NO;
 
 @implementation WinUITheme (WindowTabs)
+
+- (BOOL) windowTabBarShowsSingleTabForWindow: (NSWindow *)window
+{
+  return WinUIThemeWindowShowsSingleTab(window);
+}
+
+/* Selecting a tab (a click, the "+", Ctrl+Tab): the new tab comes on
+   screen at the group's frame, then the old one goes. */
+- (void) showTabbedWindow: (NSWindow *)window
+          inPlaceOfWindow: (NSWindow *)previous
+                    frame: (NSRect)frame
+                maximized: (BOOL)maximized
+                  makeKey: (BOOL)makeKey
+{
+  NSWindowTabGroup *group = [previous tabGroup];
+
+  if (objc_getAssociatedObject(window, &WinUIThemeTabShownKey) == nil
+      && [window isVisible] == NO)
+    {
+      /* A tab's window never on screen (the "+" or the app's new tab):
+         Windows would show it first with its own title bar and the app's
+         content not laid out yet. It's set up behind the old one, at the
+         group's frame, and brought forward once the app has returned to
+         the run loop and it has drawn. */
+      objc_setAssociatedObject(window, &WinUIThemeTabShownKey,
+                               [NSNumber numberWithBool: YES], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+      WinUIThemeWindowIntegrationSuspendTransitions(window, previous);
+      [window setFrame: frame display: NO];
+      [window orderWindow: NSWindowBelow relativeTo: [previous windowNumber]];
+      [WinUIThemeTabHider performSelector: @selector(reveal:)
+                               withObject: [NSArray arrayWithObjects: group, window, previous,
+                                                    [NSNumber numberWithBool: makeKey],
+                                                    [NSNumber numberWithBool: maximized], nil]
+                               afterDelay: 0.1
+                                  inModes: WinUIThemeTabModes()];
+      return;
+    }
+  objc_setAssociatedObject(window, &WinUIThemeTabShownKey,
+                           [NSNumber numberWithBool: YES], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+  /* Without Windows' show and hide animations, which would fade the old
+     window out as the new one fades in. */
+  WinUIThemeWindowIntegrationSuspendTransitions(window, previous);
+  [window _tabbingShowWithFrame: frame
+                      maximized: maximized
+                        makeKey: makeKey
+                      inPlaceOf: previous];
+  /* A tab shown before keeps its contents while ordered out (libs-back's
+     windows are layered, and show nothing until flushed); drawn and
+     flushed again, it covers the old one, which goes at once, as the
+     shared code and apps expect. */
+  [window display];
+  [window flushWindow];
+  [previous _tabbingHide];
+}
 
 - (CGFloat) windowTabBarHeightForWindow: (NSWindow *)window
 {

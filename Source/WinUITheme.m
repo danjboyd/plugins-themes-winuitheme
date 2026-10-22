@@ -128,7 +128,6 @@ WinUIThemeRightTextAlignment(void)
     if (tabs == nil || [tabs respondsToSelector: @selector(boolValue)] == NO || [tabs boolValue])
       {
         GSWindowTabbingInstall();
-        WinUIThemeWindowTabsInstallSingleTabBar();
       }
   }
   self = [super initWithBundle: bundle];
