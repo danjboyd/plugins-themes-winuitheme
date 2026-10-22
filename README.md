@@ -451,6 +451,50 @@ the other defers to it (it tells them apart by module: `dladdr()`, or
 Windows; apps should rely on the theme (or libs-gui, later)
 for the API.
 
+## Settings
+
+Every setting the theme reads, in one place. User defaults go in an
+app's domain (`defaults write <bundle identifier> ...`) or in
+`NSGlobalDomain` for every app; Info.plist keys are declared by the app.
+The first group is meant for apps and users. The others are overrides
+for checking an app and for the theme's own tests: they may change
+before 0.2 (the 0.1.0-beta1 gate in `Docs/RELEASE_READINESS.md` decides
+which become public).
+
+| Name | Where | Values | Default | Section |
+| --- | --- | --- | --- | --- |
+| `WinUIThemeMetrics` | Info.plist, user default | `winui`, `compact` | `compact` for apps with a main nib or Gorm file, else `winui` | Metrics for Gorm and Nib Apps |
+| `WinUIThemeMenuStyle` | Info.plist, user default | `menubar`, `more` | `menubar` | Menus Behind "..." |
+| `GSThemeToolbarInMenuBar` | Info.plist, user default | YES, NO | NO | Toolbar in the Menu Bar |
+| `WinUIThemeWindowTabs` | user default | YES, NO | YES | Window Tabs |
+| `WinUIThemeMica` | user default | YES, NO | YES | Mica |
+| `WinUIThemeAnimations` | user default | YES, NO | Windows' "Animation effects" | Motion |
+| `WinUIThemeOverlayScrollbars` | user default | YES, NO | Windows' "Always show scrollbars" off, and not in high contrast | |
+| `WinUIThemeNativeFileDialogs`, `WinUIThemeNativePrintDialogs` | user default | YES, NO | YES | Open, Save and Print Dialogs |
+
+For checking an app (each wins over what Windows says):
+
+| Name | Values | What it does |
+| --- | --- | --- |
+| `WinUIThemeContrastTheme`, `--contrast-theme` | `aquatic`, `desert`, `dusk`, `night-sky`, a `.theme` path | a contrast theme's colours (High Contrast) |
+| `WinUIThemeHighContrast`, `--high-contrast` | YES, NO | high contrast on or off |
+| `--mode` | `light`, `dark` | the colour mode |
+| `WinUIThemePreferDark`, `WinUIThemePreferLight` | YES | the colour mode |
+| `WinUIThemeColorScheme` | 1 (light), 2 (dark) | the colour mode |
+| `WinUIThemeAccentColorHex` | `#RRGGBB` | the accent colour |
+| `WinUIThemeReducedTransparency`, `--reduced-transparency` | YES, NO | Windows' transparency effects off (no Mica) |
+| `WinUIThemeTextScaleFactor` | 100 to 225 | Windows' Text size, in percent |
+| `WinUIThemeDesktopScaleFactor`, `--scale` | 1.0, 1.25, 1.5 ... | the display scale the theme's metrics assume |
+| `WinUIThemeInterfaceFontName`, `WinUIThemeInterfaceFontSize` | a font name, points | the interface font |
+| `WinUIThemeMonospaceFontName`, `WinUIThemeMonospaceFontSize` | a font name, points | the monospaced font |
+
+Diagnostics, not settings:
+
+| Name | What it does |
+| --- | --- |
+| `WinUIThemeTraceScrollers` | logs scroll views' tiles and scroller flips (#145) |
+| `WinUIThemeDisableWindowIntegration` | YES leaves Windows' window attributes alone: the theme sets no DWM caption colours, Mica, popup shadows or rounding |
+
 ## Build
 
 Build the theme bundle:

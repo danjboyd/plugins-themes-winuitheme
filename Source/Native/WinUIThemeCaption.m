@@ -29,7 +29,9 @@
 #import <GNUstepGUI/GSWindowDecorationView.h>
 #import "GSWindowTabbing.h"
 
+#ifdef _WIN32
 #include <windows.h>
+#endif
 
 /* What danjboyd/libs-back's WIN32Server adds (win32-client-caption); asked
    for with -respondsToSelector:, so a stock backend keeps Windows' caption. */
@@ -211,6 +213,7 @@ WinUIThemeCaptionHeight(void)
   return round((WinUIThemeCaptionHoldsTabs() ? 40.0 : 32.0) * WinUIThemeCaptionDensity());
 }
 
+#ifdef _WIN32
 static HWND
 WinUIThemeCaptionWindowHandle(NSWindow *window)
 {
@@ -220,6 +223,17 @@ WinUIThemeCaptionWindowHandle(NSWindow *window)
     }
   return (HWND)[window windowHandle];
 }
+#endif
+
+static BOOL
+WinUIThemeCaptionWindowIsZoomed(NSWindow *window)
+{
+#ifdef _WIN32
+  return IsZoomed(WinUIThemeCaptionWindowHandle(window)) ? YES : NO;
+#else
+  return [window isZoomed];
+#endif
+}
 
 /* A maximized window's top lies off the screen by its frame's depth (the
    backend starts the client area below it, so the gui's top rows are out of
@@ -227,6 +241,7 @@ WinUIThemeCaptionWindowHandle(NSWindow *window)
 static CGFloat
 WinUIThemeCaptionHiddenTop(NSWindow *window)
 {
+#ifdef _WIN32
   HWND hwnd = WinUIThemeCaptionWindowHandle(window);
   RECT windowRect;
   POINT origin = {0, 0};
@@ -238,6 +253,9 @@ WinUIThemeCaptionHiddenTop(NSWindow *window)
   GetWindowRect(hwnd, &windowRect);
   ClientToScreen(hwnd, &origin);
   return MAX(0, origin.y - windowRect.top);
+#else
+  return 0.0;
+#endif
 }
 
 /* Key or main, or Windows' active window (a modal panel GNUstep hasn't
@@ -245,10 +263,14 @@ WinUIThemeCaptionHiddenTop(NSWindow *window)
 static BOOL
 WinUIThemeCaptionWindowIsActive(NSWindow *window)
 {
+#ifdef _WIN32
   HWND hwnd = WinUIThemeCaptionWindowHandle(window);
 
   return [window isKeyWindow] || [window isMainWindow]
     || (hwnd != NULL && GetActiveWindow() == hwnd);
+#else
+  return [window isKeyWindow] || [window isMainWindow];
+#endif
 }
 
 /* Windows gives a window caption buttons (and an icon) only with a system
@@ -324,6 +346,7 @@ WinUIThemeCaptionHasSystemMenu(NSWindow *window)
    minimizing and maximizing are Windows' (Snap and the restore size). */
 - (void) perform
 {
+#ifdef _WIN32
   HWND hwnd = WinUIThemeCaptionWindowHandle([self window]);
   WPARAM command;
 
@@ -344,6 +367,20 @@ WinUIThemeCaptionHasSystemMenu(NSWindow *window)
         break;
     }
   PostMessageW(hwnd, WM_SYSCOMMAND, command, 0);
+#else
+  switch (_kind)
+    {
+      case WinUIThemeCaptionMinimize:
+        [[self window] miniaturize: self];
+        break;
+      case WinUIThemeCaptionZoom:
+        [[self window] zoom: self];
+        break;
+      default:
+        [[self window] performClose: self];
+        break;
+    }
+#endif
 }
 
 - (void) mouseDown: (NSEvent *)event
@@ -401,7 +438,7 @@ WinUIThemeCaptionHasSystemMenu(NSWindow *window)
         [path lineToPoint: NSMakePoint(NSMaxX(glyph), floor(NSMidY(glyph)) + inset)];
         break;
       case WinUIThemeCaptionZoom:
-        if (IsZoomed(WinUIThemeCaptionWindowHandle([self window])))
+        if (WinUIThemeCaptionWindowIsZoomed([self window]))
           {
             CGFloat step = round(2.0 * density);
             NSRect front = NSMakeRect(NSMinX(glyph), NSMinY(glyph),
