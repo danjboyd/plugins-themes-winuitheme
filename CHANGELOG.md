@@ -12,7 +12,8 @@ scroll, and the theme no longer patches the shared code at run time.
 The toolbar's overflow brings back items that fit, and customising drops
 land at the pointer. The theme also builds off Windows. Requires
 gnustep-gui 0.32 or later. Tested with the carried libs-back
-`carry-0.32.0.4`.
+`carry-0.32.0.5`, which apps on alpha13 should ship: it spaces text
+evenly at 125% and 150% in system DPI aware apps.
 
 **Window tabs**
 - `Source/WindowTabbing` is danjboyd/gnustep-window-tabbing's `main`
@@ -48,6 +49,14 @@ gnustep-gui 0.32 or later. Tested with the carried libs-back
   `_WIN32`, the caption buttons use `NSWindow`'s own methods there, and
   `uuid` and `gdi32` are linked only on Windows (#176). Nothing changes
   on Windows. The theme isn't supported or checked by eye off Windows.
+
+**The carried libs-back**
+- `carry-0.32.0.5` turns cairo's hinted glyph metrics off for a system
+  DPI aware app whose screen isn't at 100%, as it already did for
+  `GSScaleFactor` and per-monitor DPI: at 125% and 150% glyphs were
+  spaced unevenly ("px  PNG", the K and B of "KB" overlapping;
+  ScreenshotTool #306, danjboyd/libs-back#1). QuirkProbe
+  `font-hinting-system-dpi` (#177); it skips on a stock libs-back.
 
 **Docs and references**
 - The README's settings reference lists every key the theme reads, and
