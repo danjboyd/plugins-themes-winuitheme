@@ -98,8 +98,11 @@ This VM has no GPU, one monitor, and blocks SendInput mouse buttons.
       one the owner picks.
 - [ ] Text width measured against the reference (#105), as Adwaita does
       against GTK.
-- [ ] CI: at least a build of the theme and QuirkProbe on every push
-      (today they run by hand on this VM).
+- [x] CI: at least a build of the theme and QuirkProbe on every push:
+      `.github/workflows/build.yml` builds both on `windows-latest` with
+      MSYS2's packages (the stock libs-back) and runs QuirkProbe's light
+      configuration. The carried backend, the other configurations and
+      the pointer checks still run by hand.
 
 ### 6. Known gaps written down
 

@@ -905,6 +905,10 @@ WinUIThemeRunNativeSaveDialog(WinUIThemeSavePanel *panel, NSWindow *ownerWindow)
     {
       options |= FOS_NOVALIDATE;
     }
+  /* Asks before replacing a file, as the dialog does by default and as
+     NSSavePanel does: the theme answers the panel, so GNUstep's own
+     check never runs. */
+  options |= FOS_OVERWRITEPROMPT;
   IFileSaveDialog_SetOptions(dialog, options);
   WinUIThemeConfigureDialogTitle((IFileDialog *)dialog, [panel title]);
   WinUIThemeConfigureDialogFolder((IFileDialog *)dialog, [panel directory]);

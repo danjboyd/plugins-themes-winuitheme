@@ -65,14 +65,19 @@
 static const CGFloat WinUIThemeToolbarRowHeight = 48.0;
 static const CGFloat WinUIThemeToolbarButtonSize = 40.0;
 static const CGFloat WinUIThemeToolbarTextButtonHeight = 32.0;
-static const CGFloat WinUIThemeToolbarSpacing = 2.0;
+/* Each side of an item: 8pt between items, as CommandBar's. */
+static const CGFloat WinUIThemeToolbarSpacing = 4.0;
 static const CGFloat WinUIThemeToolbarIconPadding = 10.0;
 static const CGFloat WinUIThemeToolbarLabeledIconPadding = 6.0;
 static const CGFloat WinUIThemeToolbarLabelPadding = 12.0;
 static const CGFloat WinUIThemeToolbarLabelGap = 4.0;
 static const CGFloat WinUIThemeToolbarIconSize = 20.0;
 static const CGFloat WinUIThemeToolbarSmallIconSize = 16.0;
-/* In the menu bar's row (#91): a compact CommandBar's 32pt buttons. */
+/* In the menu bar's row (#91): CommandBar's 36pt buttons and 20pt icons
+   in its 40pt row; a compact CommandBar's 32pt buttons and 16pt icons in
+   the 32pt row compact metrics keep. */
+static const CGFloat WinUIThemeToolbarMenuRowButtonSize = 36.0;
+static const CGFloat WinUIThemeToolbarMenuRowIconSize = 20.0;
 static const CGFloat WinUIThemeToolbarCompactButtonSize = 32.0;
 static const CGFloat WinUIThemeToolbarCompactIconSize = 16.0;
 
@@ -153,6 +158,13 @@ WinUIThemeToolbarRowHeightFor(NSToolbar *toolbar)
   return WinUIThemeToolbarRowHeight;
 }
 
+/* Whether the menu bar's row is CommandBar's 40pt, not compact's 32. */
+static BOOL
+WinUIThemeToolbarMenuRowIsFull(NSToolbar *toolbar)
+{
+  return WinUIThemeToolbarRowHeightFor(toolbar) >= WinUIThemeToolbarInMenuBarRowHeight - 0.5;
+}
+
 /* Labels under icons; none in the menu bar's row, where a label-only
    toolbar keeps its text buttons. */
 static BOOL
@@ -212,7 +224,7 @@ WinUIThemeToolbarLabelSize(NSToolbarItem *item)
 }
 
 /* The size an item's image is drawn at: its own, scaled down to fit 20pt
-   (16pt in small mode). The item's image keeps its own size (the button
+   (16pt in small mode and in a compact menu bar row). The item's image keeps its own size (the button
    layout puts back the size libs-gui gives it), so this is always the
    app's. */
 static NSSize
@@ -224,7 +236,8 @@ WinUIThemeToolbarImageSize(NSImage *image, NSToolbar *toolbar)
 
   if (WinUIThemeToolbarIsInMenuBar(toolbar))
     {
-      limit = WinUIThemeToolbarCompactIconSize;
+      limit = WinUIThemeToolbarMenuRowIsFull(toolbar)
+        ? WinUIThemeToolbarMenuRowIconSize : WinUIThemeToolbarCompactIconSize;
     }
 
   if (image == nil)
@@ -295,6 +308,20 @@ WinUIThemeToolbarSizeViewHeight(NSToolbarItem *item)
   [view setFrameSize: NSMakeSize(NSWidth([view frame]), height)];
 }
 
+/* The least a view item's view is wide whatever its maxSize: a colour
+   well 1.5 times its height, the theme's colour DropDownButton (#151),
+   which the 40pt row's 32pt height took to a plain swatch at
+   ScreenshotTool's 40pt. */
+static CGFloat
+WinUIThemeToolbarViewLeastWidth(NSToolbarItem *item)
+{
+  if ([[item view] isKindOfClass: [NSColorWell class]])
+    {
+      return ceil(WinUIThemeToolbarViewHeight(item) * 1.5);
+    }
+  return 0.0;
+}
+
 /* A view item's view width: its own, within the item's minSize and
    maxSize when it has them. */
 static CGFloat
@@ -312,7 +339,7 @@ WinUIThemeToolbarViewWidth(NSToolbarItem *item)
     {
       width = MIN(width, maxWidth);
     }
-  return width;
+  return MAX(width, WinUIThemeToolbarViewLeastWidth(item));
 }
 
 /* An item's content: the button an image item is drawn as, or a view
@@ -337,9 +364,11 @@ WinUIThemeToolbarContentSize(NSToolbarItem *item)
   else if (WinUIThemeToolbarIsInMenuBar(toolbar))
     {
       NSSize image = WinUIThemeToolbarImageSize([item image], toolbar);
+      CGFloat button = WinUIThemeToolbarMenuRowIsFull(toolbar)
+        ? WinUIThemeToolbarMenuRowButtonSize : WinUIThemeToolbarCompactButtonSize;
 
-      return NSMakeSize(MAX(image.width + 2.0 * 8.0, WinUIThemeToolbarCompactButtonSize),
-                        MAX(image.height + 2.0 * 8.0, WinUIThemeToolbarCompactButtonSize));
+      return NSMakeSize(MAX(image.width + 2.0 * 8.0, button),
+                        MAX(image.height + 2.0 * 8.0, button));
     }
   else
     {
@@ -496,7 +525,209 @@ WinUIThemeToolbarKeepFlexibleSpaceInside(NSView *toolbarView, NSToolbar *toolbar
     }
 }
 
+/* Which items a toolbar too narrow for all of them keeps, by
+   visibilityPriority, as AppKit's: libs-gui keeps the longest run from
+   the start that fits beside its 28pt ">>" and ignores the priority.
+   The Adwaita theme keeps the same rules:
+   - An item counts as libs-gui counts it: a view item at its minimum
+     width and 10pt either side, a flexible space nothing, any other at
+     its back view's width. When all fit, all stay.
+   - Only items go, never a separator or space on its own: the lowest
+     priority first, the last of equals first, until the rest fit
+     beside the ">>".
+   - The separators and fixed spaces after an item go with it; those
+     with no item before them (first, or after a flexible space) go
+     with the item after them. A flexible space stays.
+   - When the priorities never rise along the toolbar (all at the
+     default, say) that's the run from the start: libs-gui's own, to
+     the pixel. nil then. */
+static const CGFloat WinUIThemeToolbarClippedItemsWidth = 28.0;
+static const CGFloat WinUIThemeToolbarClippedItemViewInset = 10.0;
+
+static CGFloat
+WinUIThemeToolbarOverflowWidth(NSToolbarItem *item)
+{
+  if ([item view] != nil)
+    {
+      return [item minSize].width + 2.0 * WinUIThemeToolbarClippedItemViewInset;
+    }
+  if ([[item itemIdentifier] isEqualToString: NSToolbarFlexibleSpaceItemIdentifier])
+    {
+      return 0.0;
+    }
+  return NSWidth([[item _backView] frame]);
+}
+
+static NSInteger
+WinUIThemeToolbarDropOrder(id a, id b, void *context)
+{
+  NSArray *items = (NSArray *)context;
+  NSInteger first = [(NSToolbarItem *)[items objectAtIndex: [a unsignedIntegerValue]] visibilityPriority];
+  NSInteger second = [(NSToolbarItem *)[items objectAtIndex: [b unsignedIntegerValue]] visibilityPriority];
+
+  if (first != second)
+    {
+      return (first < second) ? NSOrderedAscending : NSOrderedDescending;
+    }
+  /* The later item first. */
+  return [b compare: a];
+}
+
+static NSArray *
+WinUIThemeToolbarKeptItems(NSView *toolbarView, NSToolbar *toolbar)
+{
+  NSArray *items = [toolbar items];
+  NSUInteger count = [items count];
+  NSMutableArray *order = [NSMutableArray arrayWithCapacity: count];
+  NSMutableIndexSet *kept = [NSMutableIndexSet indexSetWithIndexesInRange: NSMakeRange(0, count)];
+  CGFloat width = NSWidth([toolbarView frame]);
+  CGFloat total = 0.0;
+  NSInteger last = NSIntegerMax;
+  BOOL rises = NO;
+  NSEnumerator *enumerator = nil;
+  NSNumber *index = nil;
+  NSUInteger i;
+
+  for (i = 0; i < count; i++)
+    {
+      NSToolbarItem *item = [items objectAtIndex: i];
+
+      total += WinUIThemeToolbarOverflowWidth(item);
+      if (WinUIThemeToolbarItemIsSpace(item) == NO)
+        {
+          rises = rises || [item visibilityPriority] > last;
+          last = [item visibilityPriority];
+          [order addObject: [NSNumber numberWithUnsignedInteger: i]];
+        }
+    }
+  if (total <= width)
+    {
+      return items;
+    }
+  if (rises == NO)
+    {
+      return nil;
+    }
+  [order sortUsingFunction: WinUIThemeToolbarDropOrder context: items];
+  enumerator = [order objectEnumerator];
+  while (total + WinUIThemeToolbarClippedItemsWidth > width && (index = [enumerator nextObject]) != nil)
+    {
+      NSUInteger dropped = [index unsignedIntegerValue];
+      NSUInteger from = dropped;
+      NSUInteger j;
+
+      /* The item, the separators and spaces after it, and those before
+         it with no item before them (at the start, or after a flexible
+         space). */
+      while (from > 0 && WinUIThemeToolbarItemIsSpace([items objectAtIndex: from - 1])
+             && [[[items objectAtIndex: from - 1] itemIdentifier]
+                  isEqualToString: NSToolbarFlexibleSpaceItemIdentifier] == NO)
+        {
+          from--;
+        }
+      if (from > 0 && [[[items objectAtIndex: from - 1] itemIdentifier]
+                        isEqualToString: NSToolbarFlexibleSpaceItemIdentifier] == NO)
+        {
+          from = dropped;
+        }
+      for (j = from; j < count; j++)
+        {
+          NSToolbarItem *item = [items objectAtIndex: j];
+
+          if (j > dropped && (WinUIThemeToolbarItemIsSpace(item) == NO
+                              || [[item itemIdentifier] isEqualToString: NSToolbarFlexibleSpaceItemIdentifier]))
+            {
+              break;
+            }
+          if ((j == dropped || [[item itemIdentifier] isEqualToString: NSToolbarFlexibleSpaceItemIdentifier] == NO)
+              && [kept containsIndex: j])
+            {
+              total -= WinUIThemeToolbarOverflowWidth(item);
+              [kept removeIndex: j];
+            }
+        }
+    }
+  return [items objectsAtIndexes: kept];
+}
+
+/* Items dropped from the middle: libs-gui would only clip the end, so
+   they're hidden and the kept items laid out end to end, a view item at
+   its minimum width; flexible spaces share what's left before the
+   ">>". */
+static void
+WinUIThemeToolbarPackKeptItems(NSView *toolbarView, NSToolbar *toolbar)
+{
+  NSArray *items = [toolbar items];
+  NSArray *kept = WinUIThemeToolbarKeptItems(toolbarView, toolbar);
+  BOOL fromStart = (kept == nil || [kept count] == [items count]);
+  NSMutableArray *flexible = [NSMutableArray array];
+  NSEnumerator *enumerator = nil;
+  NSToolbarItem *item = nil;
+  CGFloat left = NSWidth([toolbarView frame]) - WinUIThemeToolbarClippedItemsWidth;
+  CGFloat share = 0.0;
+  CGFloat x = 0.0;
+
+  enumerator = [items objectEnumerator];
+  while ((item = [enumerator nextObject]) != nil)
+    {
+      [[item _backView] setHidden: (fromStart == NO && [kept containsObject: item] == NO)];
+    }
+  if (fromStart)
+    {
+      return;
+    }
+  enumerator = [kept objectEnumerator];
+  while ((item = [enumerator nextObject]) != nil)
+    {
+      NSView *backView = [item _backView];
+      NSView *view = [item view];
+
+      if ([[item itemIdentifier] isEqualToString: NSToolbarFlexibleSpaceItemIdentifier])
+        {
+          [flexible addObject: item];
+          continue;
+        }
+      if (view != nil && [view superview] == backView && [item minSize].width > 0.0)
+        {
+          /* A colour well keeps its DropDownButton width. */
+          CGFloat least = MAX([item minSize].width, WinUIThemeToolbarViewLeastWidth(item));
+
+          [view setFrameSize: NSMakeSize(least, NSHeight([view frame]))];
+          [backView setFrameSize: NSMakeSize(least + 2.0 * WinUIThemeToolbarSpacing,
+                                             NSHeight([backView frame]))];
+          WinUIThemePlaceToolbarView(backView, item);
+        }
+      left -= NSWidth([backView frame]);
+    }
+  if ([flexible count] > 0)
+    {
+      share = floor(MAX(0.0, left) / [flexible count]);
+    }
+  enumerator = [kept objectEnumerator];
+  while ((item = [enumerator nextObject]) != nil)
+    {
+      NSView *backView = [item _backView];
+
+      if ([flexible containsObject: item])
+        {
+          [backView setFrameSize: NSMakeSize(share, NSHeight([backView frame]))];
+        }
+      [backView setFrameOrigin: NSMakePoint(x, NSMinY([backView frame]))];
+      x += NSWidth([backView frame]);
+    }
+}
+
 @implementation WinUITheme (Toolbar)
+
+/* For apps: a toolbar too narrow for its items keeps them by
+   visibilityPriority, not the run from the start libs-gui keeps, so an
+   app needn't hold a minimum width for an item it must keep. Asked of
+   the current theme ([GSTheme theme]), which the Adwaita theme answers
+   too. */
+- (BOOL) toolbarHonoursVisibilityPriority
+{
+  return YES;
+}
 
 /* The toolbar sits on the window background with a hairline under it
    (DividerStrokeColorDefault), not libs-gui's dark grey line. */
@@ -731,10 +962,33 @@ WinUIThemeToolbarKeepFlexibleSpaceInside(NSView *toolbarView, NSToolbar *toolbar
         {
           width = MIN(width, maxWidth);
         }
-      width = MAX(width, MAX(minWidth, 0.0));
+      width = MAX(width, MAX(minWidth, WinUIThemeToolbarViewLeastWidth(item)));
       [view setFrameSize: NSMakeSize(width, NSHeight([view frame]))];
       WinUIThemePlaceToolbarView(backView, item);
     }
+  WinUIThemeToolbarPackKeptItems((NSView *)self, toolbar);
+}
+
+/* The items kept by visibilityPriority, not libs-gui's run from the
+   start: -_manageClipView, -[NSToolbar visibleItems] and so the ">>"
+   menu (the rest, in the toolbar's order) follow it. */
+- (NSArray *) _overrideGSToolbarViewMethod__visibleBackViews
+{
+  typedef NSArray *(*VisibleIMP)(id, SEL);
+  VisibleIMP originalIMP = (VisibleIMP)WinUIThemeOriginalMethod(_cmd, self, NSClassFromString(@"GSToolbarView"));
+  NSToolbar *toolbar = [(id)self toolbar];
+  NSArray *kept = nil;
+
+  if (toolbar == nil)
+    {
+      return (originalIMP != NULL) ? originalIMP(self, _cmd) : [NSArray array];
+    }
+  kept = WinUIThemeToolbarKeptItems((NSView *)self, toolbar);
+  if (kept == nil)
+    {
+      return (originalIMP != NULL) ? originalIMP(self, _cmd) : [NSArray array];
+    }
+  return [kept valueForKey: @"_backView"];
 }
 
 - (void) _overrideGSToolbarButtonMethod_layout

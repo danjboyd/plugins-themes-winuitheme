@@ -76,6 +76,27 @@ WinUIThemeFocusedView(NSWindow *window)
   return [responder isKindOfClass: [NSView class]] ? responder : nil;
 }
 
+/* Text inputs show an underline, not a ring. */
+static BOOL
+WinUIThemeViewTakesFocusRing(NSView *view)
+{
+  return view != nil
+    && [view isKindOfClass: [NSTextField class]] == NO
+    && [view isKindOfClass: [NSText class]] == NO;
+}
+
+/* The views that draw the ring: enabled controls, not text inputs. Only
+   these are redisplayed as it comes and goes; any other focused view, a
+   text view above all, would be redrawn whole on every key for nothing
+   (ObjcMarkdown #164). */
+static BOOL
+WinUIThemeViewDrawsFocusRing(NSView *view)
+{
+  return WinUIThemeViewTakesFocusRing(view)
+    && [view isKindOfClass: [NSControl class]]
+    && [(NSControl *)view isEnabled];
+}
+
 static void
 WinUIThemeRedisplayFocusedViews(void)
 {
@@ -91,7 +112,7 @@ WinUIThemeRedisplayFocusedViews(void)
           continue;
         }
       view = WinUIThemeFocusedView(window);
-      if (view != nil)
+      if (WinUIThemeViewDrawsFocusRing(view))
         {
           WinUIThemeRedisplayWithMargin(view, [view frame]);
         }
@@ -119,15 +140,6 @@ WinUIThemeForgetStaleRing(void)
   DESTROY(WinUIThemeRingView);
 }
 
-/* Text inputs show an underline, not a ring. */
-static BOOL
-WinUIThemeViewTakesFocusRing(NSView *view)
-{
-  return view != nil
-    && [view isKindOfClass: [NSTextField class]] == NO
-    && [view isKindOfClass: [NSText class]] == NO;
-}
-
 /* The ring round `view`, if it has focus from the keyboard. */
 static void
 WinUIThemeDrawFocusRing(NSView *view)
@@ -144,9 +156,8 @@ WinUIThemeDrawFocusRing(NSView *view)
   NSColor *inner = nil;
   NSBezierPath *path = nil;
 
-  if (theme == nil || WinUIThemeFocusVisible == NO || WinUIThemeViewTakesFocusRing(view) == NO
-      || [view window] == nil || WinUIThemeFocusedView([view window]) != view
-      || ([view isKindOfClass: [NSControl class]] && [(NSControl *)view isEnabled] == NO))
+  if (theme == nil || WinUIThemeFocusVisible == NO || WinUIThemeViewDrawsFocusRing(view) == NO
+      || [view window] == nil || WinUIThemeFocusedView([view window]) != view)
     {
       return;
     }
@@ -237,7 +248,7 @@ WinUIThemeDrawFocusRing(NSView *view)
         {
           NSView *view = WinUIThemeFocusedView([NSApp keyWindow]);
 
-          if (view != nil && view != WinUIThemeRingView)
+          if (view != WinUIThemeRingView && WinUIThemeViewDrawsFocusRing(view))
             {
               WinUIThemeRedisplayWithMargin(view, [view frame]);
             }

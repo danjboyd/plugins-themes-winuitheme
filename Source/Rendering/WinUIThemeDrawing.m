@@ -708,6 +708,7 @@ WinUIThemePreferredControlFont(WinUITheme *theme,
 {
   NSFontManager *fontManager = [NSFontManager sharedFontManager];
   NSFont *resolvedFont = nil;
+  CGFloat minimumSize = 0.0;
   CGFloat pointSize = 0.0;
 
   if (font == nil && theme != nil)
@@ -719,7 +720,15 @@ WinUIThemePreferredControlFont(WinUITheme *theme,
       font = [NSFont systemFontOfSize: WinUIThemeMinimumControlFontSize];
     }
 
-  pointSize = MAX(WinUIThemeMinimumControlFontSize, [font pointSize]);
+  /* Compact (#31) keeps its 12pt interface font, which cells have as
+     their -font, so a title measured in [cell font] fits where it is
+     drawn. It was raised to 13pt and cut off. */
+  minimumSize = WinUIThemeMinimumControlFontSize;
+  if (theme != nil && [[theme metrics] compact])
+    {
+      minimumSize = MIN(minimumSize, [[theme settings] interfaceFontSize]);
+    }
+  pointSize = MAX(minimumSize, [font pointSize]);
   if (fabs(pointSize - [font pointSize]) > 0.01)
     {
       resolvedFont = [NSFont fontWithName: [font fontName] size: pointSize];
