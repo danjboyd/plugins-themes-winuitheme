@@ -5,7 +5,7 @@ Releases of the WinUI theme for GNUstep. Versions are semver pre-releases
 `GSThemeVersion` in `WinUIThemeInfo.plist`, and an annotated tag on `main`.
 Apps that bundle the theme should pin a tag, not `main`.
 
-## 0.1.0-alpha13 (unreleased)
+## 0.1.0-alpha13 (2026-10-22)
 
 Window tabs move onto the shared tabbing code's `main`: tabs drag and
 scroll, and the theme no longer patches the shared code at run time.
