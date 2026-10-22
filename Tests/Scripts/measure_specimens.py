@@ -42,6 +42,15 @@ SIZE_TOLERANCE = 1      # px
 COLOR_TOLERANCE = 6     # per channel, 0-255
 TEXT_WIDTH_TOLERANCE = 0.02
 
+# Known gaps, kept on purpose: (specimen, measure) -> the widest text
+# width difference still taken as known. Past it, the row is off again.
+# Caption: WinUI applies Segoe UI Variable's optical size at 12px; the
+# theme keeps the Text instance at every size, since the Small instance
+# would widen every compact-metrics app's 12pt text (about -2.5%).
+KNOWN_GAPS = {
+    ("caption-text", "width"): 0.035,
+}
+
 
 def find_origin(image):
     """The magenta square's top left."""
@@ -239,9 +248,13 @@ def main():
                 failures += 1
                 continue
             delta, ok = compare(measure_kind, value, ours[key][1])
+            verdict = "ok" if ok else "**off**"
+            known = KNOWN_GAPS.get((name, key))
+            if not ok and known is not None and abs(delta) <= value * known:
+                ok, verdict = True, "known"
             lines.append("| %s | %s | %s | %s | %s | %s |" % (
                 name, key, show(measure_kind, value), show(measure_kind, ours[key][1]),
-                delta, "ok" if ok else "**off**"))
+                delta, verdict))
             failures += 0 if ok else 1
 
     lines.append("")
