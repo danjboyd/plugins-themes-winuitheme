@@ -438,6 +438,35 @@ QuirkProbeModuleOfAddress(void *address)
 - (NSView *) _backView;
 @end
 
+/* GSToolbarView's customisation drop index, private. */
+@interface NSView (QuirkProbeToolbarInsertion)
+- (int) _insertionIndexAtPoint: (NSPoint)location;
++ (NSUInteger) draggedItemIndex;
++ (void) setDraggedItemIndex: (NSUInteger)sourceIndex;
+@end
+
+/* ScreenshotTool's toolbar priorities, as its #303 sets them. */
+static NSString * const QuirkProbeReturnsItemPrefix = @"QuirkProbeReturns.";
+
+static NSInteger
+QuirkProbeReturnsPriority(NSString *name)
+{
+  if ([name isEqualToString: @"Undo"] || [name isEqualToString: @"Redo"])
+    {
+      return NSToolbarItemVisibilityPriorityLow;
+    }
+  if ([name isEqualToString: @"Save"] || [name isEqualToString: @"Share"])
+    {
+      return NSToolbarItemVisibilityPriorityHigh;
+    }
+  if ([name isEqualToString: @"Tools"] || [name isEqualToString: @"Colour"]
+      || [name isEqualToString: @"Copy"])
+    {
+      return NSToolbarItemVisibilityPriorityUser;
+    }
+  return NSToolbarItemVisibilityPriorityStandard;
+}
+
 @interface NSView (QuirkProbeTabBar)
 - (NSUInteger) numberOfTabs;
 - (NSRect) rectForTabAtIndex: (NSUInteger)index;
@@ -641,6 +670,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkToolbarIconSize;
 - (void) checkToolbarInMenuBar;
 - (void) checkToolbarInMenuBarViews;
+- (void) checkToolbarInMenuBarSavedFrame;
 - (void) checkToolbarFlexibleSpaceScaled;
 - (void) checkScrollerEdge;
 - (void) checkTextAlignment;
@@ -686,6 +716,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkOverlayScrollers;
 - (void) checkOverlayAutohide;
 - (void) checkFocusVisual;
+- (void) checkFocusRedisplayPerKey;
 - (void) checkTextBox;
 - (void) checkFocusedPlaceholder;
 - (void) checkContrastPopUpSelection;
@@ -723,6 +754,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkSegmentLabelCentred;
 - (void) checkButtonStyleAccent;
 - (void) checkDefaultButtonYieldsAccent;
+- (void) checkColorWellDropDown;
 - (void) checkScrollViewTileSettles;
 - (void) checkThemeSwitchRestoresMethods;
 - (void) finish;
@@ -781,6 +813,49 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (BOOL) isOpaque
 {
   return YES;
+}
+
+@end
+
+/* Counts the redisplays asked of it that reach past `child`'s frame: the
+   focus ring's margin, which only the theme asks for (ObjcMarkdown #164).
+   A child's own invalidation, passed up, stays inside its frame. */
+@interface QuirkProbeMarginCountingView : NSView
+{
+@public
+  NSView *child;
+  NSUInteger margins;
+}
+@end
+
+@implementation QuirkProbeMarginCountingView
+
+- (void) setNeedsDisplayInRect: (NSRect)rect
+{
+  if (child != nil && NSContainsRect(rect, [child frame])
+      && NSEqualRects(rect, [child frame]) == NO)
+    {
+      margins++;
+    }
+  [super setNeedsDisplayInRect: rect];
+}
+
+@end
+
+/* A view that takes focus and ignores keys, as a custom canvas might. */
+@interface QuirkProbeKeyIgnoringView : NSView
+@end
+
+@implementation QuirkProbeKeyIgnoringView
+
+- (BOOL) acceptsFirstResponder
+{
+  return YES;
+}
+
+- (void) keyDown: (NSEvent *)event
+{
+  (void)event;
 }
 
 @end
@@ -1312,6 +1387,23 @@ static NSRect QuirkProbeOpenListRow;
   [item setLabel: @"Image"];
   [item setImage: [[toolbar identifier] isEqualToString: @"QuirkProbeIconSizeToolbar"]
                    ? QuirkProbeToolbarSymbolicImage() : [self magentaImage]];
+  /* The overflow return check: ScreenshotTool's items, as views 60pt
+     wide, Tools 300pt (Adwaita#82's). */
+  if ([identifier hasPrefix: QuirkProbeReturnsItemPrefix])
+    {
+      NSString *name = [identifier substringFromIndex: [QuirkProbeReturnsItemPrefix length]];
+      CGFloat width = [name isEqualToString: @"Tools"] ? 300.0 : 60.0;
+      NSButton *button = [[NSButton alloc] initWithFrame: NSMakeRect(0, 0, width, 24)];
+
+      [button setTitle: name];
+      [item setView: button];
+      [item setMinSize: NSMakeSize(width, 24)];
+      [item setMaxSize: NSMakeSize(width, 24)];
+      [item setLabel: name];
+      [item setVisibilityPriority: QuirkProbeReturnsPriority(name)];
+      RELEASE(button);
+      return AUTORELEASE(item);
+    }
   /* The alignment check needs a view item (the theme draws its label)
      with a label much narrower than the view. */
   if ([[toolbar identifier] isEqualToString: @"QuirkProbeAlignmentToolbar"])
@@ -1357,6 +1449,33 @@ static NSRect QuirkProbeOpenListRow;
       [item setLabel: @"View"];
       RELEASE(view);
     }
+  /* The colour well check: a colour well as the item's view. */
+  if ([[toolbar identifier] hasPrefix: @"QuirkProbeColorWell"])
+    {
+      /* ScreenshotTool's in the menu bar's row: 40pt, no wider. */
+      BOOL narrow = [[toolbar identifier] isEqualToString: @"QuirkProbeColorWellMenuRowToolbar"];
+      NSColorWell *well = [[NSColorWell alloc] initWithFrame: NSMakeRect(0, 0, narrow ? 40 : 72, 28)];
+
+      if (narrow)
+        {
+          [item setMinSize: NSMakeSize(40, 28)];
+          [item setMaxSize: NSMakeSize(40, 28)];
+        }
+
+      [well setColor: [NSColor colorWithCalibratedRed: 0.9 green: 0.1 blue: 0.1 alpha: 1.0]];
+      [item setView: well];
+      [item setLabel: @"Colour"];
+      RELEASE(well);
+    }
+  /* The overflow priority check: items A to F, in order. */
+  if ([[toolbar identifier] hasPrefix: @"QuirkProbeOverflowPriority"]
+      && [identifier isEqualToString: QuirkProbeImageItem])
+    {
+      static NSUInteger next = 0;
+
+      [item setLabel: [NSString stringWithFormat: @"%c", (char)('A' + next % 6)]];
+      next++;
+    }
   /* An item without an action is disabled, and draws its image faded. */
   [item setTarget: self];
   [item setAction: @selector(toolbarItemClicked:)];
@@ -1365,6 +1484,10 @@ static NSRect QuirkProbeOpenListRow;
 
 - (NSArray *) toolbarAllowedItemIdentifiers: (NSToolbar *)toolbar
 {
+  if ([[toolbar identifier] isEqualToString: @"QuirkProbeOverflowReturns"])
+    {
+      return [[self toolbarDefaultItemIdentifiers: toolbar] arrayByAddingObject: NSToolbarSeparatorItemIdentifier];
+    }
   return [NSArray arrayWithObjects: QuirkProbeImageItem, NSToolbarSeparatorItemIdentifier,
                                     NSToolbarFlexibleSpaceItemIdentifier, nil];
 }
@@ -1380,6 +1503,28 @@ static NSRect QuirkProbeOpenListRow;
     {
       return [NSArray arrayWithObjects: QuirkProbeImageItem, NSToolbarFlexibleSpaceItemIdentifier,
                                         QuirkProbeImageItem, nil];
+    }
+  if ([[toolbar identifier] isEqualToString: @"QuirkProbeOverflowReturns"])
+    {
+      NSArray *names = [NSArray arrayWithObjects: @"Undo", @"Redo", @"Tools", @"Colour", @"~",
+                                                  @"Save", @"Copy", @"Share", @"Action", nil];
+      NSMutableArray *identifiers = [NSMutableArray array];
+      NSEnumerator *enumerator = [names objectEnumerator];
+      NSString *name = nil;
+
+      while ((name = [enumerator nextObject]) != nil)
+        {
+          [identifiers addObject: [name isEqualToString: @"~"] ? NSToolbarFlexibleSpaceItemIdentifier
+                                    : [QuirkProbeReturnsItemPrefix stringByAppendingString: name]];
+        }
+      return identifiers;
+    }
+  /* A B | C D E F: the separator goes with B or C. */
+  if ([[toolbar identifier] hasPrefix: @"QuirkProbeOverflowPriority"])
+    {
+      return [NSArray arrayWithObjects: QuirkProbeImageItem, QuirkProbeImageItem,
+                                        NSToolbarSeparatorItemIdentifier, QuirkProbeImageItem,
+                                        QuirkProbeImageItem, QuirkProbeImageItem, QuirkProbeImageItem, nil];
     }
   if ([[toolbar identifier] isEqualToString: @"QuirkProbeSeparatorToolbar"])
     {
@@ -1974,6 +2119,101 @@ QuirkProbeDarkest(NSBitmapImageRep *rep)
    setting turned off puts the toolbar back in a row of its own with the
    window's frame kept, as a window of an app that doesn't declare it
    has. */
+/* Whether the window's toolbar shares the menu bar's row. */
+static BOOL
+WinUIThemeProbeToolbarInRow(NSWindow *window)
+{
+  NSView *decoration = [[window contentView] superview];
+  NSView *toolbarView = QuirkProbeFindViewOfClass(decoration, NSClassFromString(@"GSToolbarView"));
+  NSView *bar = QuirkProbeFindViewOfClass(decoration, [NSMenuView class]);
+
+  return toolbarView != nil && bar != nil
+    && fabs(NSMinY([decoration convertRect: [toolbarView bounds] fromView: toolbarView])
+            - NSMinY([decoration convertRect: [bar bounds] fromView: bar])) <= 0.5;
+}
+
+/* A window comes back from its saved frame the same size, restored as
+   an app usually does it: the frame first, then the toolbar and the menu
+   bar. libs-gui saves the frame without those rows, in points, and the
+   window grows by each as it arrives, in the frame's units: Markdown
+   Viewer's window came back 32px shorter at every launch with its
+   toolbar in the menu bar's row (which adds no row), and 8px taller at
+   125%. Checked with the toolbar in the menu bar's row and in its own. */
+- (NSString *) savedFrameRoundTripInMenuBar: (BOOL)inMenuBar
+{
+  NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+  NSWindow *saved = [self windowWithFrame: NSMakeRect(300, 300, 520, 300)
+                                    title: @"QuirkProbe Saved Frame"];
+  NSWindow *restored = nil;
+  NSMenu *menu = AUTORELEASE([[NSMenu alloc] initWithTitle: @"QuirkProbe"]);
+  NSToolbar *toolbar = nil;
+  NSString *string = nil;
+  NSString *problem = nil;
+  NSRect before, after;
+
+  [defaults setBool: inMenuBar forKey: @"GSThemeToolbarInMenuBar"];
+  [menu addItemWithTitle: @"File" action: NULL keyEquivalent: @""];
+  [menu addItemWithTitle: @"Edit" action: NULL keyEquivalent: @""];
+  toolbar = AUTORELEASE([[NSToolbar alloc] initWithIdentifier: @"QuirkProbeSavedFrameToolbar"]);
+  [toolbar setDelegate: self];
+  [saved setToolbar: toolbar];
+  [saved setMenu: menu];
+  [saved orderFront: nil];
+  QuirkProbeDispatchEvents(0.2);
+  if (WinUIThemeProbeToolbarInRow(saved) != inMenuBar)
+    {
+      problem = [NSString stringWithFormat: @"the toolbar is%@ in the menu bar's row", inMenuBar ? @"n't" : @""];
+    }
+  else
+    {
+      before = [saved frame];
+      string = [saved stringWithSavedFrame];
+
+      restored = [self windowWithFrame: NSMakeRect(100, 100, 400, 200)
+                                 title: @"QuirkProbe Restored Frame"];
+      [restored setFrameFromString: string];
+      toolbar = AUTORELEASE([[NSToolbar alloc] initWithIdentifier: @"QuirkProbeSavedFrameToolbar"]);
+      [toolbar setDelegate: self];
+      [restored setToolbar: toolbar];
+      [restored setMenu: AUTORELEASE([menu copy])];
+      [restored orderFront: nil];
+      QuirkProbeDispatchEvents(0.2);
+      after = [restored frame];
+      if (fabs(NSHeight(after) - NSHeight(before)) > 0.5 || fabs(NSMaxY(after) - NSMaxY(before)) > 0.5)
+        {
+          problem = [NSString stringWithFormat: @"saved %@ (\"%@\"), restored %@",
+                              NSStringFromRect(before), string, NSStringFromRect(after)];
+        }
+    }
+  [defaults removeObjectForKey: @"GSThemeToolbarInMenuBar"];
+  [saved setToolbar: nil];
+  [saved setMenu: nil];
+  [saved orderOut: nil];
+  [restored setToolbar: nil];
+  [restored setMenu: nil];
+  [restored orderOut: nil];
+  return problem;
+}
+
+- (void) checkToolbarInMenuBarSavedFrame
+{
+  NSString *inRow = [self savedFrameRoundTripInMenuBar: YES];
+  NSString *ownRow = [self savedFrameRoundTripInMenuBar: NO];
+  CGFloat factor = [[NSScreen mainScreen] userSpaceScaleFactor];
+
+  if (inRow == nil && ownRow == nil)
+    {
+      [self pass: @"toolbar-in-menu-bar-saved-frame" detail: [NSString stringWithFormat:
+        @"restored the size it was saved at, the toolbar in the menu bar's row and in its own, at %.2f", factor]];
+    }
+  else
+    {
+      [self fail: @"toolbar-in-menu-bar-saved-frame" detail: [NSString stringWithFormat:
+        @"at %.2f: in the menu bar's row: %@; in its own: %@", factor,
+        inRow != nil ? inRow : @"fine", ownRow != nil ? ownRow : @"fine"]];
+    }
+}
+
 - (void) checkToolbarInMenuBar
 {
   NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
@@ -2045,7 +2285,8 @@ QuirkProbeDarkest(NSBitmapImageRep *rep)
       [problems addObject: [NSString stringWithFormat: @"the last item ends at %.0f, the row at %.0f",
                                                        NSMaxX(lastFrame), NSMaxX(toolbarFrame)]];
     }
-  if (fabs(NSHeight(firstFrame) - menuHeight) > 0.5 || NSWidth(firstFrame) > 40.0)
+  /* A 36pt button and 4pt either side (32 and 4 under compact metrics). */
+  if (fabs(NSHeight(firstFrame) - menuHeight) > 0.5 || NSWidth(firstFrame) > 44.5)
     {
       [problems addObject: [NSString stringWithFormat: @"an item is %.0fx%.0f, not a %.0fpt icon button",
                                                        NSWidth(firstFrame), NSHeight(firstFrame), menuHeight]];
@@ -2236,8 +2477,9 @@ QuirkProbeDarkest(NSBitmapImageRep *rep)
 }
 
 /* In the menu bar's row a view item (a segmented control, a push button)
-   is a compact 24pt control, 4pt clear of the row's top and foot, as a
-   compact CommandBar's content; it kept its 32pt and met the title bar.
+   is 4pt clear of the row's top and foot, 32pt in the 40pt row (24pt in
+   compact's 32pt row), as CommandBar's content; it kept its own height
+   and met the title bar.
    In a row of its own it's its own height again. */
 - (void) checkToolbarInMenuBarViews
 {
@@ -2325,6 +2567,352 @@ QuirkProbeDarkest(NSBitmapImageRep *rep)
                                                       object: defaults];
   [window setToolbar: nil];
   [window setMenu: nil];
+  [window orderOut: nil];
+}
+
+/* What a toolbar too narrow for its items shows: the labels shown
+   ("|" for the separator), the ">>" menu's, and a problem with the
+   layout (shown items not end to end or hidden, the menu not the rest
+   in order), or nil. */
+- (NSString *) overflowLayoutProblemIn: (NSToolbar *)toolbar
+                                 shown: (NSMutableString *)shown
+                                  menu: (NSMutableString *)menu
+{
+  NSView *toolbarView = [(id)toolbar _toolbarView];
+  NSView *mark = QuirkProbeFindViewOfClass(toolbarView, NSClassFromString(@"GSToolbarClippedItemsButton"));
+  NSArray *visible = [toolbar visibleItems];
+  NSMutableString *rest = [NSMutableString string];
+  NSEnumerator *enumerator = [[toolbar items] objectEnumerator];
+  NSToolbarItem *item = nil;
+  CGFloat x = -1.0;
+
+  while ((item = [enumerator nextObject]) != nil)
+    {
+      NSView *backView = [item _backView];
+      NSRect frame = [toolbarView convertRect: [backView bounds] fromView: backView];
+      BOOL separator = [[item itemIdentifier] isEqualToString: NSToolbarSeparatorItemIdentifier];
+      NSString *label = separator ? @"|" : [item label];
+
+      if ([visible containsObject: item] == NO)
+        {
+          if (separator == NO)
+            {
+              [rest appendString: label];
+            }
+          continue;
+        }
+      [shown appendString: label];
+      if ([backView isHiddenOrHasHiddenAncestor] || (x >= 0.0 && fabs(NSMinX(frame) - x) > 0.5))
+        {
+          return [NSString stringWithFormat: @"%@ at %.0f%@ after an item ending at %.0f",
+                           label, NSMinX(frame), [backView isHiddenOrHasHiddenAncestor] ? @", hidden," : @"", x];
+        }
+      x = NSMaxX(frame);
+    }
+  if ([mark respondsToSelector: @selector(overflowMenu)] && [mark superview] != nil)
+    {
+      NSMenu *overflow = [mark performSelector: @selector(overflowMenu)];
+      NSInteger i;
+
+      for (i = 0; i < [overflow numberOfItems]; i++)
+        {
+          if ([[overflow itemAtIndex: i] isSeparatorItem] == NO)
+            {
+              [menu appendString: [[overflow itemAtIndex: i] title]];
+            }
+        }
+    }
+  if ([menu length] == 0)
+    {
+      return [NSString stringWithFormat: @"no \">>\" menu with %@ shown", shown];
+    }
+  if ([menu isEqualToString: rest] == NO)
+    {
+      return [NSString stringWithFormat: @"the \">>\" menu has %@, not %@", menu, rest];
+    }
+  return nil;
+}
+
+/* A toolbar too narrow for its items puts the least important in the
+   ">>" menu first, by visibilityPriority, as AppKit does, the last of
+   equals first; libs-gui only ever clipped the end. A separator goes
+   with the item beside it. The rest stay end to end, and the menu has
+   what's gone in the toolbar's order. With every item at the default
+   the end goes, as before. In a row of its own and in the menu bar's
+   (#91). */
+- (void) checkToolbarOverflowPriority
+{
+  NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+  NSMutableArray *problems = [NSMutableArray array];
+  NSMutableArray *details = [NSMutableArray array];
+  NSUInteger pass;
+
+  for (pass = 0; pass < 2; pass++)
+    {
+      BOOL inMenuBar = (pass == 1);
+      NSString *where = inMenuBar ? @"menu bar row" : @"own row";
+      NSWindow *window = [self windowWithFrame: NSMakeRect(300, 300, inMenuBar ? 300 : 240, 160)
+                                         title: @"QuirkProbe Overflow"];
+      NSToolbar *toolbar = [[NSToolbar alloc] initWithIdentifier:
+        inMenuBar ? @"QuirkProbeOverflowPriorityMenuRow" : @"QuirkProbeOverflowPriority"];
+      NSMenu *menu = AUTORELEASE([[NSMenu alloc] initWithTitle: @"QuirkProbe"]);
+      NSMutableString *shown = [NSMutableString string];
+      NSMutableString *overflow = [NSMutableString string];
+      NSString *problem = nil;
+      NSArray *items = nil;
+      NSRect frame;
+
+      [defaults setBool: inMenuBar forKey: @"GSThemeToolbarInMenuBar"];
+      [toolbar setDelegate: self];
+      [toolbar setDisplayMode: NSToolbarDisplayModeIconOnly];
+      [window setToolbar: toolbar];
+      RELEASE(toolbar);
+      if (inMenuBar)
+        {
+          [menu addItemWithTitle: @"File" action: NULL keyEquivalent: @""];
+          [window setMenu: menu];
+        }
+      [window orderFront: nil];
+      QuirkProbeDispatchEvents(0.2);
+      items = [toolbar items];
+      if ([items count] != 7 || [[toolbar visibleItems] count] >= 7)
+        {
+          [problems addObject: [NSString stringWithFormat: @"%@: %lu items, %lu shown", where,
+                                         (unsigned long)[items count], (unsigned long)[[toolbar visibleItems] count]]];
+        }
+      else
+        {
+          /* All at the default: a run from A, the end in the menu. */
+          problem = [self overflowLayoutProblemIn: toolbar shown: shown menu: overflow];
+          if (problem == nil && [@"AB|CDEF" hasPrefix: shown] == NO)
+            {
+              problem = [NSString stringWithFormat: @"%@ shown, not a run from A", shown];
+            }
+          if (problem == nil && [shown hasSuffix: @"|"])
+            {
+              problem = [NSString stringWithFormat: @"%@ shown: the separator stayed without C", shown];
+            }
+          if (problem != nil)
+            {
+              [problems addObject: [NSString stringWithFormat: @"%@, all standard: %@", where, problem]];
+            }
+          else
+            {
+              [details addObject: [NSString stringWithFormat: @"%@, all standard: %@ shown, %@ in >>",
+                                            where, shown, overflow]];
+            }
+
+          /* B and D low, F high: D goes, then B with the separator;
+             in a row of its own A, C, E and F then fit. */
+          [shown setString: @""];
+          [overflow setString: @""];
+          [[items objectAtIndex: 1] setVisibilityPriority: NSToolbarItemVisibilityPriorityLow];
+          [[items objectAtIndex: 4] setVisibilityPriority: NSToolbarItemVisibilityPriorityLow];
+          [[items objectAtIndex: 6] setVisibilityPriority: NSToolbarItemVisibilityPriorityHigh];
+          frame = [window frame];
+          [window setFrame: NSMakeRect(NSMinX(frame), NSMinY(frame), NSWidth(frame) + 1.0, NSHeight(frame))
+                   display: YES];
+          [window setFrame: frame display: YES];
+          QuirkProbeDispatchEvents(0.1);
+          problem = [self overflowLayoutProblemIn: toolbar shown: shown menu: overflow];
+          if (problem == nil && [shown rangeOfString: @"F"].location == NSNotFound)
+            {
+              problem = [NSString stringWithFormat: @"%@ shown: F, high, went", shown];
+            }
+          if (problem == nil && ([shown rangeOfString: @"B"].location != NSNotFound
+                                 || [shown rangeOfString: @"D"].location != NSNotFound)
+              && ([shown rangeOfString: @"A"].location == NSNotFound
+                  || [shown rangeOfString: @"C"].location == NSNotFound
+                  || [shown rangeOfString: @"E"].location == NSNotFound))
+            {
+              problem = [NSString stringWithFormat: @"%@ shown: a low item stayed while a standard one went", shown];
+            }
+          if (problem == nil && [shown rangeOfString: @"B"].location == NSNotFound
+              && [shown rangeOfString: @"|"].location != NSNotFound)
+            {
+              problem = [NSString stringWithFormat: @"%@ shown: the separator stayed without B", shown];
+            }
+          if (problem == nil && inMenuBar == NO && [shown isEqualToString: @"ACEF"] == NO)
+            {
+              problem = [NSString stringWithFormat: @"%@ shown and %@ in >>, not ACEF", shown, overflow];
+            }
+          if (problem != nil)
+            {
+              [problems addObject: [NSString stringWithFormat: @"%@, B and D low, F high: %@", where, problem]];
+            }
+          else
+            {
+              [details addObject: [NSString stringWithFormat: @"%@, B and D low, F high: %@ shown, %@ in >>",
+                                            where, shown, overflow]];
+            }
+          [self saveView: [[window contentView] superview]
+                   named: inMenuBar ? @"toolbar-overflow-priority-menu-row" : @"toolbar-overflow-priority"];
+        }
+      [defaults removeObjectForKey: @"GSThemeToolbarInMenuBar"];
+      [window setToolbar: nil];
+      [window setMenu: nil];
+      [window orderOut: nil];
+    }
+  if ([problems count] == 0)
+    {
+      [self pass: @"toolbar-overflow-priority" detail: [details componentsJoinedByString: @"; "]];
+    }
+  else
+    {
+      [self fail: @"toolbar-overflow-priority" detail: [problems componentsJoinedByString: @"; "]];
+    }
+}
+
+/* A customisation drag drops at the toolbar's index, not at the place
+   among the items still shown: with B and D gone to ">>" (A C E F
+   shown), between A and C is index 3, past F is 7, A dragged past E's
+   middle goes to 5 and E dragged before C's middle to 3. libs-gui
+   counted the shown items, which drops one or two places early. */
+- (void) checkToolbarInsertionIndex
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(300, 300, 240, 160)
+                                     title: @"QuirkProbe Insertion"];
+  NSToolbar *toolbar = [[NSToolbar alloc] initWithIdentifier: @"QuirkProbeOverflowPriorityInsertion"];
+  NSMutableArray *problems = [NSMutableArray array];
+  NSMutableString *shown = [NSMutableString string];
+  NSMutableString *overflow = [NSMutableString string];
+  NSString *problem = nil;
+  Class toolbarViewClass = NSClassFromString(@"GSToolbarView");
+  NSView *toolbarView = nil;
+  NSArray *items = nil;
+  NSRect frame;
+
+  [toolbar setDelegate: self];
+  [toolbar setDisplayMode: NSToolbarDisplayModeIconOnly];
+  [window setToolbar: toolbar];
+  RELEASE(toolbar);
+  [window orderFront: nil];
+  QuirkProbeDispatchEvents(0.2);
+  items = [toolbar items];
+  toolbarView = QuirkProbeFindViewOfClass([[window contentView] superview], toolbarViewClass);
+  if ([items count] != 7 || toolbarView == nil
+      || [toolbarView respondsToSelector: @selector(_insertionIndexAtPoint:)] == NO)
+    {
+      [self skip: @"toolbar-insertion-index" detail: @"no seven-item toolbar view with -_insertionIndexAtPoint:"];
+    }
+  else
+    {
+      [[items objectAtIndex: 1] setVisibilityPriority: NSToolbarItemVisibilityPriorityLow];
+      [[items objectAtIndex: 4] setVisibilityPriority: NSToolbarItemVisibilityPriorityLow];
+      [[items objectAtIndex: 6] setVisibilityPriority: NSToolbarItemVisibilityPriorityHigh];
+      frame = [window frame];
+      [window setFrame: NSMakeRect(NSMinX(frame), NSMinY(frame), NSWidth(frame) + 1.0, NSHeight(frame))
+               display: YES];
+      [window setFrame: frame display: YES];
+      QuirkProbeDispatchEvents(0.1);
+      problem = [self overflowLayoutProblemIn: toolbar shown: shown menu: overflow];
+      if (problem == nil && [shown isEqualToString: @"ACEF"] == NO)
+        {
+          problem = [NSString stringWithFormat: @"%@ shown, not ACEF", shown];
+        }
+      if (problem != nil)
+        {
+          [self skip: @"toolbar-insertion-index" detail: problem];
+        }
+      else
+        {
+          NSView *a = [[items objectAtIndex: 0] _backView];
+          NSView *c = [[items objectAtIndex: 3] _backView];
+          NSView *e = [[items objectAtIndex: 5] _backView];
+          NSView *f = [[items objectAtIndex: 6] _backView];
+          CGFloat aMiddle = NSMidX([a convertRect: [a bounds] toView: nil]);
+          CGFloat cMiddle = NSMidX([c convertRect: [c bounds] toView: nil]);
+          CGFloat eMiddle = NSMidX([e convertRect: [e bounds] toView: nil]);
+          CGFloat fMiddle = NSMidX([f convertRect: [f bounds] toView: nil]);
+          CGFloat y = NSMidY([a convertRect: [a bounds] toView: nil]);
+          struct { NSUInteger dragged; CGFloat x; int expected; NSString *name; } cases[] = {
+            { NSNotFound, (aMiddle + cMiddle) / 2.0, 3, @"new item between A and C" },
+            { NSNotFound, fMiddle + 2.0, 7, @"new item past F" },
+            { 0, eMiddle + 2.0, 5, @"A past E's middle" },
+            { 5, cMiddle - 2.0, 3, @"E before C's middle" },
+            /* Out of the ">>" menu first, so E is then at 4. */
+            { 1, (cMiddle + eMiddle) / 2.0, 4, @"B (in >>) between C and E" },
+          };
+          NSUInteger index;
+
+          for (index = 0; index < sizeof(cases) / sizeof(cases[0]); index++)
+            {
+              int found;
+
+              [toolbarViewClass setDraggedItemIndex: cases[index].dragged];
+              found = [toolbarView _insertionIndexAtPoint: NSMakePoint(cases[index].x, y)];
+              if (found != cases[index].expected)
+                {
+                  [problems addObject: [NSString stringWithFormat: @"%@: %d, not %d",
+                                                 cases[index].name, found, cases[index].expected]];
+                }
+            }
+          [toolbarViewClass setDraggedItemIndex: NSNotFound];
+          if ([problems count] == 0)
+            {
+              [self pass: @"toolbar-insertion-index" detail: @"ACEF shown: 3, 7, 5, 3 and 4"];
+            }
+          else
+            {
+              [self fail: @"toolbar-insertion-index" detail: [problems componentsJoinedByString: @"; "]];
+            }
+        }
+    }
+  [window setToolbar: nil];
+  [window orderOut: nil];
+}
+
+/* When the last item to go leaves room for some that went before it with
+   its priority, they come back (Adwaita#81): ScreenshotTool's toolbar
+   with a 300pt Tools, about 300pt wide. Low, Standard and High go, then
+   Copy, Colour and Tools (User, right to left); without Tools, Colour and
+   Copy fit again. Save and Share (High) stay in ">>", so no item is
+   kept while one above it isn't. */
+- (void) checkToolbarOverflowReturns
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(300, 300, 300, 160)
+                                     title: @"QuirkProbe Returns"];
+  NSToolbar *toolbar = [[NSToolbar alloc] initWithIdentifier: @"QuirkProbeOverflowReturns"];
+  NSView *toolbarView = nil;
+  NSMutableArray *shown = [NSMutableArray array];
+  NSEnumerator *enumerator = nil;
+  NSToolbarItem *item = nil;
+  NSString *names = nil;
+  CGFloat width;
+
+  [toolbar setDelegate: self];
+  [toolbar setDisplayMode: NSToolbarDisplayModeIconOnly];
+  [window setToolbar: toolbar];
+  RELEASE(toolbar);
+  [window orderFront: nil];
+  QuirkProbeDispatchEvents(0.2);
+  toolbarView = QuirkProbeFindViewOfClass([[window contentView] superview], NSClassFromString(@"GSToolbarView"));
+  width = NSWidth([toolbarView frame]);
+  enumerator = [[toolbar visibleItems] objectEnumerator];
+  while ((item = [enumerator nextObject]) != nil)
+    {
+      [shown addObject: [[item itemIdentifier] isEqualToString: NSToolbarFlexibleSpaceItemIdentifier]
+                          ? @"~" : [item label]];
+    }
+  names = [shown componentsJoinedByString: @" "];
+  /* Colour and Copy (160pt) and the ">>" fit; Tools alone (320pt) doesn't. */
+  if (toolbarView == nil || [[toolbar items] count] != 9 || width < 188.0 || width >= 348.0)
+    {
+      [self skip: @"toolbar-overflow-same-priority-returns"
+          detail: [NSString stringWithFormat: @"%lu items, toolbar %.0fpt wide",
+                            (unsigned long)[[toolbar items] count], width]];
+    }
+  else if ([names isEqualToString: @"Colour ~ Copy"])
+    {
+      [self pass: @"toolbar-overflow-same-priority-returns"
+          detail: [NSString stringWithFormat: @"%.0fpt: %@ shown", width, names]];
+    }
+  else
+    {
+      [self fail: @"toolbar-overflow-same-priority-returns"
+          detail: [NSString stringWithFormat: @"%.0fpt: %@ shown, not Colour ~ Copy", width, names]];
+    }
+  [window setToolbar: nil];
   [window orderOut: nil];
 }
 
@@ -4560,6 +5148,79 @@ QuirkProbeTwelveHourClock(void)
            atStart: NO];
 }
 
+/* An event posted from a timer can wait in the queue: a timer that fires
+   as the run loop starts leaves it waiting for input, and with no timer
+   left and the mouse and keyboard idle (CI) none comes. A timer just after
+   brings it back to the queue. */
+- (void) wakeEventLoop: (NSTimer *)timer
+{
+}
+
+- (void) postEventFromTimer: (NSEvent *)event
+{
+  [NSApp postEvent: event atStart: NO];
+  [[NSRunLoop currentRunLoop] addTimer: [NSTimer timerWithTimeInterval: 0.05 target: self
+                                                              selector: @selector(wakeEventLoop:)
+                                                              userInfo: nil repeats: NO]
+                               forMode: NSEventTrackingRunLoopMode];
+}
+
+/* Holding the day column's down button (#56): presses it, lets it go
+   0.85s later, and accepts the flyout 0.55s after that. */
+- (void) holdDatePickerFlyoutArrow: (NSTimer *)timer
+{
+  NSEnumerator *enumerator = [[NSApp windows] objectEnumerator];
+  NSWindow *window;
+  NSView *flyout = nil;
+
+  while ((window = [enumerator nextObject]) != nil)
+    {
+      if ([window isVisible]
+          && [NSStringFromClass([[window contentView] class]) isEqualToString: @"WinUIThemeDatePickerFlyoutView"])
+        {
+          flyout = [window contentView];
+        }
+    }
+  if (flyout == nil)
+    {
+      [self releaseDatePickerFlyoutArrow: timer];
+      [self acceptDatePickerFlyout: timer];
+      return;
+    }
+  [NSApp postEvent: [NSEvent mouseEventWithType: NSLeftMouseDown
+                                       location: [flyout convertPoint: NSMakePoint(176, 340) toView: nil]
+                                  modifierFlags: 0 timestamp: 0 windowNumber: [[flyout window] windowNumber]
+                                        context: nil eventNumber: 0 clickCount: 1 pressure: 1.0]
+           atStart: NO];
+  [[NSRunLoop currentRunLoop] addTimer: [NSTimer timerWithTimeInterval: 0.85 target: self
+                                                              selector: @selector(releaseDatePickerFlyoutArrow:)
+                                                              userInfo: [timer userInfo] repeats: NO]
+                               forMode: NSEventTrackingRunLoopMode];
+  [[NSRunLoop currentRunLoop] addTimer: [NSTimer timerWithTimeInterval: 1.4 target: self
+                                                              selector: @selector(acceptDatePickerFlyout:)
+                                                              userInfo: [timer userInfo] repeats: NO]
+                               forMode: NSEventTrackingRunLoopMode];
+}
+
+- (void) releaseDatePickerFlyoutArrow: (NSTimer *)timer
+{
+  NSWindow *owner = [timer userInfo];
+
+  [self postEventFromTimer: [NSEvent mouseEventWithType: NSLeftMouseUp location: NSZeroPoint
+                                          modifierFlags: 0 timestamp: 0 windowNumber: [owner windowNumber]
+                                                context: nil eventNumber: 0 clickCount: 1 pressure: 0.0]];
+}
+
+- (void) acceptDatePickerFlyout: (NSTimer *)timer
+{
+  NSWindow *owner = [timer userInfo];
+
+  [self postEventFromTimer: [NSEvent keyEventWithType: NSKeyDown location: NSZeroPoint modifierFlags: 0
+                                            timestamp: 0 windowNumber: [owner windowNumber] context: nil
+                                           characters: @"\r" charactersIgnoringModifiers: @"\r"
+                                            isARepeat: NO keyCode: 0]];
+}
+
 - (void) inspectDatePickerFlyout: (NSTimer *)timer
 {
   NSEnumerator *enumerator = [[NSApp windows] objectEnumerator];
@@ -4988,6 +5649,38 @@ QuirkProbeTwelveHourClock(void)
       }
   }
 
+  /* A held up or down button steps on, as WinUI's RepeatButton (#56):
+     after the first step, one each 250ms from 250ms on while it's held,
+     and none once it's let go. Held 0.85s: four steps, three to five
+     allowing for the timers. */
+  {
+    NSTimer *timer = [NSTimer timerWithTimeInterval: 0.3 target: self
+                                           selector: @selector(holdDatePickerFlyoutArrow:)
+                                           userInfo: window repeats: NO];
+    NSEvent *click = [NSEvent mouseEventWithType: NSLeftMouseDown
+                                        location: [date convertPoint: NSMakePoint(60, 16) toView: nil]
+                                   modifierFlags: 0 timestamp: 0 windowNumber: [window windowNumber]
+                                         context: nil eventNumber: 0 clickCount: 1 pressure: 1.0];
+    NSTimeZone *zone = [NSTimeZone timeZoneWithName: @"America/Chicago"];
+    NSInteger before = [[[date dateValue] dateWithCalendarFormat: nil timeZone: zone] dayOfCommonEra];
+    NSInteger steps;
+
+    [[NSRunLoop currentRunLoop] addTimer: timer forMode: NSEventTrackingRunLoopMode];
+    [date mouseDown: click];
+    [timer invalidate];
+    steps = [[[date dateValue] dateWithCalendarFormat: nil timeZone: zone] dayOfCommonEra] - before;
+    if (steps >= 3 && steps <= 5)
+      {
+        [self pass: @"date-picker-flyout-repeat" detail: [NSString stringWithFormat:
+          @"the day's down button held 0.85s stepped the day %ld times, and stopped when let go", (long)steps]];
+      }
+    else
+      {
+        [self fail: @"date-picker-flyout-repeat" detail: [NSString stringWithFormat:
+          @"the day's down button held 0.85s stepped the day %ld times (expected 3 to 5)", (long)steps]];
+      }
+  }
+
   /* On a scaled display (GSScaleFactor here) the flyout opens with its
      band level with the field: the screen is in device pixels and the
      flyout's view in points, and at 150% it opened about 110px too high.
@@ -5002,9 +5695,24 @@ QuirkProbeTwelveHourClock(void)
                                    modifierFlags: 0 timestamp: 0 windowNumber: [window windowNumber]
                                          context: nil eventNumber: 0 clickCount: 1 pressure: 1.0];
     NSRect field = [date convertRect: [date bounds] toView: nil];
+    NSRect visible = [[NSScreen mainScreen] visibleFrame];
     CGFloat bandY;
 
+    /* The flyout reaches 270px above the field's middle and 331px below:
+       put the field where both fit (on CI's 1024x768 screen a fixed
+       origin left too little room above). */
+    if (NSHeight(visible) < 401.0 * 1.5 + 8.0)
+      {
+        [self skip: @"date-picker-flyout-scaled" detail: [NSString stringWithFormat:
+          @"the screen's visible frame is %.0fpx high, too short for a 602px flyout", NSHeight(visible)]];
+        [window orderOut: nil];
+        return;
+      }
     [window setFrameOrigin: NSMakePoint(400, 300)];
+    field = [date convertRect: [date bounds] toView: nil];
+    field.origin = [window convertBaseToScreen: field.origin];
+    [window setFrameOrigin: NSMakePoint(400, 300 + floor(NSMinY(visible) + 331.0 + 0.5 * (NSHeight(visible) - 601.0)
+                                                              - NSMidY(field)))];
     field = [date convertRect: [date bounds] toView: nil];
     field.origin = [window convertBaseToScreen: field.origin];
     _scaledFlyoutFrame = NSZeroRect;
@@ -8523,6 +9231,47 @@ QuirkProbeCloseButtonInkOnScreen(HWND hwnd)
         ShowWindow(secondHandle, SW_RESTORE);
       }
     QuirkProbeDispatchEvents(0.3);
+
+    /* Neither maximized: the selected tab takes the previous one's exact
+       window rectangle, past the screen's edge as a snapped window's
+       invisible border is (-7px); libs-gui pulled it back on screen and
+       the window moved 7px at each switch. */
+    {
+      RECT before, after;
+      BOOL exact;
+
+      GetWindowRect(secondHandle, &before);
+      SetWindowPos(secondHandle, NULL, -7, before.top, before.right - before.left,
+                   before.bottom - before.top, SWP_NOZORDER | SWP_NOACTIVATE);
+      QuirkProbeDispatchEvents(0.3);
+      GetWindowRect(secondHandle, &before);
+      [second selectNextTab: nil];
+      QuirkProbeDispatchEvents(0.4);
+      GetWindowRect(firstHandle, &after);
+      exact = [first isVisible] && EqualRect(&before, &after);
+      if (exact)
+        {
+          [self pass: @"window-tab-takes-exact-rect" detail: [NSString stringWithFormat:
+            @"the selected tab at (%ld,%ld) %ldx%ld, as the previous one, past the screen's edge",
+            (long)after.left, (long)after.top, (long)(after.right - after.left), (long)(after.bottom - after.top)]];
+        }
+      else
+        {
+          [self fail: @"window-tab-takes-exact-rect" detail: [NSString stringWithFormat:
+            @"the previous tab at (%ld,%ld) %ldx%ld, the selected one at (%ld,%ld) %ldx%ld",
+            (long)before.left, (long)before.top, (long)(before.right - before.left), (long)(before.bottom - before.top),
+            (long)after.left, (long)after.top, (long)(after.right - after.left), (long)(after.bottom - after.top)]];
+        }
+      if ([second isVisible] == NO)
+        {
+          [second makeKeyAndOrderFront: nil];
+          QuirkProbeDispatchEvents(0.3);
+        }
+      GetWindowRect(secondHandle, &before);
+      SetWindowPos(secondHandle, NULL, 120, before.top, before.right - before.left,
+                   before.bottom - before.top, SWP_NOZORDER | SWP_NOACTIVATE);
+      QuirkProbeDispatchEvents(0.3);
+    }
   }
 #endif
 
@@ -9049,6 +9798,113 @@ QuirkProbeBrightnessLeftOf(NSView *view)
       [self fail: @"focus-ring-cleared-by-click" detail: [NSString stringWithFormat:
         @"after a click, 2px outside the button is %ld, the background %ld (of 765)",
         (long)cleared, (long)background]];
+    }
+  [window orderOut: nil];
+}
+
+/* A key redraws no focused view that has no ring (ObjcMarkdown #164): a
+   text view, or a custom view that takes focus. The theme redisplayed
+   each with its ring's margin on every key, a whole extra redraw of an
+   editor per keystroke. A button keeps its ring's margin (Tab). */
+- (void) checkFocusRedisplayPerKey
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(420, 420, 300, 140)
+                                     title: @"QuirkProbe Focus Keys"];
+  QuirkProbeMarginCountingView *textBox = AUTORELEASE([[QuirkProbeMarginCountingView alloc]
+    initWithFrame: NSMakeRect(10, 70, 280, 60)]);
+  QuirkProbeMarginCountingView *canvasBox = AUTORELEASE([[QuirkProbeMarginCountingView alloc]
+    initWithFrame: NSMakeRect(10, 10, 130, 50)]);
+  QuirkProbeMarginCountingView *buttonBox = AUTORELEASE([[QuirkProbeMarginCountingView alloc]
+    initWithFrame: NSMakeRect(150, 10, 140, 50)]);
+  NSTextView *text = AUTORELEASE([[NSTextView alloc] initWithFrame: NSMakeRect(10, 10, 260, 40)]);
+  QuirkProbeKeyIgnoringView *canvas = AUTORELEASE([[QuirkProbeKeyIgnoringView alloc]
+    initWithFrame: NSMakeRect(10, 10, 110, 30)]);
+  NSButton *first = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(10, 10, 55, 30)]);
+  NSButton *second = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(75, 10, 55, 30)]);
+  NSMutableArray *problems = [NSMutableArray array];
+  NSEvent *tab = nil;
+  int index;
+
+  [text setEditable: YES];
+  [first setTitle: @"A"];
+  [second setTitle: @"B"];
+  [first setNextKeyView: second];
+  [second setNextKeyView: first];
+  [textBox addSubview: text];
+  [canvasBox addSubview: canvas];
+  [buttonBox addSubview: first];
+  [buttonBox addSubview: second];
+  textBox->child = text;
+  canvasBox->child = canvas;
+  buttonBox->child = second;
+  [[window contentView] addSubview: textBox];
+  [[window contentView] addSubview: canvasBox];
+  [[window contentView] addSubview: buttonBox];
+  [window makeKeyAndOrderFront: nil];
+
+  /* Ten keys typed into the text view, then ten into the canvas: the
+     first shows focus from the keyboard, the rest only repeat it. */
+  [window makeFirstResponder: text];
+  [window display];
+  textBox->margins = 0;
+  for (index = 0; index < 10; index++)
+    {
+      [NSApp sendEvent: [NSEvent keyEventWithType: NSKeyDown location: NSZeroPoint modifierFlags: 0
+                                        timestamp: 0 windowNumber: [window windowNumber] context: nil
+                                       characters: @"a" charactersIgnoringModifiers: @"a"
+                                        isARepeat: NO keyCode: 0x41]];
+      [window displayIfNeeded];
+    }
+  if (textBox->margins != 0)
+    {
+      [problems addObject: [NSString stringWithFormat: @"10 keys in a text view redisplayed it with a ring's margin %lu times",
+        (unsigned long)textBox->margins]];
+    }
+
+  [window makeFirstResponder: canvas];
+  [window display];
+  canvasBox->margins = 0;
+  for (index = 0; index < 10; index++)
+    {
+      [NSApp sendEvent: [NSEvent keyEventWithType: NSKeyDown location: NSZeroPoint modifierFlags: 0
+                                        timestamp: 0 windowNumber: [window windowNumber] context: nil
+                                       characters: @"a" charactersIgnoringModifiers: @"a"
+                                        isARepeat: NO keyCode: 0x41]];
+      [window displayIfNeeded];
+    }
+  if (canvasBox->margins != 0)
+    {
+      [problems addObject: [NSString stringWithFormat: @"10 keys in a custom view redisplayed it with a ring's margin %lu times",
+        (unsigned long)canvasBox->margins]];
+    }
+
+  /* Tab to a button still asks for its ring's margin. */
+  [window makeFirstResponder: first];
+  [window display];
+  buttonBox->margins = 0;
+  tab = [NSEvent keyEventWithType: NSKeyDown location: NSZeroPoint modifierFlags: 0 timestamp: 0
+                     windowNumber: [window windowNumber] context: nil characters: @"\t"
+      charactersIgnoringModifiers: @"\t" isARepeat: NO keyCode: 0x09];
+  [NSApp sendEvent: tab];
+  [window displayIfNeeded];
+  if ([window firstResponder] != second)
+    {
+      [problems addObject: @"Tab didn't move focus to the second button"];
+    }
+  else if (buttonBox->margins == 0)
+    {
+      [problems addObject: @"Tab to a button didn't redisplay its ring's margin"];
+    }
+
+  if ([problems count] == 0)
+    {
+      [self pass: @"focus-no-redisplay-per-key" detail: [NSString stringWithFormat:
+        @"keys in a text view and a custom view ask no ring's margin; Tab to a button asks %lu",
+        (unsigned long)buttonBox->margins]];
+    }
+  else
+    {
+      [self fail: @"focus-no-redisplay-per-key" detail: [problems componentsJoinedByString: @"; "]];
     }
   [window orderOut: nil];
 }
@@ -11501,6 +12357,134 @@ QuirkProbeSendMove(NSWindow *window, NSPoint location)
   [window orderOut: nil];
 }
 
+/* A colour well wider than tall is WinUI's colour DropDownButton (as
+   ScreenshotTool's redesign wants, Paint and the Toolkit's
+   ColorPickerButton have it): a small swatch at the start and the
+   chevron at the end; a square one is still all swatch. */
+- (void) checkColorWellDropDown
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(300, 300, 420, 160)
+                                     title: @"QuirkProbe Colour Well"];
+  NSToolbar *toolbar = [[NSToolbar alloc] initWithIdentifier: @"QuirkProbeColorWellToolbar"];
+  NSColorWell *form = AUTORELEASE([[NSColorWell alloc] initWithFrame: NSMakeRect(20, 20, 72, 28)]);
+  NSColorWell *wide = nil;
+  NSMutableArray *problems = [NSMutableArray array];
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale;
+  NSInteger x, y, redMaxX = -1, inkMinX = -1, formRedMaxX = -1;
+  NSUInteger r, g, b;
+
+  [toolbar setDelegate: self];
+  [toolbar setDisplayMode: NSToolbarDisplayModeIconOnly];
+  [window setToolbar: toolbar];
+  RELEASE(toolbar);
+  [form setColor: [NSColor colorWithCalibratedRed: 0.9 green: 0.1 blue: 0.1 alpha: 1.0]];
+  [[window contentView] addSubview: form];
+  [window orderFront: nil];
+  [window display];
+  wide = (NSColorWell *)[[[toolbar items] lastObject] view];
+  if ([wide isKindOfClass: [NSColorWell class]] == NO)
+    {
+      [self skip: @"color-well-drop-down" detail: @"no colour well in the toolbar"];
+      [window setToolbar: nil];
+      [window orderOut: nil];
+      return;
+    }
+  rep = QuirkProbeRender(wide);
+  scale = QuirkProbeScale(rep, wide);
+  for (x = 0; x < [rep pixelsWide]; x++)
+    {
+      for (y = 0; y < [rep pixelsHigh]; y++)
+        {
+          if (QuirkProbePixel(rep, x, y, &r, &g, &b) == NO)
+            {
+              continue;
+            }
+          if (r > 180 && g < 90 && b < 90)
+            {
+              redMaxX = MAX(redMaxX, x);
+            }
+          else if (x > [rep pixelsWide] / 2 && labs((long)r - (long)g) < 20 && labs((long)g - (long)b) < 20
+                   && (QuirkProbeHasArgument(@"--mode", @"dark") ? (r > 150) : (r < 140)))
+            {
+              if (inkMinX < 0 || x < inkMinX)
+                {
+                  inkMinX = x;
+                }
+            }
+        }
+    }
+  if (redMaxX < 0 || redMaxX > (NSInteger)(NSWidth([wide bounds]) / 2.0 * scale))
+    {
+      [problems addObject: [NSString stringWithFormat: @"the toolbar's well's swatch reaches %.0fpt of %.0f",
+                                                       redMaxX / scale, NSWidth([wide bounds])]];
+    }
+  if (inkMinX < 0)
+    {
+      [problems addObject: @"the toolbar's well has no chevron"];
+    }
+  /* The same well in a form stays all swatch. */
+  rep = QuirkProbeRender(form);
+  for (x = 0; x < [rep pixelsWide]; x++)
+    {
+      if (QuirkProbePixel(rep, x, [rep pixelsHigh] / 2, &r, &g, &b) && r > 180 && g < 90 && b < 90)
+        {
+          formRedMaxX = MAX(formRedMaxX, x);
+        }
+    }
+  if (formRedMaxX < (NSInteger)(50.0 * QuirkProbeScale(rep, form)))
+    {
+      [problems addObject: [NSString stringWithFormat: @"the form's well's swatch reaches only %.0fpt",
+                                                       formRedMaxX / QuirkProbeScale(rep, form)]];
+    }
+  [self saveView: [[window contentView] superview] named: @"color-well-drop-down"];
+  /* ScreenshotTool's 40pt well in the menu bar's 40pt row: 32pt tall,
+     it's widened to stay a DropDownButton (1.5 times as wide as tall),
+     whatever its maxSize. */
+  {
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    NSWindow *rowWindow = [self windowWithFrame: NSMakeRect(300, 300, 420, 160)
+                                          title: @"QuirkProbe Colour Well In Menu Bar"];
+    NSToolbar *rowToolbar = [[NSToolbar alloc] initWithIdentifier: @"QuirkProbeColorWellMenuRowToolbar"];
+    NSMenu *menu = AUTORELEASE([[NSMenu alloc] initWithTitle: @"QuirkProbe"]);
+    NSView *rowWell = nil;
+
+    [defaults setBool: YES forKey: @"GSThemeToolbarInMenuBar"];
+    [menu addItemWithTitle: @"File" action: NULL keyEquivalent: @""];
+    [rowToolbar setDelegate: self];
+    [rowToolbar setDisplayMode: NSToolbarDisplayModeIconOnly];
+    [rowWindow setToolbar: rowToolbar];
+    RELEASE(rowToolbar);
+    [rowWindow setMenu: menu];
+    [rowWindow orderFront: nil];
+    QuirkProbeDispatchEvents(0.2);
+    rowWell = [[[rowToolbar items] lastObject] view];
+    if ([rowWell isKindOfClass: [NSColorWell class]]
+        && NSWidth([rowWell frame]) < NSHeight([rowWell frame]) * 1.5 - 0.5)
+      {
+        [problems addObject: [NSString stringWithFormat: @"in the menu bar's row the 40pt well is %.0fx%.0f, a plain swatch",
+                                                         NSWidth([rowWell frame]), NSHeight([rowWell frame])]];
+      }
+    [self saveView: [[rowWindow contentView] superview] named: @"color-well-drop-down-menu-row"];
+    [defaults removeObjectForKey: @"GSThemeToolbarInMenuBar"];
+    [rowWindow setToolbar: nil];
+    [rowWindow setMenu: nil];
+    [rowWindow orderOut: nil];
+  }
+  if ([problems count] == 0)
+    {
+      [self pass: @"color-well-drop-down" detail: [NSString stringWithFormat:
+        @"in the toolbar: a swatch to %.0fpt and a chevron from %.0fpt; in a form: all swatch",
+        redMaxX / scale, inkMinX / scale]];
+    }
+  else
+    {
+      [self fail: @"color-well-drop-down" detail: [problems componentsJoinedByString: @"; "]];
+    }
+  [window setToolbar: nil];
+  [window orderOut: nil];
+}
+
 /* Selecting a tab (alpha7): the new tab's window comes on screen before
    the old one goes, so the window never vanishes. */
 - (void) checkWindowTabSwitchShowsFirst
@@ -12595,7 +13579,11 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkDecorationFitsTallWindow];
   [self checkToolbarIconSize];
   [self checkToolbarInMenuBar];
+  [self checkToolbarInMenuBarSavedFrame];
   [self checkToolbarInMenuBarViews];
+  [self checkToolbarOverflowPriority];
+  [self checkToolbarInsertionIndex];
+  [self checkToolbarOverflowReturns];
   [self checkToolbarFlexibleSpaceScaled];
   [self checkScrollerEdge];
   [self checkTableHeader];
@@ -12636,6 +13624,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkOverlayScrollers];
   [self checkOverlayAutohide];
   [self checkFocusVisual];
+  [self checkFocusRedisplayPerKey];
   [self checkTextBox];
   [self checkFocusedPlaceholder];
   [self checkContrastPopUpSelection];
@@ -12654,6 +13643,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkSegmentLabelCentred];
   [self checkButtonStyleAccent];
   [self checkDefaultButtonYieldsAccent];
+  [self checkColorWellDropDown];
   [self checkScrollViewTileSettles];
   [self checkClientCaption];
   [self checkClientCaptionScaled];

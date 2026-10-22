@@ -65,7 +65,9 @@ include $(GSWINDOWTABBING_DIR)/GSWindowTabbing.make
 WinUITheme_OBJC_FILES += $(GSWINDOWTABBING_OBJC_FILES)
 ADDITIONAL_INCLUDE_DIRS += $(GSWINDOWTABBING_INCLUDE_DIRS)
 
+ifneq ($(findstring mingw,$(GNUSTEP_TARGET_OS))$(findstring windows,$(GNUSTEP_TARGET_OS)),)
 WinUITheme_BUNDLE_LIBS += -luuid -lgdi32
+endif
 
 -include GNUmakefile.preamble
 

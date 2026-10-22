@@ -26,7 +26,9 @@
 #import <GNUstepGUI/GSTheme.h>
 #import <objc/runtime.h>
 
+#ifdef _WIN32
 #include <windows.h>
+#endif
 
 /* Motion (#105). WinUI eases between visual states rather than jumping:
    a control's fills cross-fade when the pointer comes and goes and when
@@ -157,19 +159,25 @@ BOOL
 WinUIThemeAnimationsEnabled(void)
 {
   id setting = [[NSUserDefaults standardUserDefaults] objectForKey: @"WinUIThemeAnimations"];
+#ifdef _WIN32
   /* Win32's 4-byte BOOL: SystemParametersInfoW writes all of it, and
      Objective-C's 1-byte BOOL here had it overrun the stack. */
   WINBOOL enabled = TRUE;
+#endif
 
   if (setting != nil && [setting respondsToSelector: @selector(boolValue)])
     {
       return [setting boolValue];
     }
+#ifdef _WIN32
   if (SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &enabled, 0) == FALSE)
     {
       return YES;
     }
   return enabled ? YES : NO;
+#else
+  return YES;
+#endif
 }
 
 /* WinUI's decelerating curve for things settling into place

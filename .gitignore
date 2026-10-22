@@ -23,3 +23,5 @@ Thumbs.db
 # Build and diagnostic leftovers
 *.log
 /Reference/WinUI3ReferenceApp/tmp-*.txt
+__pycache__/
+*.pyc

@@ -40,10 +40,27 @@ BOOL WinUIThemeToolbarInMenuBarEnabled(void);
    the button. Read as GSThemeToolbarInMenuBar is. */
 BOOL WinUIThemeMenuStyleIsMore(void);
 
+/* The menu bar's row while it holds the toolbar is CommandBar's 40pt,
+   taller than the menu bar's own 32 (Dan's pick for touch, alpha11);
+   compact metrics keep the 32pt row, and a taller menu bar (a larger
+   text size) keeps its own. How much a row of `menuHeight` grows by. */
+extern const CGFloat WinUIThemeToolbarInMenuBarRowHeight;
+CGFloat WinUIThemeToolbarInMenuBarExtraHeight(CGFloat menuHeight);
+
+/* Whether the window's menu bar row holds its toolbar now. */
+BOOL WinUIThemeWindowHoldsToolbarInMenuBar(NSWindow *window);
+
 /* Whether the toolbar is shown in a menu bar's row now. Its items are
    then icon-only CommandBar buttons at the row's height, their labels
    tool tips. */
 BOOL WinUIThemeToolbarIsInMenuBar(NSToolbar *toolbar);
+
+/* The factor libs-gui scales a window's frame by (its points to the
+   frame's device units), and how much a row `points` high grows the
+   frame by as it arrives: Windows gives the frame back in whole pixels,
+   rounded down (-[GSWindowDecorationView changeWindowHeight:]). */
+CGFloat WinUIThemeWindowFrameFactor(NSWindow *window);
+CGFloat WinUIThemeWindowRowFrameHeight(NSWindow *window, CGFloat points);
 
 /* The default changed: open windows move their toolbars into or out of
    the menu bar's row, keeping their frames. */
