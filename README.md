@@ -559,13 +559,14 @@ reference app and the resources.
 
 `Source/WindowTabbing` is a copy of
 [danjboyd/gnustep-window-tabbing](https://github.com/danjboyd/gnustep-window-tabbing)
-at `4cb1b63` (`4cb1b63798c5927ea39fa50f5dcf84fd5b167da1`: its `Headers`,
-`Source`, `GSWindowTabbing.make` and `LICENSE`), plus three of its later
-fixes for Windows, applied unchanged: `e49226b` (exports through
-`GSWT_EXPORT`), `a5cb18a` (the two-copies check without `<dlfcn.h>`) and
-`adfa7b4` (`<windows.h>` after GNUstep's headers). The commits between
-`4cb1b63` and them (dragging and scrolling tabs) aren't included. It is
-also LGPL-2.1-or-later. Don't edit it here: change the shared repository, then
+at its `main`, `800adc6` (`800adc647b0543e49c90542ccec0d9607ee47c7a`,
+the merge of danjboyd/gnustep-window-tabbing#2, the same tree as its
+head `1b3ee12`: its `Headers`, `Source`,
+`GSWindowTabbing.make` and `LICENSE`). That is its `main` (dragging and
+scrolling tabs, and the Windows fixes) plus the theme hooks
+`-windowTabBarShowsSingleTabForWindow:` and
+`-showTabbedWindow:inPlaceOfWindow:frame:maximized:makeKey:`. It is also
+LGPL-2.1-or-later. Don't edit it here: change the shared repository, then
 replace the directory with those files from a checkout
 (`git archive <commit> Headers Source GSWindowTabbing.make LICENSE`) and
 record the new hash here.
