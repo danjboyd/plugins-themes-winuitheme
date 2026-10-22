@@ -5,6 +5,86 @@ Releases of the WinUI theme for GNUstep. Versions are semver pre-releases
 `GSThemeVersion` in `WinUIThemeInfo.plist`, and an annotated tag on `main`.
 Apps that bundle the theme should pin a tag, not `main`.
 
+## 0.1.0-alpha12 (2026-10-21)
+
+One performance fix: typing in a text view no longer redraws it a second
+time on every key. Requires gnustep-gui 0.32 or later. Tested with the
+carried libs-back `carry-0.32.0.4`, as alpha11 was. Window tabs are
+unchanged from alpha9; the new tab code (#165) moves to alpha13.
+Markdown Viewer 0.2.5 moves to it.
+
+**Fixes**
+- Every key press redisplayed the focused view whole, with its focus
+  ring's margin, unless the ring was already drawn around it. Text views
+  never draw one (text inputs show an underline), nor do custom views
+  that take focus or disabled controls, so each keystroke in an editor
+  cost an extra full redraw (ObjcMarkdown #164). Only enabled controls
+  that draw the ring are redisplayed for it now, after a key and when
+  keyboard focus is shown or hidden (#173). QuirkProbe
+  `focus-no-redisplay-per-key`.
+
+## 0.1.0-alpha11 (2026-10-20)
+
+The toolbar in the menu bar's row is CommandBar's standard size, easier
+to hit by touch, and a toolbar too narrow for its items puts the least
+important ones in its ">>" menu first. Requires gnustep-gui 0.32 or
+later. Tested with the carried libs-back `carry-0.32.0.4`, as alpha10
+was. ScreenshotTool 0.3.2 moves to it.
+
+**Toolbar**
+- The menu bar's row holding the toolbar (#91) is 40pt, not 32: its
+  buttons are 36pt with 20pt icons (from 32 and 16), and its view items
+  (segmented controls, push buttons, the colour well) 32pt tall (from
+  24). A segmented control's icons in a toolbar are at most 20pt, as
+  its buttons'. Compact metrics keep the 32pt row. Windows with a
+  toolbar in the row are 8pt taller; the content keeps its size, and a
+  frame saved by an older build comes back 8pt shorter once (#170).
+- Toolbar items have 8pt between them, from 4, in either row (#170).
+- A colour well in a toolbar stays WinUI's colour DropDownButton, with
+  its chevron, at the 40pt row's height: it's at least 1.5 times as
+  wide as tall (#170).
+- A toolbar too narrow for its items keeps them by `visibilityPriority`,
+  as AppKit does: the lowest priority goes into ">>" first, the last of
+  equals first, a separator with the item before it, and the rest close
+  up; the ">>" menu lists them in the toolbar's order. With every item
+  at the default it's as before, the last ones first. An app can ask
+  `[[GSTheme theme] toolbarHonoursVisibilityPriority]`; the Adwaita
+  theme keeps the same rules (#171).
+
+## 0.1.0-alpha10 (2026-10-20)
+
+A data-loss fix and two refinements. Save As and Save a Copy replaced an
+existing file without asking, in every app; Windows' replace prompt is
+back. Compact metrics draw control titles at the size they were measured
+at, and the date flyout's up and down buttons repeat while held.
+Requires gnustep-gui 0.32 or later. Tested with the carried libs-back
+`carry-0.32.0.4`, as alpha9 was. Window tabs are unchanged from alpha9.
+Apps on alpha8 or alpha9 should move to it.
+
+**Fixes**
+- Saving over an existing file replaced it without asking (#168): the
+  theme's native Save dialog set its options without
+  `FOS_OVERWRITEPROMPT`, and GNUstep's own check doesn't run when the
+  theme answers the panel. Windows now asks "already exists. Do you want
+  to replace it?", with No the default; No leaves the file and keeps the
+  dialog open (#166).
+- Under `WinUIThemeMetrics=compact`, control titles were measured in the
+  cell's 12pt font but drawn at 13pt, so they were cut off at both ends
+  (libs-sharing's share sheet). Compact now draws them in the 12pt font;
+  popups, browsers and the date picker follow. Normal metrics keep the
+  13pt minimum (#164).
+
+**Controls**
+- The date and time flyout's up and down buttons repeat while held, as
+  WinUI's RepeatButton: after 250ms, every 250ms, until the button comes
+  up, the pointer leaves or the flyout closes (#161). QuirkProbe
+  `date-picker-flyout-repeat`.
+
+**Development**
+- CI builds the theme, QuirkProbe and ThemeDemo on every push, with
+  MSYS2's stock CLANG64 GNUstep, and runs QuirkProbe's light
+  configuration (#160, #167).
+
 ## 0.1.0-alpha9 (2026-10-16)
 
 A refinement and two window fixes. A colour well in a toolbar is WinUI's

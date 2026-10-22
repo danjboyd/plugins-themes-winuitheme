@@ -276,14 +276,22 @@ WinUIThemeRightTextAlignment(void)
    menu bar. Attach it when such a window becomes key or main. Windows given a
    menu of their own, and windows that can't become main (panels, menus), are
    left alone. */
-/* No menu bar row while the "..." sits in the title bar (#134). */
+/* No menu bar row while the "..." sits in the title bar (#134); the
+   row is CommandBar's 40pt while it holds the toolbar (#91). */
 - (float) menuHeightForWindow: (NSWindow *)window
 {
+  float height;
+
   if (WinUIThemeMenuBarInTitleBar(window))
     {
       return 0.0;
     }
-  return [super menuHeightForWindow: window];
+  height = [super menuHeightForWindow: window];
+  if (WinUIThemeWindowHoldsToolbarInMenuBar(window))
+    {
+      height += WinUIThemeToolbarInMenuBarExtraHeight(height);
+    }
+  return height;
 }
 
 - (void) windowNeedsMainMenu: (NSNotification *)notification
