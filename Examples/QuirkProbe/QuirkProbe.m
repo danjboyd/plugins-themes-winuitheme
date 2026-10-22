@@ -704,6 +704,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkClientCaption;
 - (void) checkClientCaptionScaled;
 - (void) checkDPIAwareness;
+- (void) checkFontHintingSystemDpi;
 - (void) checkMica;
 - (void) checkToolTipScaled;
 - (void) checkFileDialogFilters;
@@ -8292,6 +8293,112 @@ QuirkProbeCloseButtonInkOnScreen(HWND hwnd)
     }
 }
 
+/* What the server answers while checking font hinting under a system
+   DPI: the screen at 125% or 150%, not per-monitor aware. */
+static CGFloat QuirkProbeFakeResolution = 72.0;
+
+static NSSize
+QuirkProbeFakeResolutionForScreen(id self, SEL _cmd, int screen)
+{
+  return NSMakeSize(QuirkProbeFakeResolution, QuirkProbeFakeResolution);
+}
+
+static BOOL
+QuirkProbeFakeNotPerMonitorAware(id self, SEL _cmd)
+{
+  return NO;
+}
+
+/* YES when a font's glyphs advance by whole points, as cairo's hinted
+   metrics round them; unhinted, some advance by a fraction. */
+static BOOL
+QuirkProbeFontAdvancesWhole(NSFont *font)
+{
+  NSString *sample = @"KBpxPNGaeimrstw";
+  NSUInteger index;
+
+  for (index = 0; index < [sample length]; index++)
+    {
+      CGFloat width = [font widthOfString: [sample substringWithRange: NSMakeRange(index, 1)]];
+
+      if (fabs(width - round(width)) > 0.01)
+        {
+          return NO;
+        }
+    }
+  return YES;
+}
+
+/* A system DPI aware app at 125% or 150% has its windows scaled by the
+   screen's resolution, not GSScaleFactor; cairo's hinted metrics then
+   space glyphs unevenly (ScreenshotTool #306: "px·  PNG", KB
+   overlapping). The carried libs-back turns them off there, as for
+   GSScaleFactor and per-monitor DPI. The server is made to answer a
+   resolution of 90 and 108 (and 72 to compare) and not per-monitor
+   aware, and a font made then is looked at. Carried backend only. */
+- (void) checkFontHintingSystemDpi
+{
+  GSDisplayServer *server = GSCurrentServer();
+  Class serverClass = [server class];
+  Method resolution = class_getInstanceMethod(serverClass, @selector(resolutionForScreen:));
+  Method perMonitor = class_getInstanceMethod(serverClass, @selector(isPerMonitorDPIAware));
+  IMP resolutionIMP = NULL;
+  IMP perMonitorIMP = NULL;
+  NSMutableArray *problems = [NSMutableArray array];
+  CGFloat resolutions[] = { 72.0, 90.0, 108.0 };
+  BOOL whole[3];
+  NSUInteger index;
+
+  if (perMonitor == NULL || resolution == NULL)
+    {
+      [self skip: @"font-hinting-system-dpi" detail: @"the backend isn't the carried libs-back"];
+      return;
+    }
+  if ([[NSUserDefaults standardUserDefaults] objectForKey: @"GSFontHinting"] != nil
+      || [[NSUserDefaults standardUserDefaults] objectForKey: @"GSScaleFactor"] != nil)
+    {
+      [self skip: @"font-hinting-system-dpi" detail: @"GSFontHinting or GSScaleFactor is set"];
+      return;
+    }
+  resolutionIMP = method_setImplementation(resolution, (IMP)QuirkProbeFakeResolutionForScreen);
+  perMonitorIMP = method_setImplementation(perMonitor, (IMP)QuirkProbeFakeNotPerMonitorAware);
+  for (index = 0; index < 3; index++)
+    {
+      /* A size no other check uses, so the font is made now. */
+      NSFont *font = nil;
+
+      QuirkProbeFakeResolution = resolutions[index];
+      font = [NSFont fontWithName: [[NSFont systemFontOfSize: 0] fontName] size: 13.17 + 0.01 * index];
+      whole[index] = (font != nil) ? QuirkProbeFontAdvancesWhole(font) : YES;
+    }
+  method_setImplementation(resolution, resolutionIMP);
+  method_setImplementation(perMonitor, perMonitorIMP);
+  QuirkProbeFakeResolution = 72.0;
+
+  if (whole[0] == NO)
+    {
+      [self skip: @"font-hinting-system-dpi" detail: @"at 72 the glyphs don't advance by whole points: can't tell hinting"];
+      return;
+    }
+  if (whole[1])
+    {
+      [problems addObject: @"125% (90): hinted metrics"];
+    }
+  if (whole[2])
+    {
+      [problems addObject: @"150% (108): hinted metrics"];
+    }
+  if ([problems count] == 0)
+    {
+      [self pass: @"font-hinting-system-dpi"
+          detail: @"100%: hinted; 125% and 150% (system DPI, not per-monitor): unhinted"];
+    }
+  else
+    {
+      [self fail: @"font-hinting-system-dpi" detail: [problems componentsJoinedByString: @"; "]];
+    }
+}
+
 /* The theme's caption on a scaled display: the gui draws a DPI-aware
    window at the screen's scale (GSScaleFactor here) and lays its content
    out in points from offsets in pixels. The content, menu bar and toolbar
@@ -13428,6 +13535,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkClientCaption];
   [self checkClientCaptionScaled];
   [self checkDPIAwareness];
+  [self checkFontHintingSystemDpi];
   [self checkMica];
   [self checkPopUpClick];
   [self checkContextMenuClick];
