@@ -85,6 +85,11 @@ static const CGFloat WinUIThemeDatePickerTextInset = 12.0;
 static const CGFloat WinUIThemePickerRowHeight = 40.0;
 static const NSInteger WinUIThemePickerVisibleRows = 9;
 static const CGFloat WinUIThemePickerFooterHeight = 40.0;
+/* RepeatButton's default Delay and Interval, for a held up or down
+   button. */
+static const NSTimeInterval WinUIThemePickerRepeatDelay = 0.25;
+static const NSTimeInterval WinUIThemePickerRepeatInterval = 0.25;
+
 /* LoopingSelector's up and down buttons, at the ends of the column under
    the pointer (LoopingSelectorUpDownButtonHeight). */
 static const CGFloat WinUIThemePickerArrowHeight = 34.0;
@@ -973,6 +978,11 @@ WinUIThemeDrawCalendar(WinUITheme *theme, NSDatePickerCell *cell, NSRect frame, 
      under it; -1 for none. */
   NSInteger _hoverColumn;
   NSInteger _hoverArrow;
+  /* The up or down button held, as WinUI's RepeatButton: it steps again
+     while the pointer stays over it; -1 for none. */
+  NSInteger _repeatColumn;
+  NSInteger _repeatArrow;
+  BOOL _repeatInside;
 }
 - (id) initWithTheme: (WinUITheme *)theme
                parts: (WinUIThemeDatePartList)list
@@ -983,6 +993,13 @@ WinUIThemeDrawCalendar(WinUITheme *theme, NSDatePickerCell *cell, NSRect frame, 
            yearRange: (NSRange)years;
 /* 0 while open, 1 accepted, -1 dismissed. */
 - (NSInteger) result;
+/* Whether an up or down button is held, and the steps it takes while
+   it is: a periodic event steps again, the pointer moving or the button
+   coming up are followed. */
+- (BOOL) isRepeating;
+- (void) repeatStep;
+- (void) trackRepeat: (NSEvent *)event;
+- (void) stopRepeating;
 - (void) setResult: (NSInteger)result;
 /* The parts picked, over the date's. */
 - (NSDateComponents *) components;
@@ -1031,6 +1048,8 @@ WinUIThemeDrawCalendar(WinUITheme *theme, NSDatePickerCell *cell, NSRect frame, 
   _hoverButton = -1;
   _hoverColumn = -1;
   _hoverArrow = -1;
+  _repeatColumn = -1;
+  _repeatArrow = -1;
   for (index = 0; index < list.count; index++)
     {
       WinUIThemePickerColumn *column = AUTORELEASE([WinUIThemePickerColumn new]);
@@ -1402,17 +1421,29 @@ WinUIThemeDrawCalendar(WinUITheme *theme, NSDatePickerCell *cell, NSRect frame, 
       _result = -1;
       return;
     }
-  /* The column's up and down buttons: a step each. */
+  /* The column's up and down buttons: a step, then more while held. */
   if (column >= 0 && NSPointInRect(point, [self arrowRect: 0 ofColumn: column]))
     {
       _focused = column;
       [self moveColumn: column by: -1];
+      if ([event type] == NSLeftMouseDown)
+        {
+          _repeatColumn = column;
+          _repeatArrow = 0;
+          _repeatInside = YES;
+        }
       return;
     }
   if (column >= 0 && NSPointInRect(point, [self arrowRect: 1 ofColumn: column]))
     {
       _focused = column;
       [self moveColumn: column by: 1];
+      if ([event type] == NSLeftMouseDown)
+        {
+          _repeatColumn = column;
+          _repeatArrow = 1;
+          _repeatInside = YES;
+        }
       return;
     }
   if (column >= 0 && NSPointInRect(point, [self rowsRect]))
@@ -1422,6 +1453,35 @@ WinUIThemeDrawCalendar(WinUITheme *theme, NSDatePickerCell *cell, NSRect frame, 
       _focused = column;
       [self moveColumn: column by: row - WinUIThemePickerVisibleRows / 2];
     }
+}
+
+- (BOOL) isRepeating
+{
+  return (_repeatColumn >= 0);
+}
+
+- (void) repeatStep
+{
+  if (_repeatColumn >= 0 && _repeatInside)
+    {
+      [self moveColumn: _repeatColumn by: (_repeatArrow == 0) ? -1 : 1];
+    }
+}
+
+- (void) trackRepeat: (NSEvent *)event
+{
+  NSPoint point = [self convertPoint: [event locationInWindow] fromView: nil];
+
+  if (_repeatColumn >= 0)
+    {
+      _repeatInside = NSPointInRect(point, [self arrowRect: _repeatArrow ofColumn: _repeatColumn]);
+    }
+}
+
+- (void) stopRepeating
+{
+  _repeatColumn = -1;
+  _repeatArrow = -1;
 }
 
 - (void) mouseMoved: (NSEvent *)event
@@ -1594,6 +1654,13 @@ WinUIThemeRunPickerFlyout(WinUITheme *theme, NSDatePicker *picker, NSRect field,
             if ([event window] == panel)
               {
                 [view mouseDown: event];
+                /* A held up or down button steps on, as WinUI's
+                   RepeatButton (Delay and Interval 250ms). */
+                if ([view isRepeating])
+                  {
+                    [NSEvent startPeriodicEventsAfterDelay: WinUIThemePickerRepeatDelay
+                                                withPeriod: WinUIThemePickerRepeatInterval];
+                  }
               }
             else
               {
@@ -1613,12 +1680,22 @@ WinUIThemeRunPickerFlyout(WinUITheme *theme, NSDatePicker *picker, NSRect field,
             if ([event window] == panel)
               {
                 [view mouseMoved: event];
+                [view trackRepeat: event];
               }
+            break;
+          case NSPeriodic:
+            [view repeatStep];
             break;
           case NSKeyDown:
             [view keyDown: event];
             break;
           case NSLeftMouseUp:
+            if ([view isRepeating])
+              {
+                [NSEvent stopPeriodicEvents];
+                [view stopRepeating];
+              }
+            break;
           case NSRightMouseUp:
           case NSOtherMouseUp:
           case NSKeyUp:
@@ -1637,6 +1714,12 @@ WinUIThemeRunPickerFlyout(WinUITheme *theme, NSDatePicker *picker, NSRect field,
         }
       [panel displayIfNeeded];
       [pool release];
+    }
+  /* Closed with a button still held (Escape, Enter). */
+  if ([view isRepeating])
+    {
+      [NSEvent stopPeriodicEvents];
+      [view stopRepeating];
     }
 
   if ([view result] > 0)

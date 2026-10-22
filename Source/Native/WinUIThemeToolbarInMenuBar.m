@@ -21,6 +21,7 @@
 #import "WinUIThemeToolbarInMenuBar.h"
 #import "WinUIThemeWindowIntegration.h"
 #import "../WinUITheme.h"
+#import "../Settings/WinUIThemeMetrics.h"
 #import "../Rendering/WinUIThemeDrawing.h"
 
 #import <AppKit/AppKit.h>
@@ -37,9 +38,10 @@
    - the menu titles keep the room they need, the toolbar takes the rest
      of the row, so a flexible space puts the items after it at the
      row's end;
-   - its items are icon-only buttons at the row's height (32pt), as a
-     CommandBar's compact AppBarButtons, their labels tool tips
-     (WinUIThemeToolbar.m); a label-only toolbar keeps its text buttons;
+   - the row is CommandBar's 40pt (32pt under compact metrics), and its
+     items are icon-only 36pt buttons, as CommandBar's AppBarButtons,
+     their labels tool tips (WinUIThemeToolbar.m); a label-only toolbar
+     keeps its text buttons;
    - with too little room the toolbar's items fold into libs-gui's ">>"
      first; the menus fold into their "..." (#77) only once the toolbar
      is down to that;
@@ -73,9 +75,11 @@
 static char WinUIThemeHoldsToolbarKey;
 static char WinUIThemeLaidOutInMenuBarKey;
 
-/* The least the toolbar keeps beside the menus: one 32pt button and
-   libs-gui's 28pt ">>" for the rest. */
-static const CGFloat WinUIThemeToolbarInMenuBarMinWidth = 60.0;
+const CGFloat WinUIThemeToolbarInMenuBarRowHeight = 40.0;
+
+/* The least the toolbar keeps beside the menus: one 36pt button with
+   its spacing and libs-gui's 28pt ">>" for the rest. */
+static const CGFloat WinUIThemeToolbarInMenuBarMinWidth = 72.0;
 /* Between the last menu title and the first command. */
 static const CGFloat WinUIThemeToolbarInMenuBarGap = 4.0;
 /* After the last command, before the window's edge: the menu bar's own
@@ -259,6 +263,41 @@ WinUIThemeDecorationSetHoldsToolbar(NSView *decoration, BOOL holds)
   objc_setAssociatedObject(decoration, &WinUIThemeHoldsToolbarKey,
                            holds ? [NSNumber numberWithBool: YES] : nil,
                            OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+CGFloat
+WinUIThemeToolbarInMenuBarExtraHeight(CGFloat menuHeight)
+{
+  GSTheme *theme = [GSTheme theme];
+
+  if (menuHeight <= 0.0
+      || ([theme isKindOfClass: [WinUITheme class]] && [[(WinUITheme *)theme metrics] compact]))
+    {
+      return 0.0;
+    }
+  return MAX(0.0, WinUIThemeToolbarInMenuBarRowHeight - menuHeight);
+}
+
+BOOL
+WinUIThemeWindowHoldsToolbarInMenuBar(NSWindow *window)
+{
+  NSView *decoration = [[window contentView] superview];
+
+  return [decoration isKindOfClass: [GSWindowDecorationView class]]
+    && WinUIThemeDecorationHoldsToolbar(decoration);
+}
+
+/* -changeWindowHeight: by `points` as a row that tall arriving (or, less
+   than 0, leaving) changes the frame: in whole pixels, rounded down. */
+static void
+WinUIThemeChangeWindowByRow(GSWindowDecorationView *decoration, NSWindow *window, CGFloat points)
+{
+  CGFloat pixels = WinUIThemeWindowRowFrameHeight(window, fabs(points));
+
+  if (pixels > 0.0)
+    {
+      [decoration changeWindowHeight: copysign(pixels, points) / WinUIThemeWindowFrameFactor(window)];
+    }
 }
 
 BOOL
@@ -455,17 +494,23 @@ WinUIThemeLayoutToolbarInMenuBar(GSWindowDecorationView *decoration, NSWindow *w
 
 - (BOOL) winUIThemeAddToolbarViewToMenuBar: (GSToolbarView *)toolbarView
 {
+  CGFloat extra;
+
   if (hasMenu == NO || WinUIThemeToolbarInMenuBarEnabled() == NO)
     {
       WinUIThemeDecorationSetHoldsToolbar(self, NO);
       WinUIThemeToolbarViewSetInMenuBar(toolbarView, NO);
       return NO;
     }
+  extra = WinUIThemeToolbarInMenuBarExtraHeight([[GSTheme theme] menuHeightForWindow: window]);
   WinUIThemeDecorationSetHoldsToolbar(self, YES);
   hasToolbar = YES;
   [self addSubview: toolbarView];
   WinUIThemeToolbarViewSetInMenuBar(toolbarView, YES);
   [self layout];
+  /* The row grows to the toolbar's 40pt: the window grows with it, so
+     the content keeps its size, as for a toolbar in a row of its own. */
+  WinUIThemeChangeWindowByRow(self, window, extra);
   [self setNeedsDisplay: YES];
   return YES;
 }
@@ -480,6 +525,9 @@ WinUIThemeLayoutToolbarInMenuBar(GSWindowDecorationView *decoration, NSWindow *w
   hasToolbar = NO;
   [toolbarView removeFromSuperviewWithoutNeedingDisplay];
   [self layout];
+  /* The row goes back to the menu bar's height, and the window with it. */
+  WinUIThemeChangeWindowByRow(self, window,
+                              -WinUIThemeToolbarInMenuBarExtraHeight([[GSTheme theme] menuHeightForWindow: window]));
   [self setNeedsDisplay: YES];
   return YES;
 }
@@ -498,6 +546,7 @@ WinUIThemeLayoutToolbarInMenuBar(GSWindowDecorationView *decoration, NSWindow *w
 {
   GSToolbarView *toolbarView = [[window toolbar] _toolbarView];
   CGFloat rowHeight;
+  CGFloat extra;
 
   if (hasMenu == NO || hasToolbar == NO || WinUIThemeDecorationHoldsToolbar(self)
       || toolbarView == nil || [toolbarView superview] != self
@@ -506,12 +555,15 @@ WinUIThemeLayoutToolbarInMenuBar(GSWindowDecorationView *decoration, NSWindow *w
       return;
     }
   rowHeight = NSHeight([toolbarView frame]);
+  extra = WinUIThemeToolbarInMenuBarExtraHeight([[GSTheme theme] menuHeightForWindow: window]);
   WinUIThemeDecorationSetHoldsToolbar(self, YES);
   WinUIThemeToolbarViewSetInMenuBar(toolbarView, YES);
   /* The content keeps its size: the window gives up the toolbar's row,
-     as much of its frame as the row took. At 125% a 61pt row grew it
-     76px, and taking 61pt off took 77: a pixel less at every launch. */
-  [self changeWindowHeight: -WinUIThemeWindowRowFrameHeight(window, rowHeight)
+     as much of its frame as the row took, less the menu bar's growing
+     to hold it. At 125% a 61pt row grew it 76px, and taking 61pt off
+     took 77: a pixel less at every launch. */
+  [self changeWindowHeight: -(WinUIThemeWindowRowFrameHeight(window, rowHeight)
+                              - WinUIThemeWindowRowFrameHeight(window, extra))
                            / WinUIThemeWindowFrameFactor(window)];
   [self setNeedsDisplay: YES];
 }
@@ -537,8 +589,11 @@ WinUIThemeLayoutToolbarInMenuBar(GSWindowDecorationView *decoration, NSWindow *w
     {
       return;
     }
-  /* The toolbar has its row again: the window grows by it. */
-  [self changeWindowHeight: [toolbarView _heightFromLayout]];
+  /* The toolbar has its row again: the window grows by it, less what
+     the menu bar's row grew by to hold it (libs-gui took the menu bar's
+     own height off). */
+  [self changeWindowHeight: [toolbarView _heightFromLayout]
+     - WinUIThemeToolbarInMenuBarExtraHeight([[GSTheme theme] menuHeightForWindow: window])];
 }
 
 - (BOOL) winUIThemeBeginLayout
