@@ -559,9 +559,9 @@ reference app and the resources.
 
 `Source/WindowTabbing` is a copy of
 [danjboyd/gnustep-window-tabbing](https://github.com/danjboyd/gnustep-window-tabbing)
-at `1b3ee12` (`1b3ee1200dc54911113f21a28999986832db01d7`, on its
-`theme-hooks-single-tab-switch` branch, danjboyd/gnustep-window-tabbing#2:
-its `Headers`, `Source`,
+at its `main`, `800adc6` (`800adc647b0543e49c90542ccec0d9607ee47c7a`,
+the merge of danjboyd/gnustep-window-tabbing#2, the same tree as its
+head `1b3ee12`: its `Headers`, `Source`,
 `GSWindowTabbing.make` and `LICENSE`). That is its `main` (dragging and
 scrolling tabs, and the Windows fixes) plus the theme hooks
 `-windowTabBarShowsSingleTabForWindow:` and
