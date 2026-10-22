@@ -391,8 +391,11 @@ WinUIThemeHighContrastEnabledFromSystem(void)
   return ((settings.dwFlags & HCF_HIGHCONTRASTON) != 0);
 }
 
+#endif
+
 /* High contrast's colours (#45), by the names Windows' contrast themes
-   give them in their [Control Panel\Colors] sections. */
+   give them in their [Control Panel\Colors] sections. These read a
+   .theme file, not the system, so they build on any platform. */
 static NSArray *
 WinUIThemeContrastColorNames(void)
 {
@@ -552,6 +555,7 @@ WinUIThemeContrastLuminance(NSColor *color)
     : 0.2126 * [rgb redComponent] + 0.7152 * [rgb greenComponent] + 0.0722 * [rgb blueComponent];
 }
 
+#ifdef _WIN32
 /* The app accent, as Windows' Settings sets it: AccentColorMenu is
    0xAABBGGRR. (DWM's ColorizationColor, read before, is the window
    frame's colour, which the user can turn off or tint differently.) */
