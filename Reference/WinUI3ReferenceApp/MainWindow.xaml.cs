@@ -502,7 +502,7 @@ public sealed partial class MainWindow : Window
        Tests/Scripts/measure_specimens.py. */
     private void BuildSpecimensPage(StackPanel host)
     {
-        var canvas = new Canvas { Width = 720, Height = 200, HorizontalAlignment = HorizontalAlignment.Left };
+        var canvas = new Canvas { Width = 720, Height = 360, HorizontalAlignment = HorizontalAlignment.Left };
         var combo = new ComboBox { Width = 160 };
 
         combo.Items.Add("Item");
@@ -524,6 +524,11 @@ public sealed partial class MainWindow : Window
         Place(canvas, new Slider { Minimum = 0, Maximum = 100, Value = 50, Width = 200 }, 288, 88);
         Place(canvas, new ProgressBar { Minimum = 0, Maximum = 100, Value = 50, Width = 160 }, 504, 100);
         Place(canvas, new TextBlock { Text = "The quick brown fox jumps over the lazy dog", FontSize = 14 }, 16, 152);
+        // The rest of the type ramp: Caption, BodyStrong, Subtitle, Title.
+        Place(canvas, new TextBlock { Text = "The quick brown fox jumps over the lazy dog", FontSize = 12 }, 16, 196);
+        Place(canvas, new TextBlock { Text = "The quick brown fox jumps over the lazy dog", FontSize = 14, FontWeight = FontWeights.SemiBold }, 16, 228);
+        Place(canvas, new TextBlock { Text = "The quick brown fox jumps over the lazy dog", FontSize = 20, FontWeight = FontWeights.SemiBold }, 16, 262);
+        Place(canvas, new TextBlock { Text = "The quick brown fox jumps over", FontSize = 28, FontWeight = FontWeights.SemiBold }, 16, 304);
         host.Children.Add(canvas);
     }
 
