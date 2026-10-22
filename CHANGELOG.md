@@ -5,6 +5,60 @@ Releases of the WinUI theme for GNUstep. Versions are semver pre-releases
 `GSThemeVersion` in `WinUIThemeInfo.plist`, and an annotated tag on `main`.
 Apps that bundle the theme should pin a tag, not `main`.
 
+## 0.1.0-alpha13 (unreleased)
+
+Window tabs move onto the shared tabbing code's `main`: tabs drag and
+scroll, and the theme no longer patches the shared code at run time.
+The toolbar's overflow brings back items that fit, and customising drops
+land at the pointer. The theme also builds off Windows. Requires
+gnustep-gui 0.32 or later. Tested with the carried libs-back
+`carry-0.32.0.4`.
+
+**Window tabs**
+- `Source/WindowTabbing` is danjboyd/gnustep-window-tabbing's `main`
+  (`800adc6`): tabs drag and scroll, the bar fades at its edges, tabs
+  keep the group's frame as a menu bar comes or goes, the selected tab
+  takes the maximized state, and a switch shows the new tab before
+  hiding the old one (#165).
+- The theme's run-time replacements of `-[NSWindowTabGroup
+  isTabBarVisible]`, `-_toggleTabBar` and `-_switchToWindow:` are gone;
+  it implements the shared code's hooks instead: the bar shows one tab
+  and its "+" as Windows 11's apps open
+  (`-windowTabBarShowsSingleTabForWindow:`), and a never-shown tab is
+  set up behind the old one and brought forward drawn
+  (`-showTabbedWindow:inPlaceOfWindow:frame:maximized:makeKey:`) (#165).
+
+**Toolbar**
+- When the last item to go into ">>" leaves room for items of its
+  priority that went before it, they come back, leftmost first:
+  ScreenshotTool's Colour and Copy once its wide Tools has gone. Lower
+  ones stay in ">>", so no item is kept while one above it isn't. With
+  every item at the same priority the toolbar is libs-gui's. The same
+  rule as the Adwaita theme's (Adwaita#81, #175). QuirkProbe
+  `toolbar-overflow-same-priority-returns`.
+- Dragging while customising a toolbar with items in ">>" before the end
+  dropped the item one or more places early: libs-gui counted the items
+  shown. Drops now land at the pointer, and an item dragged out of ">>"
+  goes where a new one would (Adwaita#80, #175). QuirkProbe
+  `toolbar-insertion-index`.
+
+**Portability**
+- The theme builds and links off Windows (checked on Debian 13): the
+  contrast helpers, Motion and the caption keep their Win32 calls under
+  `_WIN32`, the caption buttons use `NSWindow`'s own methods there, and
+  `uuid` and `gdi32` are linked only on Windows (#176). Nothing changes
+  on Windows. The theme isn't supported or checked by eye off Windows.
+
+**Docs and references**
+- The README's settings reference lists every key the theme reads, and
+  `Docs/RELEASE_READINESS.md` has the beta1 gate's known-gaps triage
+  (#158).
+- The specimens pages measure WinUI's whole type ramp; Caption (12px) is
+  2.5% narrower than WinUI's, kept on purpose and reported as known
+  (#159).
+- The WinUI 3 reference app has the Toolkit's `Segmented` and WinUI's
+  `SelectorBar` side by side; the theme stays with Segmented (#162).
+
 ## 0.1.0-alpha12 (2026-10-21)
 
 One performance fix: typing in a text view no longer redraws it a second

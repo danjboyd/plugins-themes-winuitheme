@@ -9,7 +9,7 @@
     common_SliderHoriz = "SliderThumb.png";
     common_SliderVert = "SliderThumb.png";
   };
-  GSThemeVersion = "0.1.0-alpha12";
+  GSThemeVersion = "0.1.0-alpha13";
   /* Panels whose class adopts GSThemePopoverPanel are drawn as WinUI
      flyouts; apps leave their background to the theme. */
   GSThemeDrawsPopoverPanels = YES;
