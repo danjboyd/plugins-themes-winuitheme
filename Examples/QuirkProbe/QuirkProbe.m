@@ -438,6 +438,13 @@ QuirkProbeModuleOfAddress(void *address)
 - (NSView *) _backView;
 @end
 
+/* GSToolbarView's customisation drop index, private. */
+@interface NSView (QuirkProbeToolbarInsertion)
+- (int) _insertionIndexAtPoint: (NSPoint)location;
++ (NSUInteger) draggedItemIndex;
++ (void) setDraggedItemIndex: (NSUInteger)sourceIndex;
+@end
+
 @interface NSView (QuirkProbeTabBar)
 - (NSUInteger) numberOfTabs;
 - (NSRect) rectForTabAtIndex: (NSUInteger)index;
@@ -2696,6 +2703,103 @@ WinUIThemeProbeToolbarInRow(NSWindow *window)
     {
       [self fail: @"toolbar-overflow-priority" detail: [problems componentsJoinedByString: @"; "]];
     }
+}
+
+/* A customisation drag drops at the toolbar's index, not at the place
+   among the items still shown: with B and D gone to ">>" (A C E F
+   shown), between A and C is index 3, past F is 7, A dragged past E's
+   middle goes to 5 and E dragged before C's middle to 3. libs-gui
+   counted the shown items, which drops one or two places early. */
+- (void) checkToolbarInsertionIndex
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(300, 300, 240, 160)
+                                     title: @"QuirkProbe Insertion"];
+  NSToolbar *toolbar = [[NSToolbar alloc] initWithIdentifier: @"QuirkProbeOverflowPriorityInsertion"];
+  NSMutableArray *problems = [NSMutableArray array];
+  NSMutableString *shown = [NSMutableString string];
+  NSMutableString *overflow = [NSMutableString string];
+  NSString *problem = nil;
+  Class toolbarViewClass = NSClassFromString(@"GSToolbarView");
+  NSView *toolbarView = nil;
+  NSArray *items = nil;
+  NSRect frame;
+
+  [toolbar setDelegate: self];
+  [toolbar setDisplayMode: NSToolbarDisplayModeIconOnly];
+  [window setToolbar: toolbar];
+  RELEASE(toolbar);
+  [window orderFront: nil];
+  QuirkProbeDispatchEvents(0.2);
+  items = [toolbar items];
+  toolbarView = QuirkProbeFindViewOfClass([[window contentView] superview], toolbarViewClass);
+  if ([items count] != 7 || toolbarView == nil
+      || [toolbarView respondsToSelector: @selector(_insertionIndexAtPoint:)] == NO)
+    {
+      [self skip: @"toolbar-insertion-index" detail: @"no seven-item toolbar view with -_insertionIndexAtPoint:"];
+    }
+  else
+    {
+      [[items objectAtIndex: 1] setVisibilityPriority: NSToolbarItemVisibilityPriorityLow];
+      [[items objectAtIndex: 4] setVisibilityPriority: NSToolbarItemVisibilityPriorityLow];
+      [[items objectAtIndex: 6] setVisibilityPriority: NSToolbarItemVisibilityPriorityHigh];
+      frame = [window frame];
+      [window setFrame: NSMakeRect(NSMinX(frame), NSMinY(frame), NSWidth(frame) + 1.0, NSHeight(frame))
+               display: YES];
+      [window setFrame: frame display: YES];
+      QuirkProbeDispatchEvents(0.1);
+      problem = [self overflowLayoutProblemIn: toolbar shown: shown menu: overflow];
+      if (problem == nil && [shown isEqualToString: @"ACEF"] == NO)
+        {
+          problem = [NSString stringWithFormat: @"%@ shown, not ACEF", shown];
+        }
+      if (problem != nil)
+        {
+          [self skip: @"toolbar-insertion-index" detail: problem];
+        }
+      else
+        {
+          NSView *a = [[items objectAtIndex: 0] _backView];
+          NSView *c = [[items objectAtIndex: 3] _backView];
+          NSView *e = [[items objectAtIndex: 5] _backView];
+          NSView *f = [[items objectAtIndex: 6] _backView];
+          CGFloat aMiddle = NSMidX([a convertRect: [a bounds] toView: nil]);
+          CGFloat cMiddle = NSMidX([c convertRect: [c bounds] toView: nil]);
+          CGFloat eMiddle = NSMidX([e convertRect: [e bounds] toView: nil]);
+          CGFloat fMiddle = NSMidX([f convertRect: [f bounds] toView: nil]);
+          CGFloat y = NSMidY([a convertRect: [a bounds] toView: nil]);
+          struct { NSUInteger dragged; CGFloat x; int expected; NSString *name; } cases[] = {
+            { NSNotFound, (aMiddle + cMiddle) / 2.0, 3, @"new item between A and C" },
+            { NSNotFound, fMiddle + 2.0, 7, @"new item past F" },
+            { 0, eMiddle + 2.0, 5, @"A past E's middle" },
+            { 5, cMiddle - 2.0, 3, @"E before C's middle" },
+          };
+          NSUInteger index;
+
+          for (index = 0; index < sizeof(cases) / sizeof(cases[0]); index++)
+            {
+              int found;
+
+              [toolbarViewClass setDraggedItemIndex: cases[index].dragged];
+              found = [toolbarView _insertionIndexAtPoint: NSMakePoint(cases[index].x, y)];
+              if (found != cases[index].expected)
+                {
+                  [problems addObject: [NSString stringWithFormat: @"%@: %d, not %d",
+                                                 cases[index].name, found, cases[index].expected]];
+                }
+            }
+          [toolbarViewClass setDraggedItemIndex: NSNotFound];
+          if ([problems count] == 0)
+            {
+              [self pass: @"toolbar-insertion-index" detail: @"ACEF shown: 3, 7, 5 and 3"];
+            }
+          else
+            {
+              [self fail: @"toolbar-insertion-index" detail: [problems componentsJoinedByString: @"; "]];
+            }
+        }
+    }
+  [window setToolbar: nil];
+  [window orderOut: nil];
 }
 
 /* Vertical scrollers sit on the trailing (right) edge (issue #4). */
@@ -13364,6 +13468,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkToolbarInMenuBarSavedFrame];
   [self checkToolbarInMenuBarViews];
   [self checkToolbarOverflowPriority];
+  [self checkToolbarInsertionIndex];
   [self checkToolbarFlexibleSpaceScaled];
   [self checkScrollerEdge];
   [self checkTableHeader];

@@ -991,6 +991,86 @@ WinUIThemeToolbarPackKeptItems(NSView *toolbarView, NSToolbar *toolbar)
   return [kept valueForKey: @"_backView"];
 }
 
+/* libs-gui finds where a customisation drag drops by position in
+   -_visibleBackViews and takes it as the toolbar's index, which only
+   holds while the kept items are a run from the start. With a gap (an
+   item before others gone to ">>" by visibilityPriority) a drop landed
+   one or more places early. The same rules, counted in the toolbar's
+   items: in front of the first kept item whose middle is past the
+   point, else after the last; an item being moved only moves once the
+   point crosses a neighbour's middle. */
+- (int) _overrideGSToolbarViewMethod__insertionIndexAtPoint: (NSPoint)location
+{
+  typedef int (*InsertionIMP)(id, SEL, NSPoint);
+  InsertionIMP originalIMP = (InsertionIMP)WinUIThemeOriginalMethod(_cmd, self, NSClassFromString(@"GSToolbarView"));
+  NSToolbar *toolbar = [(id)self toolbar];
+  NSArray *items = [toolbar items];
+  NSArray *kept = (toolbar != nil) ? WinUIThemeToolbarKeptItems((NSView *)self, toolbar) : nil;
+  NSUInteger dragged = [GSToolbarView draggedItemIndex];
+  NSUInteger count = [kept count];
+  NSUInteger itemIndexes[count > 0 ? count : 1];
+  CGFloat middles[count > 0 ? count : 1];
+  NSUInteger draggedKept = NSNotFound;
+  NSUInteger index;
+  BOOL gap = NO;
+
+  for (index = 0; index < count; index++)
+    {
+      NSToolbarItem *item = [kept objectAtIndex: index];
+      NSView *backView = [item _backView];
+
+      itemIndexes[index] = [items indexOfObjectIdenticalTo: item];
+      if (itemIndexes[index] == NSNotFound)
+        {
+          gap = NO;
+          break;
+        }
+      middles[index] = NSMidX([backView convertRect: [backView bounds] toView: nil]);
+      gap = gap || (itemIndexes[index] != index);
+      if (itemIndexes[index] == dragged)
+        {
+          draggedKept = index;
+        }
+    }
+  if (gap == NO)
+    {
+      return (originalIMP != NULL) ? originalIMP(self, _cmd, location) : 0;
+    }
+
+  if (dragged == NSNotFound)
+    {
+      for (index = 0; index < count; index++)
+        {
+          if (location.x < middles[index])
+            {
+              return (int)itemIndexes[index];
+            }
+        }
+      return (int)(itemIndexes[count - 1] + 1);
+    }
+  if (draggedKept == NSNotFound || location.x < middles[draggedKept])
+    {
+      for (index = 0; index < count && itemIndexes[index] < dragged; index++)
+        {
+          if (location.x < middles[index])
+            {
+              return (int)itemIndexes[index];
+            }
+        }
+    }
+  else
+    {
+      for (index = count; index > 0 && itemIndexes[index - 1] > dragged; index--)
+        {
+          if (location.x > middles[index - 1])
+            {
+              return (int)itemIndexes[index - 1];
+            }
+        }
+    }
+  return (int)dragged;
+}
+
 - (void) _overrideGSToolbarButtonMethod_layout
 {
   typedef void (*LayoutIMP)(id, SEL);
