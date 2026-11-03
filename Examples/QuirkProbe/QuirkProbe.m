@@ -8959,6 +8959,138 @@ QuirkProbeFontAdvancesWhole(NSFont *font)
     }
 }
 
+/* WinUIThemeMenuStyle `more` with no toolbar and no tabs: no empty row for
+   the "...", which sits in the caption before its buttons, and the window
+   and its content keep their size. A menu's removal gives back what its
+   arrival took, whether the "..." was in the title bar throughout or moved
+   there after the window had grown by a row. */
+- (void) checkMenuStyleMoreNoTabs
+{
+  NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+  NSNotificationCenter *center = [NSNotificationCenter defaultCenter];
+  NSWindow *window = nil;
+  NSMenu *menu = AUTORELEASE([[NSMenu alloc] initWithTitle: @"QuirkProbe"]);
+  NSView *decoration = nil;
+  NSMenuView *menuView = nil;
+  NSMutableArray *problems = [NSMutableArray array];
+  NSMutableArray *refunds = [NSMutableArray array];
+  CGFloat height, contentHeight;
+
+  if ([GSCurrentServer() respondsToSelector: @selector(clientDrawsCaptions)] == NO
+      || [(id)GSCurrentServer() clientDrawsCaptions] == NO)
+    {
+      [self skip: @"menu-style-more-no-tabs" detail: @"Windows draws the caption (a stock libs-back): the row stays"];
+      [self skip: @"menu-row-refund" detail: @"needs the \"...\" in the title bar"];
+      return;
+    }
+  [menu addItemWithTitle: @"File" action: NULL keyEquivalent: @""];
+  [menu addItemWithTitle: @"Edit" action: NULL keyEquivalent: @""];
+  window = [self windowWithFrame: NSMakeRect(180, 260, 560, 220) title: @"QuirkProbe More No Tabs"];
+  decoration = [[window contentView] superview];
+  [defaults setObject: @"more" forKey: @"WinUIThemeMenuStyle"];
+  [center postNotificationName: NSUserDefaultsDidChangeNotification object: defaults];
+  [window makeKeyAndOrderFront: nil];
+  QuirkProbeDispatchEvents(0.2);
+  height = NSHeight([window frame]);
+  contentHeight = NSHeight([[window contentView] frame]);
+
+  [window setMenu: menu];
+  QuirkProbeDispatchEvents(0.2);
+  [window display];
+  menuView = (NSMenuView *)QuirkProbeFindViewOfClass(decoration, [NSMenuView class]);
+  if (QuirkProbeFindViewOfClass(decoration, NSClassFromString(@"GSWindowTabBarView")) != nil)
+    {
+      [problems addObject: @"the window has a tab bar"];
+    }
+  if (menuView == nil)
+    {
+      [problems addObject: @"no menu bar"];
+    }
+  else
+    {
+      NSRect menuFrame = [decoration convertRect: [menuView bounds] fromView: menuView];
+      NSRect contentFrame = [decoration convertRect: [[window contentView] bounds] fromView: [window contentView]];
+      NSRect overflow = [menuView respondsToSelector: @selector(winUIThemeOverflowRect)]
+        ? [(id)menuView winUIThemeOverflowRect] : NSZeroRect;
+
+      if ([[GSTheme theme] menuHeightForWindow: window] != 0.0)
+        {
+          [problems addObject: [NSString stringWithFormat: @"the menu bar's row is %.0fpt",
+                                                           [[GSTheme theme] menuHeightForWindow: window]]];
+        }
+      if (NSMinY(menuFrame) < NSMaxY(contentFrame) - 1.5)
+        {
+          [problems addObject: [NSString stringWithFormat: @"the \"...\" %@ is over the content, whose top is %.0f",
+                                                           NSStringFromRect(menuFrame), NSMaxY(contentFrame)]];
+        }
+      if (NSIsEmptyRect(overflow) || NSMinX(menuFrame) < NSWidth(contentFrame) / 2.0)
+        {
+          [problems addObject: [NSString stringWithFormat: @"the \"...\" %@ isn't towards the caption's buttons",
+                                                           NSStringFromRect(menuFrame)]];
+        }
+      if (fabs(NSHeight([window frame]) - height) > 0.5
+          || fabs(NSHeight([[window contentView] frame]) - contentHeight) > 1.5)
+        {
+          [problems addObject: [NSString stringWithFormat: @"window %.0f (was %.0f), content %.0f (was %.0f)",
+                                                           NSHeight([window frame]), height,
+                                                           NSHeight([[window contentView] frame]), contentHeight]];
+        }
+      [self saveView: decoration named: @"menu-style-more-no-tabs"];
+    }
+
+  /* In the title bar throughout. */
+  [window setMenu: nil];
+  QuirkProbeDispatchEvents(0.2);
+  if (fabs(NSHeight([window frame]) - height) > 0.5)
+    {
+      [refunds addObject: [NSString stringWithFormat: @"in the title bar throughout: %.0f, not %.0f",
+                                                      NSHeight([window frame]), height]];
+    }
+
+  /* Added with a row, then moved to the title bar. */
+  [defaults setObject: @"menubar" forKey: @"WinUIThemeMenuStyle"];
+  [center postNotificationName: NSUserDefaultsDidChangeNotification object: defaults];
+  QuirkProbeDispatchEvents(0.1);
+  height = NSHeight([window frame]);
+  [window setMenu: menu];
+  QuirkProbeDispatchEvents(0.2);
+  if (NSHeight([window frame]) <= height)
+    {
+      [refunds addObject: [NSString stringWithFormat: @"a menu bar's row didn't grow the window from %.0f", height]];
+    }
+  [defaults setObject: @"more" forKey: @"WinUIThemeMenuStyle"];
+  [center postNotificationName: NSUserDefaultsDidChangeNotification object: defaults];
+  QuirkProbeDispatchEvents(0.2);
+  [window setMenu: nil];
+  QuirkProbeDispatchEvents(0.2);
+  if (fabs(NSHeight([window frame]) - height) > 0.5)
+    {
+      [refunds addObject: [NSString stringWithFormat: @"moved to the title bar: %.0f, not %.0f",
+                                                      NSHeight([window frame]), height]];
+    }
+
+  [defaults removeObjectForKey: @"WinUIThemeMenuStyle"];
+  [center postNotificationName: NSUserDefaultsDidChangeNotification object: defaults];
+  [window orderOut: nil];
+
+  if ([problems count] == 0)
+    {
+      [self pass: @"menu-style-more-no-tabs" detail: @"no row; the \"...\" in the caption; the window and content keep their size"];
+    }
+  else
+    {
+      [self fail: @"menu-style-more-no-tabs" detail: [problems componentsJoinedByString: @"; "]];
+    }
+  if ([refunds count] == 0)
+    {
+      [self pass: @"menu-row-refund" detail: @"removing the menu restores the window's height, both ways"];
+    }
+  else
+    {
+      [self fail: @"menu-row-refund" detail: [refunds componentsJoinedByString: @"; "]];
+    }
+}
+
 - (void) checkWindowTabs
 {
   BOOL highContrast = QuirkProbeHasArgument(@"--high-contrast", @"yes");
@@ -13741,6 +13873,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkWindowTabs];
   [self checkWindowSingleTab];
   [self checkMenuStyleMoreInTitleBar];
+  [self checkMenuStyleMoreNoTabs];
   [self checkWindowTabSwitchShowsFirst];
   [self checkSegmentLabelCentred];
   [self checkButtonStyleAccent];
