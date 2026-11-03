@@ -56,7 +56,11 @@ $runtimePaths = @(
   "C:\msys64\mingw64\bin",
   (Join-Path $objcMarkdownRoot "ObjcMarkdown\obj"),
   (Join-Path $objcMarkdownRoot "third_party\libs-OpenSave\Source\obj"),
-  (Join-Path $objcMarkdownRoot "third_party\TextViewVimKitBuild\obj")
+  (Join-Path $objcMarkdownRoot "third_party\TextViewVimKitBuild\obj"),
+  # Without these the dev build dies with 0xC0000135 (a DLL not found)
+  # before its first window, which looks like a hang.
+  (Join-Path $objcMarkdownRoot "third_party\GPUpdaterCore\obj"),
+  (Join-Path $objcMarkdownRoot "third_party\GPUpdaterUI\obj")
 )
 $existingPath = ($env:PATH -split ';') | Where-Object { $_ -and $_.Trim().Length -gt 0 }
 $combinedPath = @()
