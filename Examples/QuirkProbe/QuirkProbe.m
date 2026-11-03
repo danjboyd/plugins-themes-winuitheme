@@ -5138,15 +5138,13 @@ QuirkProbeTwelveHourClock(void)
           _scaledFlyoutFrame = [window frame];
         }
     }
-  [NSApp postEvent: [NSEvent keyEventWithType: NSKeyDown location: NSZeroPoint modifierFlags: 0
-                                    timestamp: 0 windowNumber: [owner windowNumber] context: nil
-                                   characters: @"\e" charactersIgnoringModifiers: @"\e"
-                                    isARepeat: NO keyCode: 0]
-           atStart: NO];
-  [NSApp postEvent: [NSEvent mouseEventWithType: NSLeftMouseUp location: NSMakePoint(80, 386)
-                                  modifierFlags: 0 timestamp: 0 windowNumber: [owner windowNumber]
-                                        context: nil eventNumber: 0 clickCount: 1 pressure: 0.0]
-           atStart: NO];
+  [self postEventFromTimer: [NSEvent keyEventWithType: NSKeyDown location: NSZeroPoint modifierFlags: 0
+                                            timestamp: 0 windowNumber: [owner windowNumber] context: nil
+                                           characters: @"\e" charactersIgnoringModifiers: @"\e"
+                                            isARepeat: NO keyCode: 0]];
+  [self postEventFromTimer: [NSEvent mouseEventWithType: NSLeftMouseUp location: NSMakePoint(80, 386)
+                                          modifierFlags: 0 timestamp: 0 windowNumber: [owner windowNumber]
+                                                context: nil eventNumber: 0 clickCount: 1 pressure: 0.0]];
 }
 
 /* An event posted from a timer can wait in the queue: a timer that fires
@@ -5188,11 +5186,10 @@ QuirkProbeTwelveHourClock(void)
       [self acceptDatePickerFlyout: timer];
       return;
     }
-  [NSApp postEvent: [NSEvent mouseEventWithType: NSLeftMouseDown
-                                       location: [flyout convertPoint: NSMakePoint(176, 340) toView: nil]
-                                  modifierFlags: 0 timestamp: 0 windowNumber: [[flyout window] windowNumber]
-                                        context: nil eventNumber: 0 clickCount: 1 pressure: 1.0]
-           atStart: NO];
+  [self postEventFromTimer: [NSEvent mouseEventWithType: NSLeftMouseDown
+                                               location: [flyout convertPoint: NSMakePoint(176, 340) toView: nil]
+                                          modifierFlags: 0 timestamp: 0 windowNumber: [[flyout window] windowNumber]
+                                                context: nil eventNumber: 0 clickCount: 1 pressure: 1.0]];
   [[NSRunLoop currentRunLoop] addTimer: [NSTimer timerWithTimeInterval: 0.85 target: self
                                                               selector: @selector(releaseDatePickerFlyoutArrow:)
                                                               userInfo: [timer userInfo] repeats: NO]
@@ -5304,28 +5301,26 @@ QuirkProbeTwelveHourClock(void)
                                                context: nil eventNumber: 0 clickCount: 1 pressure: 1.0]];
       }
     }
-  [NSApp postEvent: [NSEvent keyEventWithType: NSKeyDown
-                                     location: NSZeroPoint
-                                modifierFlags: 0
-                                    timestamp: 0
-                                 windowNumber: [owner windowNumber]
-                                      context: nil
-                                   characters: @"\r"
-                  charactersIgnoringModifiers: @"\r"
-                                    isARepeat: NO
-                                      keyCode: 0]
-           atStart: NO];
+  [self postEventFromTimer: [NSEvent keyEventWithType: NSKeyDown
+                                             location: NSZeroPoint
+                                        modifierFlags: 0
+                                            timestamp: 0
+                                         windowNumber: [owner windowNumber]
+                                              context: nil
+                                           characters: @"\r"
+                          charactersIgnoringModifiers: @"\r"
+                                            isARepeat: NO
+                                              keyCode: 0]];
   /* Ends the click's tracking where no flyout took it. */
-  [NSApp postEvent: [NSEvent mouseEventWithType: NSLeftMouseUp
-                                       location: NSMakePoint(80, 386)
-                                  modifierFlags: 0
-                                      timestamp: 0
-                                   windowNumber: [owner windowNumber]
-                                        context: nil
-                                    eventNumber: 0
-                                     clickCount: 1
-                                       pressure: 0.0]
-           atStart: NO];
+  [self postEventFromTimer: [NSEvent mouseEventWithType: NSLeftMouseUp
+                                               location: NSMakePoint(80, 386)
+                                          modifierFlags: 0
+                                              timestamp: 0
+                                           windowNumber: [owner windowNumber]
+                                                context: nil
+                                            eventNumber: 0
+                                             clickCount: 1
+                                               pressure: 0.0]];
 }
 
 /* NSDatePicker as WinUI's DatePicker, TimePicker and CalendarView (issue
