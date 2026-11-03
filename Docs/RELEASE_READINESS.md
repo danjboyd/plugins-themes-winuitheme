@@ -11,20 +11,24 @@ ObjcMarkdown going green), which no longer described the real gate.
 
 ## The gate
 
-Each item is done when its evidence exists. Status as of 2026-10-16
-(0.1.0-alpha9).
+Each item is done when its evidence exists. Status as of 2026-11-03
+(0.1.0-alpha13).
 
 ### 1. The backend story is settled
 
 The title bar, shadows, per-monitor DPI and the second-monitor fixes need
 the carried libs-back (`danjboyd/libs-back`, `carry-0.32.0.N`).
 
-- [ ] Decide, with the owner, whether beta1 requires the carried backend
+- [x] Decide, with the owner, whether beta1 requires the carried backend
       (documented as such, apps ship it) or waits for GNUstep to take the
-      changes.
+      changes. Decided 2026-10-29 (AIManager ask #567): **beta1 requires
+      the carried backend**; apps ship the `carry-0.32.0.N` it was tested
+      with (alpha13: `carry-0.32.0.5`).
 - [ ] The four libs-back topic branches reviewed by the owner and posted
       upstream (GCC builds done; the X11 build of `CairoFontInfo.m` owed),
-      and gnustep/libs-back#246's FSF assignment question settled.
+      and gnustep/libs-back#246's FSF assignment question settled. Not
+      needed for beta1 now that it requires the carried backend; the
+      owner will take it up later (ask #567).
 - [x] The theme works, with documented differences, on a stock libs-back
       (QuirkProbe runs every configuration on both).
 
@@ -70,12 +74,16 @@ noted; apps ask `-respondsToSelector:` first):
 This VM has no GPU, one monitor, and blocks SendInput mouse buttons.
 
 - [ ] One session on Windows 11 with a GPU: menu and tool tip rounding
-      and shadows, Mica's blur, Snap with Win+arrow, window tabs.
+      and shadows, Snap with Win+arrow, window tabs. (Mica's blur is no
+      longer part of it: Mica is a non-goal for beta1, see 6.) The owner
+      will schedule it later (ask #567).
 - [x] Two monitors at 125% and 150% (OCI VMs, alpha4).
 - [x] Real input at 125% and 150% in Markdown Viewer (its VM lease,
       alpha7-alpha8: tabs, "+", tab close, typing, Ctrl+N/W).
-- [ ] Snap on a tabbed window and repeated real clicks on a new tab's
-      close button (asked of Markdown Viewer's lease, 2026-10-15).
+- [x] Repeated real clicks on a new tab's close button, and dragging
+      tabs, with the owner's own mouse on alpha13's tabs (#165, carry
+      0.32.0.5): pass (2026-10-22).
+- [ ] Snap on a tabbed window (with the GPU session above).
 - [ ] Live settings done for real: light/dark, the accent and a contrast
       theme switched in Windows Settings while an app runs (#105).
 
@@ -93,11 +101,14 @@ This VM has no GPU, one monitor, and blocks SendInput mouse buttons.
       the build before it.
 - [x] `Compare-Reference.ps1`: 0 out of tolerance against the WinUI 3
       reference app in light and dark.
-- [ ] The reference app gains the real Toolkit `Segmented` and WinUI's
+- [x] The reference app gains the real Toolkit `Segmented` and WinUI's
       `SelectorBar`, and the segmented control is measured against the
-      one the owner picks.
-- [ ] Text width measured against the reference (#105), as Adwaita does
-      against GTK.
+      one the owner picks: both are in the reference app side by side, and
+      the theme stays with Segmented (#162, alpha13). Its track a shade
+      lighter is an alpha14 follow-up.
+- [x] Text width measured against the reference (#105), as Adwaita does
+      against GTK: the specimens pages measure WinUI's whole type ramp;
+      Caption is 2.5% narrower, kept and listed below (#159, alpha13).
 - [x] CI: at least a build of the theme and QuirkProbe on every push:
       `.github/workflows/build.yml` builds both on `windows-latest` with
       MSYS2's packages (the stock libs-back) and runs QuirkProbe's light
@@ -114,6 +125,12 @@ Non-goals for beta1 (proposed):
 - A tab overview, and dragging tabs between windows (the shared tabbing
   code's phase 2, #97, can come after).
 - A single overflow merging the toolbar's ">>" with the "..." menu.
+- Mica and other backdrops (#47; decided 2026-10-29, ask #567). libs-back
+  paints every window opaque, so a backdrop needs the window's own
+  painting to leave its background transparent, which is backend work,
+  not theme work. `WinUIThemeMica` stays a user default for testing, and
+  the theme's fills stay tuned for the solid window colour (listed
+  below). Revisit after beta1 with the GPU session.
 
 **Proposed triage of `HANDOFF.md`'s known gaps** (2026-10-16, for the
 owner to confirm; no issues filed yet). "Gate 3" means the GPU and
@@ -128,9 +145,9 @@ Already fixed (the handoff's text is stale):
 - The date flyout's up and down buttons repeat while held: #161
   (alpha10).
 - Title-bar tabs narrowing to 40px and running past the bar: the shared
-  code's phase 2 scrolls them, with #165 (alpha13). Whether the "+"
-  button's hit area still covers the empty strip after the tabs, which
-  Windows makes a drag area (#72), is checked there.
+  code's phase 2 scrolls them, with #165 (alpha13), which also closes
+  #72; the owner's real-mouse checks of tab dragging and a new tab's
+  close button passed.
 - `setmaxsize` toggling the maximize box: fixed in `carry-0.32.0.2`; the
   theme's correction stays for a stock libs-back.
 
@@ -191,10 +208,12 @@ click on tabs; the wrong cursor once on a first new tab.
 
 ### 7. Shared code where it belongs
 
-- [ ] The theme's replacements of the shared tabbing code's
+- [x] The theme's replacements of the shared tabbing code's
       `-isTabBarVisible`, `-_toggleTabBar` and `-_switchToWindow:` (#133,
       #137) moved into `danjboyd/gnustep-window-tabbing`, reviewed by the
-      owner, and vendored back.
+      owner, and vendored back: the shared code's `main` (`800adc6`) has
+      hooks the theme implements, and the run-time replacements are gone
+      (#165, alpha13).
 
 ## Release process
 
