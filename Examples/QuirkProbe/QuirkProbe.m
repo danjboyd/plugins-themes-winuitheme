@@ -2913,6 +2913,41 @@ WinUIThemeProbeToolbarInRow(NSWindow *window)
       [self fail: @"toolbar-overflow-same-priority-returns"
           detail: [NSString stringWithFormat: @"%.0fpt: %@ shown, not Colour ~ Copy", width, names]];
     }
+
+  /* The ">>" reads on the toolbar in every palette: libs-gui's image is
+     black, which barely shows on a dark toolbar. WinUI's CommandBar draws
+     its overflow glyph in the primary text colour. */
+  {
+    NSView *clipped = QuirkProbeFindViewOfClass(toolbarView, NSClassFromString(@"GSToolbarClippedItemsButton"));
+
+    if (clipped == nil || [clipped superview] == nil || NSIsEmptyRect([clipped frame]))
+      {
+        [self skip: @"toolbar-overflow-chevron-ink" detail: @"no >> shown"];
+      }
+    else
+      {
+        NSBitmapImageRep *rep = QuirkProbeRender(clipped);
+        NSUInteger red, green, blue;
+        QuirkProbeInk ink;
+
+        QuirkProbePixel(rep, 1, 1, &red, &green, &blue);
+        QuirkProbeInkBackground = red + green + blue;
+        ink = QuirkProbeMeasureIn(rep, QuirkProbeIsInk, NSZeroRect);
+        [self saveView: clipped named: @"toolbar-overflow-chevron"];
+        if (ink.count >= 8)
+          {
+            [self pass: @"toolbar-overflow-chevron-ink" detail: [NSString stringWithFormat:
+              @"%lu px of glyph against the toolbar (%lu)", (unsigned long)ink.count,
+              (unsigned long)QuirkProbeInkBackground]];
+          }
+        else
+          {
+            [self fail: @"toolbar-overflow-chevron-ink" detail: [NSString stringWithFormat:
+              @"%lu px stand out from the toolbar (%lu); the >> is too faint to read",
+              (unsigned long)ink.count, (unsigned long)QuirkProbeInkBackground]];
+          }
+      }
+  }
   [window setToolbar: nil];
   [window orderOut: nil];
 }

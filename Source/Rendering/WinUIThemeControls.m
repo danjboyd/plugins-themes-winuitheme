@@ -2718,6 +2718,15 @@ WinUIThemeImageIsToolbarSeparator(NSImage *image)
     || [[WinUIThemeSizedImageSource(image) name] isEqualToString: @"common_ToolbarSeparatorItem"];
 }
 
+/* libs-gui's ">>" for a toolbar's clipped items: a dark grey image that
+   barely shows on a dark toolbar. */
+static BOOL
+WinUIThemeImageIsToolbarClippedItemsMark(NSImage *image)
+{
+  return [[image name] isEqualToString: @"common_ToolbarClippedItemsMark"]
+    || [[WinUIThemeSizedImageSource(image) name] isEqualToString: @"common_ToolbarClippedItemsMark"];
+}
+
 - (void) _overrideNSButtonCellMethod_drawImage: (NSImage *)imageToDisplay
                                       withFrame: (NSRect)imageFrame
                                          inView: (NSView *)controlView
@@ -2754,8 +2763,11 @@ WinUIThemeImageIsToolbarSeparator(NSImage *image)
       return;
     }
 
-  /* Template images in the colour of the title (#25). */
-  if (theme != nil && WinUIThemeImageIsTemplate(imageToDisplay))
+  /* Template images in the colour of the title (#25), and the toolbar's
+     ">>" as WinUI's CommandBar draws its overflow glyph:
+     TextFillColorPrimary, so it reads in dark mode too. */
+  if (theme != nil && (WinUIThemeImageIsTemplate(imageToDisplay)
+                       || WinUIThemeImageIsToolbarClippedItemsMark(imageToDisplay)))
     {
       imageToDisplay = WinUIThemeTintedImage(imageToDisplay,
                                              WinUIThemeTemplateImageColor(theme,
