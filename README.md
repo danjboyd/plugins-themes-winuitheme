@@ -303,8 +303,11 @@ The menu bar's titles then all fold into its "..." button (#130),
 which opens a WinUI menu flyout with the app's menus as submenus (File,
 Edit, View...). A window with a toolbar shows it in the same row, its
 commands first and the "..." at the row's end, as a CommandBar has
-them, whatever `GSThemeToolbarInMenuBar` says; a window without one
-keeps a slim row with the button at its end. The menus are the app's
+them, whatever `GSThemeToolbarInMenuBar` says. A window without one has
+no row: the button sits in the title bar, right after the tabs or, with
+no tabs, before the caption buttons. (On a stock libs-back, where Windows
+draws the title bar, it keeps a slim row with the button at its end.)
+The menus are the app's
 own, so key equivalents and validation work as before, and the keyboard
 still reaches them: Alt or F10 selects the button, Down or Enter opens
 it, and Alt plus a menu's first letter opens the flyout and that menu.

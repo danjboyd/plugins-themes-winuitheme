@@ -196,9 +196,6 @@ WinUIThemeMenuBarInTitleBar(NSWindow *window)
   return window != nil && [window menu] != nil
     && WinUIThemeMenuStyleIsMore()
     && WinUIThemeDrawsCaptionForStyle([window styleMask])
-    && WinUIThemeCaptionHoldsTabs()
-    && [[GSTheme theme] windowTabBarPlacementForWindow: window] == GSWindowTabBarInTitleBar
-    && GSWindowTabBarViewForWindow(window) != nil
     && (toolbar == nil || [toolbar isVisible] == NO);
 }
 
@@ -678,27 +675,39 @@ WinUIThemeCaptionHasSystemMenu(NSWindow *window)
     }
 }
 
-/* The menu bar's view after the tabs (#134): bottom-aligned with them,
-   so the button lines up with the "+", and above the caption, which
-   draws the strip it sits on. It stays the decoration's subview, where
-   libs-gui finds it to lay out or remove. */
+/* The menu bar's view in the caption: after the tabs (#134), bottom-aligned
+   with them so the button lines up with the "+", or with no tabs just
+   before the caption buttons, as Edge has its "...". It's above the
+   caption, which draws the strip it sits on, and stays the decoration's
+   subview, where libs-gui finds it to lay out or remove. */
 - (void) placeMenuBarIn: (NSView *)decoration
 {
   NSWindow *window = [self window];
   NSMenuView *menuView = WinUIThemeCaptionMenuView(decoration);
   NSRect frame;
+  CGFloat width;
+  CGFloat height;
 
   _menuBarFrame = NSZeroRect;
-  if (menuView == nil || _tabBar == nil || [_tabBar superview] != self
-      || WinUIThemeMenuBarInTitleBar(window) == NO)
+  if (menuView == nil || WinUIThemeMenuBarInTitleBar(window) == NO)
     {
       return;
     }
-  /* The button itself right after the tabs' "+", as Terminal's drop-down
-     is: the bar's inset before it goes over the tab bar's empty end. */
-  _menuBarFrame = NSMakeRect(NSMaxX([_tabBar frame]) - WinUIThemeMenuBarFirstTitleInset(menuView), 0.0,
-                             WinUIThemeCaptionMenuBarWidth(menuView),
-                             MIN(NSHeight([self bounds]), [NSMenuView menuBarHeight]));
+  width = WinUIThemeCaptionMenuBarWidth(menuView);
+  height = MIN(NSHeight([self bounds]), [NSMenuView menuBarHeight]);
+  if (_tabBar != nil && [_tabBar superview] == self)
+    {
+      /* The button itself right after the tabs' "+", as Terminal's
+         drop-down is: the bar's inset before it goes over the tab bar's
+         empty end. */
+      _menuBarFrame = NSMakeRect(NSMaxX([_tabBar frame]) - WinUIThemeMenuBarFirstTitleInset(menuView), 0.0,
+                                 width, height);
+    }
+  else
+    {
+      _menuBarFrame = NSMakeRect([self buttonsStart] - width,
+                                 floor(([self visibleHeight] - height) / 2.0), width, height);
+    }
   frame = [decoration convertRect: _menuBarFrame fromView: self];
   if ([[decoration subviews] lastObject] != menuView)
     {
@@ -723,12 +732,13 @@ WinUIThemeCaptionHasSystemMenu(NSWindow *window)
     {
       return;
     }
-  if (_tabBar != nil && [_tabBar superview] == self)
+  if ((_tabBar != nil && [_tabBar superview] == self) || NSIsEmptyRect(_menuBarFrame) == NO)
     {
-      /* The row beside the tabs drags the window; the tabs are the
-         gui's. */
+      /* The row beside the tabs and the "..." drags the window; they are
+         the gui's. */
       NSRect bounds = [self bounds];
-      NSRect bar = NSUnionRect([_tabBar frame], _menuBarFrame);
+      NSRect bar = (_tabBar != nil && [_tabBar superview] == self)
+        ? NSUnionRect([_tabBar frame], _menuBarFrame) : _menuBarFrame;
 
       rects[count] = [self convertRect: NSMakeRect(NSMinX(bounds), NSMinY(bounds),
                                                    NSMinX(bar) - NSMinX(bounds), NSHeight(bounds))
@@ -831,6 +841,11 @@ WinUIThemeCaptionHasSystemMenu(NSWindow *window)
             {
               buttons.origin.x = MIN(NSMinX(buttons), NSMinX([button frame]));
             }
+        }
+      /* The title stops short of the "..." too. */
+      if (NSIsEmptyRect(_menuBarFrame) == NO)
+        {
+          buttons.origin.x = MIN(NSMinX(buttons), NSMinX(_menuBarFrame));
         }
       textSize = [title sizeWithAttributes: attributes];
       [title drawInRect: NSMakeRect(x, floor((height - textSize.height) / 2.0),

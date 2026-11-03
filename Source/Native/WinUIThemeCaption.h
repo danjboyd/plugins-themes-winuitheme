@@ -45,11 +45,12 @@ CGFloat WinUIThemeCaptionHeight(void);
 void WinUIThemeCaptionLayout(GSWindowDecorationView *decoration, NSWindow *window,
                              int windowNumber);
 
-/* Menus behind "..." beside the tabs (#134), as Windows Terminal has its
-   menu beside the tab row's "+": with WinUIThemeMenuStyle `more`, the
-   window's tabs in the title bar and no toolbar showing, the menu bar's
-   row goes (the theme's -menuHeightForWindow: gives 0) and its view, the
-   "..." button alone, sits in the caption right after the tabs. */
+/* Menus behind "..." in the title bar: with WinUIThemeMenuStyle `more`,
+   the theme drawing the caption and no toolbar showing, the menu bar's row
+   goes (the theme's -menuHeightForWindow: gives 0) and its view, the "..."
+   button alone, sits in the caption: right after the tabs, as Windows
+   Terminal has its menu beside the tab row's "+" (#134), or with no tabs
+   just before the caption buttons. */
 BOOL WinUIThemeMenuBarInTitleBar(NSWindow *window);
 
 /* Redraws the caption (the window's title or key state changed). */

@@ -1196,6 +1196,47 @@ WinUIThemeKeepTabFrame(NSWindow *window, NSRect frame)
     }
 }
 
+/* libs-gui charges the window a menu bar's height when the bar is added and
+   refunds the theme's height at that moment when it's removed. They can
+   differ: the row is 0 while the "..." is in the title bar, and a window's
+   menu is already nil as it's taken away. A window that grew by a row kept
+   it, and one that never grew lost a row. So the refund is what was charged. */
+static char WinUIThemeMenuRowChargedKey;
+
+static void
+WinUIThemeRememberMenuRow(GSWindowDecorationView *decoration, NSWindow *window, NSRect before)
+{
+  objc_setAssociatedObject(decoration, &WinUIThemeMenuRowChargedKey,
+                           [NSNumber numberWithDouble: NSHeight([window frame]) - NSHeight(before)],
+                           OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+static void
+WinUIThemeRefundMenuRow(GSWindowDecorationView *decoration, NSWindow *window, NSRect before, BOOL heldToolbar)
+{
+  NSNumber *charged = objc_getAssociatedObject(decoration, &WinUIThemeMenuRowChargedKey);
+  CGFloat height;
+
+  objc_setAssociatedObject(decoration, &WinUIThemeMenuRowChargedKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+  /* A toolbar in the row, and a tab keeping its group's frame, have their
+     own accounts. */
+  if (charged == nil || heldToolbar
+      || ([window respondsToSelector: @selector(tabbedWindows)] && [[window tabbedWindows] count] > 1))
+    {
+      return;
+    }
+  height = NSHeight(before) - [charged doubleValue];
+  if (fabs(NSHeight([window frame]) - height) >= 0.5)
+    {
+      NSRect frame = before;
+
+      frame.size.height = height;
+      frame.origin.y = NSMaxY(before) - height;
+      [window setFrame: frame display: YES];
+    }
+  WinUIThemeFitDecorationToWindow(decoration, window);
+}
+
 @interface NSWindow (WinUIThemeRepresentedTitle)
 - (BOOL) _hasTitleWithRepresentedFilename;
 @end
@@ -1381,14 +1422,17 @@ WinUIThemeSendDisplayTitle(NSWindow *window, int windowNumber)
   [self winUIThemeMenuViewAdded];
   WinUIThemeKeepTabFrame(window, frame);
   WinUIThemeFitDecorationToWindow(self, window);
+  WinUIThemeRememberMenuRow(self, window, frame);
 }
 
 - (NSMenuView *) removeMenuView
 {
+  NSRect frame = [window frame];
   BOOL heldToolbar = [self winUIThemeMenuViewWillBeRemoved];
   NSMenuView *menuView = [super removeMenuView];
 
   [self winUIThemeMenuViewRemoved: heldToolbar];
+  WinUIThemeRefundMenuRow(self, window, frame, heldToolbar);
   return menuView;
 }
 
@@ -1472,14 +1516,17 @@ WinUIThemeSendDisplayTitle(NSWindow *window, int windowNumber)
   [self winUIThemeMenuViewAdded];
   WinUIThemeKeepTabFrame(window, frame);
   WinUIThemeFitDecorationToWindow(self, window);
+  WinUIThemeRememberMenuRow(self, window, frame);
 }
 
 - (NSMenuView *) removeMenuView
 {
+  NSRect frame = [window frame];
   BOOL heldToolbar = [self winUIThemeMenuViewWillBeRemoved];
   NSMenuView *menuView = [super removeMenuView];
 
   [self winUIThemeMenuViewRemoved: heldToolbar];
+  WinUIThemeRefundMenuRow(self, window, frame, heldToolbar);
   return menuView;
 }
 
