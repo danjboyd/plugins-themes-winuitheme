@@ -753,6 +753,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
                       target: (NSInteger)target;
 - (void) checkWindowTabSwitchShowsFirst;
 - (void) checkSegmentLabelCentred;
+- (void) checkSegmentedControlDisabled;
 - (void) checkButtonStyleAccent;
 - (void) checkDefaultButtonYieldsAccent;
 - (void) checkColorWellDropDown;
@@ -12387,6 +12388,103 @@ QuirkProbeSendMove(NSWindow *window, NSPoint location)
   [window setFrameOrigin: frame.origin];
 }
 
+/* The strongest contrast in `rep` against its corner pixel. */
+static NSUInteger
+QuirkProbeStrongestContrast(NSBitmapImageRep *rep, NSRect area)
+{
+  NSUInteger background, best = 0, r, g, b;
+  NSInteger x, y;
+
+  QuirkProbePixel(rep, (NSInteger)NSMinX(area), (NSInteger)NSMinY(area), &r, &g, &b);
+  background = r + g + b;
+  for (y = (NSInteger)NSMinY(area); y < (NSInteger)NSMaxY(area); y++)
+    {
+      for (x = (NSInteger)NSMinX(area); x < (NSInteger)NSMaxX(area); x++)
+        {
+          NSUInteger sum, contrast;
+
+          QuirkProbePixel(rep, x, y, &r, &g, &b);
+          sum = r + g + b;
+          contrast = (sum > background) ? sum - background : background - sum;
+          best = MAX(best, contrast);
+        }
+    }
+  return best;
+}
+
+/* -setEnabled:NO on a segmented control dims its labels and icons, as it
+   does per segment: it disables the cell, and the theme only asked about
+   the segment (Markdown Viewer's read-only formatting bar). */
+- (void) checkSegmentedControlDisabled
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(780, 500, 320, 120)
+                                     title: @"QuirkProbe Segment Disabled"];
+  NSSegmentedControl *labels = AUTORELEASE([[NSSegmentedControl alloc]
+                                             initWithFrame: NSMakeRect(20, 60, 200, 32)]);
+  NSSegmentedControl *icons = AUTORELEASE([[NSSegmentedControl alloc]
+                                            initWithFrame: NSMakeRect(20, 20, 120, 32)]);
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale;
+  NSRect inside;
+  NSUInteger labelBefore, labelAfter;
+  QuirkProbeInk before, after;
+
+  [labels setSegmentCount: 2];
+  [labels setLabel: @"Read" forSegment: 0];
+  [labels setLabel: @"Edit" forSegment: 1];
+  [labels setWidth: 96 forSegment: 0];
+  [labels setWidth: 96 forSegment: 1];
+  [icons setSegmentCount: 2];
+  [icons setImage: [self magentaImage] forSegment: 0];
+  [icons setImage: [self magentaImage] forSegment: 1];
+  [icons setWidth: 56 forSegment: 0];
+  [icons setWidth: 56 forSegment: 1];
+  [[window contentView] addSubview: labels];
+  [[window contentView] addSubview: icons];
+  [window orderFront: nil];
+  QuirkProbeDispatchEvents(0.1);
+
+  rep = QuirkProbeRender(labels);
+  scale = QuirkProbeScale(rep, labels);
+  /* Inside the outline, around both labels. */
+  inside = NSMakeRect(8 * scale, 7 * scale, [rep pixelsWide] - 16 * scale, [rep pixelsHigh] - 14 * scale);
+  labelBefore = QuirkProbeStrongestContrast(rep, inside);
+  before = QuirkProbeMeasureIn(QuirkProbeRender(icons), QuirkProbeIsMagenta, NSZeroRect);
+
+  [labels setEnabled: NO];
+  [icons setEnabled: NO];
+  [labels display];
+  [icons display];
+  rep = QuirkProbeRender(labels);
+  [self saveView: labels named: @"segment-disabled"];
+  labelAfter = QuirkProbeStrongestContrast(rep, inside);
+  after = QuirkProbeMeasureIn(QuirkProbeRender(icons), QuirkProbeIsMagenta, NSZeroRect);
+  [window orderOut: nil];
+
+  /* The plain --high-contrast palette has GrayText in the same ink as the
+     text, so its labels can't dim; a contrast theme has its own colour. */
+  if (before.count == 0)
+    {
+      [self fail: @"segment-disabled-dims" detail: @"the icons drew no magenta while enabled"];
+    }
+  else if (after.count != 0
+           || ((QuirkProbeHasArgument(@"--high-contrast", nil) == NO
+                || QuirkProbeHasArgument(@"--contrast-theme", nil))
+               && labelAfter >= labelBefore))
+    {
+      [self fail: @"segment-disabled-dims" detail: [NSString stringWithFormat:
+        @"disabled: %lu px of full-strength icon (was %lu), label contrast %lu (was %lu)",
+        (unsigned long)after.count, (unsigned long)before.count,
+        (unsigned long)labelAfter, (unsigned long)labelBefore]];
+    }
+  else
+    {
+      [self pass: @"segment-disabled-dims" detail: [NSString stringWithFormat:
+        @"disabled: no full-strength icon (was %lu px), label contrast %lu (was %lu)",
+        (unsigned long)before.count, (unsigned long)labelAfter, (unsigned long)labelBefore]];
+    }
+}
+
 /* A segment's label and its selection pill share a centre (alpha7): the
    first, rounded segment, wider than its label, as Markdown Viewer's
    Read/Edit/Split. The label was nudged 3-4pt towards the middle, so the
@@ -13996,6 +14094,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkMenuStyleMoreNoTabs];
   [self checkWindowTabSwitchShowsFirst];
   [self checkSegmentLabelCentred];
+  [self checkSegmentedControlDisabled];
   [self checkButtonStyleAccent];
   [self checkDefaultButtonYieldsAccent];
   [self checkColorWellDropDown];
