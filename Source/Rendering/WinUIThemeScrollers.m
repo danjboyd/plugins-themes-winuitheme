@@ -458,24 +458,35 @@ WinUIThemeScrollerRequested(NSScrollView *scrollView, const char *name)
   return *(BOOL *)((char *)scrollView + ivar_getOffset(ivar)) ? 1 : 0;
 }
 
-/* What the app last asked of each axis, where libs-gui doesn't keep it: its
-   -setHas...Scroller: calls, not auto-hiding's own. A scroll view set up
-   before the theme loaded asked for what it has the first time it's asked. */
-static char WinUIThemeVerticalAskedKey;
-static char WinUIThemeHorizontalAskedKey;
-static NSUInteger WinUIThemeAutohiding = 0;
-
-static BOOL
-WinUIThemeAppAskedForScroller(NSScrollView *scrollView, const void *key, BOOL has)
+/* The most a document can overflow its clip view by through the clip view's
+   pixel snap alone, in points: one device pixel at the window's scale (1 at
+   100%, 0.8 at 125%, 0.667 at 150%), with a little room for rounding. */
+static CGFloat
+WinUIThemeScrollerSnapOverflow(NSScrollView *scrollView)
 {
-  NSNumber *asked = objc_getAssociatedObject(scrollView, key);
+  CGFloat factor = [[scrollView window] userSpaceScaleFactor];
 
-  if (asked == nil)
+  return ((factor > 0.0) ? 1.0 / factor : 1.0) + 0.01;
+}
+
+/* Inside -reflectScrolledClipView:, where libs-gui 0.32 decides. */
+static NSUInteger WinUIThemeReflecting = 0;
+
+/* Overlay scrollers only: classic ones keep libs-gui's way. */
+static BOOL
+WinUIThemeOverflowIsSnap(NSScrollView *scrollView, BOOL horizontal)
+{
+  NSView *documentView = [[scrollView contentView] documentView];
+  CGFloat overflow;
+
+  if (documentView == nil || WinUIThemeUsesOverlayScrollers() == NO)
     {
-      objc_setAssociatedObject(scrollView, key, [NSNumber numberWithBool: has], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-      return has;
+      return NO;
     }
-  return [asked boolValue];
+  overflow = horizontal
+    ? NSWidth([documentView frame]) - NSWidth([[scrollView contentView] bounds])
+    : NSHeight([documentView frame]) - NSHeight([[scrollView contentView] bounds]);
+  return overflow > 0.0 && overflow <= WinUIThemeScrollerSnapOverflow(scrollView);
 }
 
 @implementation WinUITheme (ScrollerOverrides)
@@ -736,13 +747,11 @@ WinUIThemeTraceCounts(NSString *event)
    and 150% that flipped on every layout and keystroke, which the clip
    view's pixel snap kept re-triggering (#145). With overlay scrollers a
    scroller is needed when the document is larger than the clip view, by
-   more than half a point (a sub-pixel snap isn't content). Classic
+   more than a device pixel (WinUIThemeScrollerSnapOverflow). Classic
    scrollers keep libs-gui's way. Where libs-gui has the requested flags
    (c97f03291) only a requested axis gets a scroller, set with its private
-   setters as it does. 3f5efad1b alone has no such flags and decides both
-   axes with the public setters, so the theme keeps what the app asked for
-   (below): half a point of pixel snap gave a scroller to an axis the app
-   never asked for, Markdown Viewer's source pane at 150% (its #325). */
+   setters as it does; 3f5efad1b alone decides both axes with the public
+   ones. */
 - (void) _overrideNSScrollViewMethod__autohideScrollers
 {
   typedef void (*AutohideIMP)(id, SEL);
@@ -750,9 +759,6 @@ WinUIThemeTraceCounts(NSString *event)
   NSScrollView *scrollView = (NSScrollView *)self;
   int requestsVertical = WinUIThemeScrollerRequested(scrollView, "_hasVertScrollerRequested");
   int requestsHorizontal = WinUIThemeScrollerRequested(scrollView, "_hasHorizScrollerRequested");
-  BOOL libsGuiKeepsRequests = (requestsVertical >= 0 && requestsHorizontal >= 0
-                               && [scrollView respondsToSelector: @selector(_setHasVertScroller:)]
-                               && [scrollView respondsToSelector: @selector(_setHasHorizScroller:)]);
   NSView *documentView = [[scrollView contentView] documentView];
   NSSize documentSize, clipSize;
   BOOL needsVertical, needsHorizontal;
@@ -761,9 +767,7 @@ WinUIThemeTraceCounts(NSString *event)
     {
       if (originalIMP != NULL)
         {
-          WinUIThemeAutohiding++;
           originalIMP(self, _cmd);
-          WinUIThemeAutohiding--;
         }
       return;
     }
@@ -771,17 +775,10 @@ WinUIThemeTraceCounts(NSString *event)
     {
       return;
     }
-  if (libsGuiKeepsRequests == NO)
-    {
-      requestsVertical = WinUIThemeAppAskedForScroller(scrollView, &WinUIThemeVerticalAskedKey,
-                                                       [scrollView hasVerticalScroller]);
-      requestsHorizontal = WinUIThemeAppAskedForScroller(scrollView, &WinUIThemeHorizontalAskedKey,
-                                                         [scrollView hasHorizontalScroller]);
-    }
   documentSize = [documentView frame].size;
   clipSize = [[scrollView contentView] bounds].size;
-  needsVertical = requestsVertical && documentSize.height > clipSize.height + 0.5;
-  needsHorizontal = requestsHorizontal && documentSize.width > clipSize.width + 0.5;
+  needsVertical = documentSize.height > clipSize.height + WinUIThemeScrollerSnapOverflow(scrollView);
+  needsHorizontal = documentSize.width > clipSize.width + WinUIThemeScrollerSnapOverflow(scrollView);
   if (WinUIThemeTracingScrollers())
     {
       BOOL shownVertical = ([scrollView verticalScroller] != nil
@@ -799,32 +796,32 @@ WinUIThemeTraceCounts(NSString *event)
             NSStringFromSize(documentSize), NSStringFromSize(clipSize)]);
         }
     }
-  if (libsGuiKeepsRequests)
+  if (requestsVertical >= 0 && requestsHorizontal >= 0
+      && [scrollView respondsToSelector: @selector(_setHasVertScroller:)]
+      && [scrollView respondsToSelector: @selector(_setHasHorizScroller:)])
     {
-      [scrollView _setHasVertScroller: needsVertical];
-      [scrollView _setHasHorizScroller: needsHorizontal];
+      [scrollView _setHasVertScroller: requestsVertical && needsVertical];
+      [scrollView _setHasHorizScroller: requestsHorizontal && needsHorizontal];
     }
   else
     {
-      WinUIThemeAutohiding++;
       [scrollView setHasVerticalScroller: needsVertical];
       [scrollView setHasHorizontalScroller: needsHorizontal];
-      WinUIThemeAutohiding--;
     }
 }
 
+/* libs-gui 0.32 shows auto-hiding scrollers in -reflectScrolledClipView:
+   with the public setters, for any overflow at all, on an axis the app
+   asked for or not. Apps rely on that: ScreenshotTool's zoomed canvas asks
+   for none. So those stay; only an overflow a pixel snap can make, which
+   gave Markdown Viewer's source pane a scroller over 0.667pt at 1.5 (its
+   #325), doesn't turn one on, under overlay scrollers. */
 - (void) _overrideNSScrollViewMethod_setHasVerticalScroller: (BOOL)flag
 {
   typedef void (*SetIMP)(id, SEL, BOOL);
   SetIMP originalIMP = (SetIMP)WinUIThemeOriginalMethod(_cmd, self, [NSScrollView class]);
 
-  if (WinUIThemeAutohiding == 0)
-    {
-      objc_setAssociatedObject(self, &WinUIThemeVerticalAskedKey, [NSNumber numberWithBool: flag],
-                               OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    }
-  else if (flag && WinUIThemeAppAskedForScroller((NSScrollView *)self, &WinUIThemeVerticalAskedKey,
-                                                 [(NSScrollView *)self hasVerticalScroller]) == NO)
+  if (flag && WinUIThemeReflecting > 0 && WinUIThemeOverflowIsSnap((NSScrollView *)self, NO))
     {
       return;
     }
@@ -839,13 +836,7 @@ WinUIThemeTraceCounts(NSString *event)
   typedef void (*SetIMP)(id, SEL, BOOL);
   SetIMP originalIMP = (SetIMP)WinUIThemeOriginalMethod(_cmd, self, [NSScrollView class]);
 
-  if (WinUIThemeAutohiding == 0)
-    {
-      objc_setAssociatedObject(self, &WinUIThemeHorizontalAskedKey, [NSNumber numberWithBool: flag],
-                               OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    }
-  else if (flag && WinUIThemeAppAskedForScroller((NSScrollView *)self, &WinUIThemeHorizontalAskedKey,
-                                                 [(NSScrollView *)self hasHorizontalScroller]) == NO)
+  if (flag && WinUIThemeReflecting > 0 && WinUIThemeOverflowIsSnap((NSScrollView *)self, YES))
     {
       return;
     }
@@ -864,13 +855,11 @@ WinUIThemeTraceCounts(NSString *event)
   WinUIThemeOverlayState *state;
   NSPoint origin;
 
-  /* libs-gui 0.32 shows and hides auto-hiding scrollers here, itself, with
-     the public setters: the setters above keep it to the axes asked for. */
   if (originalIMP != NULL)
     {
-      WinUIThemeAutohiding++;
+      WinUIThemeReflecting++;
       originalIMP(self, _cmd, clipView);
-      WinUIThemeAutohiding--;
+      WinUIThemeReflecting--;
     }
   if (WinUIThemeUsesOverlayScrollers() == NO)
     {
