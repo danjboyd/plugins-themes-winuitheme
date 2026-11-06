@@ -714,6 +714,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkIndicators;
 - (void) checkMenuFlyout;
 - (void) checkOverlayScrollers;
+- (void) checkSubmenuFirstClick;
 - (void) checkOverlayAutohide;
 - (void) checkFocusVisual;
 - (void) checkFocusRedisplayPerKey;
@@ -3676,6 +3677,7 @@ WinUIThemeProbeToolbarInRow(NSWindow *window)
 }
 
 static BOOL QuirkProbeContextItemChosen = NO;
+static NSUInteger QuirkProbeSubmenuStep = 0;
 
 - (void) contextItemChosen: (id)sender
 {
@@ -3836,6 +3838,115 @@ static BOOL QuirkProbeContextItemChosen = NO;
                                       timestamp: 0 windowNumber: [window windowNumber] context: nil
                                     eventNumber: 0 clickCount: 1 pressure: 0]
            atStart: NO];
+}
+
+/* A context menu's submenu entered straight from its parent, landing on the
+   submenu's first item, then one real click (lead's #12079, Adwaita's trace):
+   libs-gui ignores a transient menu's first release until the pointer has
+   changed item, so that click did nothing and a second was needed. */
+- (void) submenuFirstClickStep: (NSTimer *)timer
+{
+  NSDictionary *info = [timer userInfo];
+  NSMenu *menu = [info objectForKey: @"menu"];
+  NSMenu *submenu = [[menu itemAtIndex: 1] submenu];
+  NSMenuView *menuView = (NSMenuView *)[menu menuRepresentation];
+  NSMenuView *subView = (NSMenuView *)[submenu menuRepresentation];
+  NSRect item;
+
+  QuirkProbeSubmenuStep++;
+  if (QuirkProbeSubmenuStep == 1)
+    {
+      item = [menuView convertRect: [menuView rectOfItemAtIndex: 1] toView: nil];
+      QuirkProbeSetPointer([[menuView window] convertBaseToScreen:
+        NSMakePoint(NSMidX(item), NSMidY(item))]);
+    }
+  else if (QuirkProbeSubmenuStep == 4)
+    {
+      if ([[subView window] isVisible] == NO)
+        {
+          ASSIGN(QuirkProbeMenuSeen, @"the submenu never opened");
+          return;
+        }
+      item = [subView convertRect: [subView rectOfItemAtIndex: 0] toView: nil];
+      QuirkProbeSetPointer([[subView window] convertBaseToScreen:
+        NSMakePoint(NSMidX(item), NSMidY(item))]);
+    }
+  else if (QuirkProbeSubmenuStep == 7)
+    {
+#ifdef _WIN32
+      ASSIGN(QuirkProbeMenuSeen, @"clicked once");
+      mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0);
+      Sleep(30);
+      mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0);
+#endif
+    }
+  else if (QuirkProbeSubmenuStep == 11 && QuirkProbeContextItemChosen == NO)
+    {
+#ifdef _WIN32
+      /* The bug: the first did nothing. This one closes the menu. */
+      ASSIGN(QuirkProbeMenuSeen, @"needed a second click");
+      mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0);
+      Sleep(30);
+      mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0);
+#endif
+    }
+}
+
+- (void) checkSubmenuFirstClick
+{
+  NSWindow *window;
+  NSView *view;
+  NSMenu *menu, *submenu;
+  NSTimer *step;
+  NSDictionary *info;
+
+  if ([[NSUserDefaults standardUserDefaults] boolForKey: @"ProbeMovesPointer"] == NO)
+    {
+      [self skip: @"menu-submenu-first-click" detail: @"real clicks: needs -ProbeMovesPointer YES"];
+      return;
+    }
+#ifdef _WIN32
+  window = [self windowWithFrame: NSMakeRect(420, 300, 340, 220) title: @"QuirkProbe Submenu First Click"];
+  view = AUTORELEASE([[NSView alloc] initWithFrame: [[window contentView] bounds]]);
+  [[window contentView] addSubview: view];
+  menu = AUTORELEASE([[NSMenu alloc] initWithTitle: @"Context"]);
+  submenu = AUTORELEASE([[NSMenu alloc] initWithTitle: @"More"]);
+  [[submenu addItemWithTitle: @"Deeper" action: @selector(contextItemChosen:) keyEquivalent: @""] setTarget: self];
+  [[submenu addItemWithTitle: @"Deepest" action: @selector(contextItemChosen:) keyEquivalent: @""] setTarget: self];
+  [[menu addItemWithTitle: @"Cut" action: @selector(contextUnrelated:) keyEquivalent: @""] setTarget: nil];
+  [[menu addItemWithTitle: @"More" action: NULL keyEquivalent: @""] setSubmenu: submenu];
+  [view setMenu: menu];
+  [window makeKeyAndOrderFront: nil];
+  [window display];
+  QuirkProbeDispatchEvents(0.3);
+  QuirkProbeContextItemChosen = NO;
+  QuirkProbeSubmenuStep = 0;
+  ASSIGN(QuirkProbeMenuSeen, @"never opened");
+  info = [NSDictionary dictionaryWithObjectsAndKeys: menu, @"menu", nil];
+  step = [NSTimer timerWithTimeInterval: 0.2 target: self selector: @selector(submenuFirstClickStep:)
+                               userInfo: info repeats: YES];
+  [[NSRunLoop currentRunLoop] addTimer: step forMode: NSEventTrackingRunLoopMode];
+  QuirkProbeSetPointer([window convertBaseToScreen: NSMakePoint(80, 160)]);
+  QuirkProbeDispatchEvents(0.1);
+  mouse_event(MOUSEEVENTF_RIGHTDOWN, 0, 0, 0, 0);
+  Sleep(30);
+  mouse_event(MOUSEEVENTF_RIGHTUP, 0, 0, 0, 0);
+  QuirkProbeDispatchEvents(3.2);
+  [step invalidate];
+  [[[menu menuRepresentation] window] orderOut: nil];
+  [view setMenu: nil];
+  [window orderOut: nil];
+  if (QuirkProbeContextItemChosen && [QuirkProbeMenuSeen isEqualToString: @"clicked once"])
+    {
+      [self pass: @"menu-submenu-first-click" detail: @"one real click on the submenu's first item picks it"];
+    }
+  else
+    {
+      [self fail: @"menu-submenu-first-click" detail: [NSString stringWithFormat:
+        @"entered straight from the parent: %@; %@", QuirkProbeMenuSeen,
+        QuirkProbeContextItemChosen ? @"an item was picked" : @"nothing picked"]];
+    }
+#endif
 }
 
 /* A real click on a context menu's item with a submenu opens the submenu
@@ -14230,6 +14341,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkLiveTextSize];
   [self checkContextMenuEdges];
   [self checkSubmenuClick];
+  [self checkSubmenuFirstClick];
   [self checkIndicators];
   [self checkMenuFlyout];
   [self checkOverlayScrollers];
