@@ -62,6 +62,10 @@ BOOL WinUIThemeToolbarIsInMenuBar(NSToolbar *toolbar);
 CGFloat WinUIThemeWindowFrameFactor(NSWindow *window);
 CGFloat WinUIThemeWindowRowFrameHeight(NSWindow *window, CGFloat points);
 
+/* What removing the decoration's menu bar should give back to the window's
+   frame, when the row changed since the bar was added. */
+void WinUIThemeSetMenuRowCharge(NSView *decoration, CGFloat frameHeight);
+
 /* The default changed: open windows move their toolbars into or out of
    the menu bar's row, keeping their frames. */
 void WinUIThemeToolbarInMenuBarSettingChanged(void);

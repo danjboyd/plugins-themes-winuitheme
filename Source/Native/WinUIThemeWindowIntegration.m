@@ -1203,6 +1203,13 @@ WinUIThemeKeepTabFrame(NSWindow *window, NSRect frame)
    it, and one that never grew lost a row. So the refund is what was charged. */
 static char WinUIThemeMenuRowChargedKey;
 
+void
+WinUIThemeSetMenuRowCharge(NSView *decoration, CGFloat frameHeight)
+{
+  objc_setAssociatedObject(decoration, &WinUIThemeMenuRowChargedKey,
+                           [NSNumber numberWithDouble: frameHeight], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
 static void
 WinUIThemeRememberMenuRow(GSWindowDecorationView *decoration, NSWindow *window, NSRect before)
 {

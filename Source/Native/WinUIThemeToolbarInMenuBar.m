@@ -20,6 +20,7 @@
 
 #import "WinUIThemeToolbarInMenuBar.h"
 #import "WinUIThemeWindowIntegration.h"
+#import "WinUIThemeCaption.h"
 #import "../WinUITheme.h"
 #import "../Settings/WinUIThemeMetrics.h"
 #import "../Rendering/WinUIThemeDrawing.h"
@@ -287,6 +288,10 @@ WinUIThemeWindowHoldsToolbarInMenuBar(NSWindow *window)
     && WinUIThemeDecorationHoldsToolbar(decoration);
 }
 
+/* Set on a decoration whose whole row went when its toolbar left and the
+   "..." moved to the title bar. */
+static char WinUIThemeRowGivenUpKey;
+
 /* -changeWindowHeight: by `points` as a row that tall arriving (or, less
    than 0, leaving) changes the frame: in whole pixels, rounded down. */
 static void
@@ -494,7 +499,9 @@ WinUIThemeLayoutToolbarInMenuBar(GSWindowDecorationView *decoration, NSWindow *w
 
 - (BOOL) winUIThemeAddToolbarViewToMenuBar: (GSToolbarView *)toolbarView
 {
+  CGFloat menuRow;
   CGFloat extra;
+  BOOL rowReturns;
 
   if (hasMenu == NO || WinUIThemeToolbarInMenuBarEnabled() == NO)
     {
@@ -502,32 +509,59 @@ WinUIThemeLayoutToolbarInMenuBar(GSWindowDecorationView *decoration, NSWindow *w
       WinUIThemeToolbarViewSetInMenuBar(toolbarView, NO);
       return NO;
     }
-  extra = WinUIThemeToolbarInMenuBarExtraHeight([[GSTheme theme] menuHeightForWindow: window]);
+  menuRow = [[GSTheme theme] menuHeightForWindow: window];
+  extra = WinUIThemeToolbarInMenuBarExtraHeight(menuRow);
+  rowReturns = (objc_getAssociatedObject(self, &WinUIThemeRowGivenUpKey) != nil);
   WinUIThemeDecorationSetHoldsToolbar(self, YES);
   hasToolbar = YES;
   [self addSubview: toolbarView];
   WinUIThemeToolbarViewSetInMenuBar(toolbarView, YES);
   [self layout];
   /* The row grows to the toolbar's 40pt: the window grows with it, so
-     the content keeps its size, as for a toolbar in a row of its own. */
-  WinUIThemeChangeWindowByRow(self, window, extra);
+     the content keeps its size, as for a toolbar in a row of its own. If
+     the "..." was in the title bar, the whole row comes back. */
+  if (rowReturns)
+    {
+      objc_setAssociatedObject(self, &WinUIThemeRowGivenUpKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+      WinUIThemeChangeWindowByRow(self, window, menuRow + extra);
+      WinUIThemeSetMenuRowCharge(self, WinUIThemeWindowRowFrameHeight(window, menuRow));
+    }
+  else
+    {
+      WinUIThemeChangeWindowByRow(self, window, extra);
+    }
   [self setNeedsDisplay: YES];
   return YES;
 }
 
 - (BOOL) winUIThemeRemoveToolbarViewFromMenuBar: (GSToolbarView *)toolbarView
 {
+  CGFloat row;
+
   if (WinUIThemeDecorationHoldsToolbar(self) == NO || [toolbarView superview] != self)
     {
       return NO;
     }
+  row = NSHeight([toolbarView frame]);
   WinUIThemeDecorationSetHoldsToolbar(self, NO);
   hasToolbar = NO;
   [toolbarView removeFromSuperviewWithoutNeedingDisplay];
   [self layout];
-  /* The row goes back to the menu bar's height, and the window with it. */
-  WinUIThemeChangeWindowByRow(self, window,
-                              -WinUIThemeToolbarInMenuBarExtraHeight([[GSTheme theme] menuHeightForWindow: window]));
+  if (WinUIThemeMenuBarInTitleBar(window))
+    {
+      /* The "..." goes to the title bar: the whole row goes, and the window
+         with it, so the content keeps its size. The menu now has no row to
+         be refunded when it's removed. */
+      WinUIThemeChangeWindowByRow(self, window, -row);
+      objc_setAssociatedObject(self, &WinUIThemeRowGivenUpKey, @"YES", OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+      WinUIThemeSetMenuRowCharge(self, 0.0);
+    }
+  else
+    {
+      /* The row goes back to the menu bar's height, and the window with it. */
+      WinUIThemeChangeWindowByRow(self, window,
+                                  -WinUIThemeToolbarInMenuBarExtraHeight([[GSTheme theme] menuHeightForWindow: window]));
+    }
   [self setNeedsDisplay: YES];
   return YES;
 }
