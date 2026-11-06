@@ -846,6 +846,63 @@ WinUIThemeTraceCounts(NSString *event)
     }
 }
 
+/* libs-gui rounds a scroll origin by where that point is in the window now,
+   which for the current origin is always the clip view's corner. When the
+   corner is off the pixel grid, as a fractional window scale leaves it, each
+   call adds the same fraction: 0.4pt per layout at 125%, so the content
+   crept and the indicator showed at rest. This puts the document's origin
+   on the grid instead, which doesn't depend on the current origin. Scrolls
+   still differ by whole pixels, as the clip view's copy needs. */
+static CGFloat
+WinUIThemeSnapScrollOrigin(CGFloat proposed, CGFloat documentMin, CGFloat originMax,
+                           CGFloat corner, CGFloat scale)
+{
+  CGFloat device, snapped;
+
+  if (scale == 0.0)
+    {
+      return proposed;
+    }
+  device = floor(corner + scale * (documentMin - proposed) + 0.5);
+  snapped = documentMin - (device - corner) / scale;
+  if (snapped > originMax + 0.001)
+    {
+      snapped -= 1.0 / fabs(scale);
+    }
+  /* Last, so nothing shows before the document. */
+  if (snapped < documentMin - 0.001)
+    {
+      snapped += 1.0 / fabs(scale);
+    }
+  return snapped;
+}
+
+- (NSPoint) _overrideNSClipViewMethod_constrainScrollPoint: (NSPoint)proposed
+{
+  NSClipView *clip = (NSClipView *)self;
+  NSView *document = [clip documentView];
+  NSRect bounds = [clip bounds];
+  NSRect frame;
+  NSPoint corner, unit, result;
+  CGFloat maxX, maxY;
+
+  if (document == nil)
+    {
+      return bounds.origin;
+    }
+  frame = [document frame];
+  maxX = MAX(NSMinX(frame), NSMaxX(frame) - NSWidth(bounds));
+  maxY = MAX(NSMinY(frame), NSMaxY(frame) - NSHeight(bounds));
+  result.x = MIN(MAX(proposed.x, NSMinX(frame)), maxX);
+  result.y = MIN(MAX(proposed.y, NSMinY(frame)), maxY);
+
+  corner = [clip convertPoint: bounds.origin toView: nil];
+  unit = [clip convertPoint: NSMakePoint(NSMinX(bounds) + 1.0, NSMinY(bounds) + 1.0) toView: nil];
+  result.x = WinUIThemeSnapScrollOrigin(result.x, NSMinX(frame), maxX, corner.x, unit.x - corner.x);
+  result.y = WinUIThemeSnapScrollOrigin(result.y, NSMinY(frame), maxY, corner.y, unit.y - corner.y);
+  return result;
+}
+
 /* The content scrolled (by the wheel, the keyboard, the app): show the
    indicator for a while. The first call only records where it is. */
 - (void) _overrideNSScrollViewMethod_reflectScrolledClipView: (NSClipView *)clipView
@@ -867,6 +924,10 @@ WinUIThemeTraceCounts(NSString *event)
     }
   state = WinUIThemeOverlayStateFor((NSScrollView *)self, YES);
   origin = [[(NSScrollView *)self contentView] bounds].origin;
+  /* Against the document, whose own origin can land off zero at a fractional
+     scale: what shows only scrolled if the two moved apart. */
+  origin.x -= NSMinX([[(NSScrollView *)self documentView] frame]);
+  origin.y -= NSMinY([[(NSScrollView *)self documentView] frame]);
   /* Less than a device pixel from where it last scrolled isn't a scroll:
      at a fractional window scale the clip view snaps its origin to the
      pixel grid as it's first laid out, which showed the indicator over
