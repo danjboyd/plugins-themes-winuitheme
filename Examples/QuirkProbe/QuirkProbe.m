@@ -727,6 +727,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkInspectorIndicators;
 - (void) checkSearchField;
 - (void) checkHorizontalOnlyScroller;
+- (void) checkAutohideSnapOverflow;
 - (void) checkWindowTabs;
 - (void) checkWindowSingleTab;
 - (void) checkMenuStyleMoreInTitleBar;
@@ -9687,6 +9688,86 @@ QuirkProbeFontAdvancesWhole(NSFont *font)
   [first close];
 }
 
+/* A device pixel's overflow doesn't turn an auto-hiding overlay scroller on
+   (Markdown Viewer #325: 0.667pt at 1.5), but a real overflow still does on
+   an axis the app didn't ask for, where libs-gui has that behaviour:
+   ScreenshotTool's zoomed canvas asks for no scrollers and relies on it. */
+- (void) checkAutohideSnapOverflow
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(80, 360, 260, 200) title: @"QuirkProbe Autohide Snap"];
+  NSScrollView *scrollView = AUTORELEASE([[NSScrollView alloc] initWithFrame: [[window contentView] bounds]]);
+  NSView *document = AUTORELEASE([[NSView alloc] initWithFrame: NSMakeRect(0, 0, 100, 100)]);
+  /* c97f03291's libs-gui keeps to requested axes itself. */
+  BOOL libsGuiAdds = ([scrollView respondsToSelector: NSSelectorFromString(@"_setHasHorizScroller:")] == NO);
+  NSMutableArray *problems = [NSMutableArray array];
+  NSSize clip;
+  CGFloat pixel;
+
+  if (QuirkProbeHasArgument(@"--high-contrast", nil))
+    {
+      [self skip: @"scroller-autohide-snap-overflow" detail: @"high contrast's scrollers aren't overlays"];
+      [window orderOut: nil];
+      return;
+    }
+  /* As ScreenshotTool sets its canvas up. */
+  [scrollView setHasVerticalScroller: NO];
+  [scrollView setHasHorizontalScroller: NO];
+  [scrollView setAutohidesScrollers: YES];
+  [scrollView setDocumentView: document];
+  [[window contentView] addSubview: scrollView];
+  [window orderFront: nil];
+  QuirkProbeDispatchEvents(0.1);
+  clip = [[scrollView contentView] bounds].size;
+
+  /* A device pixel at this window's scale: 0.667pt at 1.5. */
+  pixel = 1.0 / MAX(1.0, [window userSpaceScaleFactor]);
+  [document setFrameSize: NSMakeSize(clip.width + pixel, clip.height + pixel)];
+  [scrollView reflectScrolledClipView: [scrollView contentView]];
+  if ([scrollView hasHorizontalScroller] || [scrollView hasVerticalScroller])
+    {
+      [problems addObject: [NSString stringWithFormat: @"%.3fpt over: h %d, v %d", pixel,
+        (int)[scrollView hasHorizontalScroller], (int)[scrollView hasVerticalScroller]]];
+    }
+
+  if (libsGuiAdds)
+    {
+      /* Two pixels is past what a snap can do. */
+      [document setFrameSize: NSMakeSize(clip.width + 2.0 * pixel, clip.height + 2.0 * pixel)];
+      [scrollView reflectScrolledClipView: [scrollView contentView]];
+      if ([scrollView hasHorizontalScroller] == NO || [scrollView hasVerticalScroller] == NO)
+        {
+          [problems addObject: [NSString stringWithFormat: @"%.3fpt over: h %d, v %d", 2.0 * pixel,
+            (int)[scrollView hasHorizontalScroller], (int)[scrollView hasVerticalScroller]]];
+        }
+      clip = [[scrollView contentView] bounds].size;
+      [document setFrameSize: NSMakeSize(clip.width + 200.0, clip.height + 200.0)];
+      [scrollView reflectScrolledClipView: [scrollView contentView]];
+      if ([scrollView hasHorizontalScroller] == NO || [scrollView hasVerticalScroller] == NO)
+        {
+          [problems addObject: [NSString stringWithFormat: @"200pt over, as a zoomed canvas: h %d, v %d",
+            (int)[scrollView hasHorizontalScroller], (int)[scrollView hasVerticalScroller]]];
+        }
+      clip = [[scrollView contentView] bounds].size;
+      [document setFrameSize: clip];
+      [scrollView reflectScrolledClipView: [scrollView contentView]];
+      if ([scrollView hasHorizontalScroller] || [scrollView hasVerticalScroller])
+        {
+          [problems addObject: @"a document that fits keeps its scrollers"];
+        }
+    }
+  [window orderOut: nil];
+  if ([problems count] == 0)
+    {
+      [self pass: @"scroller-autohide-snap-overflow" detail: [NSString stringWithFormat:
+        libsGuiAdds ? @"none for %.3fpt, both for two pixels and a real overflow, none once it fits"
+                    : @"none for %.3fpt; this libs-gui keeps to requested axes", pixel]];
+    }
+  else
+    {
+      [self fail: @"scroller-autohide-snap-overflow" detail: [problems componentsJoinedByString: @"; "]];
+    }
+}
+
 - (void) checkHorizontalOnlyScroller
 {
   NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
@@ -14166,6 +14247,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkInspectorIndicators];
   [self checkSearchField];
   [self checkHorizontalOnlyScroller];
+  [self checkAutohideSnapOverflow];
   [self checkWindowTabs];
   [self checkWindowSingleTab];
   [self checkMenuStyleMoreInTitleBar];

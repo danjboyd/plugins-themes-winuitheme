@@ -458,6 +458,37 @@ WinUIThemeScrollerRequested(NSScrollView *scrollView, const char *name)
   return *(BOOL *)((char *)scrollView + ivar_getOffset(ivar)) ? 1 : 0;
 }
 
+/* The most a document can overflow its clip view by through the clip view's
+   pixel snap alone, in points: one device pixel at the window's scale (1 at
+   100%, 0.8 at 125%, 0.667 at 150%), with a little room for rounding. */
+static CGFloat
+WinUIThemeScrollerSnapOverflow(NSScrollView *scrollView)
+{
+  CGFloat factor = [[scrollView window] userSpaceScaleFactor];
+
+  return ((factor > 0.0) ? 1.0 / factor : 1.0) + 0.01;
+}
+
+/* Inside -reflectScrolledClipView:, where libs-gui 0.32 decides. */
+static NSUInteger WinUIThemeReflecting = 0;
+
+/* Overlay scrollers only: classic ones keep libs-gui's way. */
+static BOOL
+WinUIThemeOverflowIsSnap(NSScrollView *scrollView, BOOL horizontal)
+{
+  NSView *documentView = [[scrollView contentView] documentView];
+  CGFloat overflow;
+
+  if (documentView == nil || WinUIThemeUsesOverlayScrollers() == NO)
+    {
+      return NO;
+    }
+  overflow = horizontal
+    ? NSWidth([documentView frame]) - NSWidth([[scrollView contentView] bounds])
+    : NSHeight([documentView frame]) - NSHeight([[scrollView contentView] bounds]);
+  return overflow > 0.0 && overflow <= WinUIThemeScrollerSnapOverflow(scrollView);
+}
+
 @implementation WinUITheme (ScrollerOverrides)
 
 /* The style the app asked for, kept for WinUIThemeFitTableToClipView;
@@ -716,7 +747,7 @@ WinUIThemeTraceCounts(NSString *event)
    and 150% that flipped on every layout and keystroke, which the clip
    view's pixel snap kept re-triggering (#145). With overlay scrollers a
    scroller is needed when the document is larger than the clip view, by
-   more than half a point (a sub-pixel snap isn't content). Classic
+   more than a device pixel (WinUIThemeScrollerSnapOverflow). Classic
    scrollers keep libs-gui's way. Where libs-gui has the requested flags
    (c97f03291) only a requested axis gets a scroller, set with its private
    setters as it does; 3f5efad1b alone decides both axes with the public
@@ -746,8 +777,8 @@ WinUIThemeTraceCounts(NSString *event)
     }
   documentSize = [documentView frame].size;
   clipSize = [[scrollView contentView] bounds].size;
-  needsVertical = documentSize.height > clipSize.height + 0.5;
-  needsHorizontal = documentSize.width > clipSize.width + 0.5;
+  needsVertical = documentSize.height > clipSize.height + WinUIThemeScrollerSnapOverflow(scrollView);
+  needsHorizontal = documentSize.width > clipSize.width + WinUIThemeScrollerSnapOverflow(scrollView);
   if (WinUIThemeTracingScrollers())
     {
       BOOL shownVertical = ([scrollView verticalScroller] != nil
@@ -779,6 +810,42 @@ WinUIThemeTraceCounts(NSString *event)
     }
 }
 
+/* libs-gui 0.32 shows auto-hiding scrollers in -reflectScrolledClipView:
+   with the public setters, for any overflow at all, on an axis the app
+   asked for or not. Apps rely on that: ScreenshotTool's zoomed canvas asks
+   for none. So those stay; only an overflow a pixel snap can make, which
+   gave Markdown Viewer's source pane a scroller over 0.667pt at 1.5 (its
+   #325), doesn't turn one on, under overlay scrollers. */
+- (void) _overrideNSScrollViewMethod_setHasVerticalScroller: (BOOL)flag
+{
+  typedef void (*SetIMP)(id, SEL, BOOL);
+  SetIMP originalIMP = (SetIMP)WinUIThemeOriginalMethod(_cmd, self, [NSScrollView class]);
+
+  if (flag && WinUIThemeReflecting > 0 && WinUIThemeOverflowIsSnap((NSScrollView *)self, NO))
+    {
+      return;
+    }
+  if (originalIMP != NULL)
+    {
+      originalIMP(self, _cmd, flag);
+    }
+}
+
+- (void) _overrideNSScrollViewMethod_setHasHorizontalScroller: (BOOL)flag
+{
+  typedef void (*SetIMP)(id, SEL, BOOL);
+  SetIMP originalIMP = (SetIMP)WinUIThemeOriginalMethod(_cmd, self, [NSScrollView class]);
+
+  if (flag && WinUIThemeReflecting > 0 && WinUIThemeOverflowIsSnap((NSScrollView *)self, YES))
+    {
+      return;
+    }
+  if (originalIMP != NULL)
+    {
+      originalIMP(self, _cmd, flag);
+    }
+}
+
 /* The content scrolled (by the wheel, the keyboard, the app): show the
    indicator for a while. The first call only records where it is. */
 - (void) _overrideNSScrollViewMethod_reflectScrolledClipView: (NSClipView *)clipView
@@ -790,7 +857,9 @@ WinUIThemeTraceCounts(NSString *event)
 
   if (originalIMP != NULL)
     {
+      WinUIThemeReflecting++;
       originalIMP(self, _cmd, clipView);
+      WinUIThemeReflecting--;
     }
   if (WinUIThemeUsesOverlayScrollers() == NO)
     {
