@@ -727,6 +727,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkInspectorIndicators;
 - (void) checkSearchField;
 - (void) checkHorizontalOnlyScroller;
+- (void) checkAutohideKeepsRequest;
 - (void) checkWindowTabs;
 - (void) checkWindowSingleTab;
 - (void) checkMenuStyleMoreInTitleBar;
@@ -9687,6 +9688,74 @@ QuirkProbeFontAdvancesWhole(NSFont *font)
   [first close];
 }
 
+/* Auto-hiding gives a scroller only to an axis the app asked for, and half
+   a point of pixel snap doesn't need one anyway (Markdown Viewer #325).
+   However libs-gui decides, -reflectScrolledClipView: is its way in. */
+- (void) checkAutohideKeepsRequest
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(80, 360, 260, 200) title: @"QuirkProbe Autohide Request"];
+  NSScrollView *scrollView = AUTORELEASE([[NSScrollView alloc] initWithFrame: [[window contentView] bounds]]);
+  NSView *document = AUTORELEASE([[NSView alloc] initWithFrame: NSMakeRect(0, 0, 100, 100)]);
+  NSMutableArray *problems = [NSMutableArray array];
+  NSSize clip;
+
+  [scrollView setHasVerticalScroller: YES];
+  [scrollView setHasHorizontalScroller: NO];
+  [scrollView setAutohidesScrollers: YES];
+  [scrollView setDocumentView: document];
+  [[window contentView] addSubview: scrollView];
+  [window orderFront: nil];
+  QuirkProbeDispatchEvents(0.1);
+  clip = [[scrollView contentView] bounds].size;
+
+  /* Far wider than the clip view, and never asked for. */
+  [document setFrameSize: NSMakeSize(clip.width + 200.0, clip.height + 200.0)];
+  [scrollView reflectScrolledClipView: [scrollView contentView]];
+  if ([scrollView hasHorizontalScroller])
+    {
+      [problems addObject: @"a horizontal scroller the app never asked for"];
+    }
+  if ([scrollView hasVerticalScroller] == NO)
+    {
+      [problems addObject: @"no vertical scroller for a tall document"];
+    }
+
+  /* The vertical one goes when it fits and comes back: the request stays. */
+  clip = [[scrollView contentView] bounds].size;
+  [document setFrameSize: NSMakeSize(clip.width, clip.height)];
+  [scrollView reflectScrolledClipView: [scrollView contentView]];
+  if ([scrollView hasVerticalScroller])
+    {
+      [problems addObject: @"a vertical scroller for a document that fits"];
+    }
+  clip = [[scrollView contentView] bounds].size;
+  [document setFrameSize: NSMakeSize(clip.width, clip.height + 200.0)];
+  [scrollView reflectScrolledClipView: [scrollView contentView]];
+  if ([scrollView hasVerticalScroller] == NO)
+    {
+      [problems addObject: @"the vertical scroller didn't come back"];
+    }
+
+  /* Asked for later, the axis gets one. */
+  [scrollView setHasHorizontalScroller: YES];
+  clip = [[scrollView contentView] bounds].size;
+  [document setFrameSize: NSMakeSize(clip.width + 200.0, clip.height + 200.0)];
+  [scrollView reflectScrolledClipView: [scrollView contentView]];
+  if ([scrollView hasHorizontalScroller] == NO)
+    {
+      [problems addObject: @"no horizontal scroller once asked for"];
+    }
+  [window orderOut: nil];
+  if ([problems count] == 0)
+    {
+      [self pass: @"scroller-autohide-keeps-request" detail: @"only axes the app asked for get a scroller"];
+    }
+  else
+    {
+      [self fail: @"scroller-autohide-keeps-request" detail: [problems componentsJoinedByString: @"; "]];
+    }
+}
+
 - (void) checkHorizontalOnlyScroller
 {
   NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
@@ -14166,6 +14235,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkInspectorIndicators];
   [self checkSearchField];
   [self checkHorizontalOnlyScroller];
+  [self checkAutohideKeepsRequest];
   [self checkWindowTabs];
   [self checkWindowSingleTab];
   [self checkMenuStyleMoreInTitleBar];
