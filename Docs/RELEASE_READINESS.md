@@ -104,8 +104,9 @@ This VM has no GPU, one monitor, and blocks SendInput mouse buttons.
 - [x] The reference app gains the real Toolkit `Segmented` and WinUI's
       `SelectorBar`, and the segmented control is measured against the
       one the owner picks: both are in the reference app side by side, and
-      the theme stays with Segmented (#162, alpha13). Its track a shade
-      lighter is an alpha14 follow-up.
+      the theme stays with Segmented (#162, alpha13). The track is 5
+      levels off the window in light and 4 in dark (measured 2026-11-06),
+      against the Toolkit's 5-6 noted then, so it stays as it is.
 - [x] Text width measured against the reference (#105), as Adwaita does
       against GTK: the specimens pages measure WinUI's whole type ramp;
       Caption is 2.5% narrower, kept and listed below (#159, alpha13).
