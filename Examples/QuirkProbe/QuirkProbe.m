@@ -12087,6 +12087,90 @@ static BOOL QuirkProbeMenuItemPicked = NO;
     }
 }
 
+- (void) probeFlagsAction: (id)sender
+{
+}
+
+- (BOOL) validateMenuItem: (NSMenuItem *)item
+{
+  if ([item action] == @selector(probeFlagsAction:))
+    {
+      _flagValidations++;
+      return [[item title] isEqualToString: @"On"];
+    }
+  return YES;
+}
+
+/* The flyout's items are copies of a menu that's never on screen, so nothing
+   updates it and they start with stale flags (ScreenshotTool #354). By the
+   time a copied submenu is shown it has been validated: "On" enabled, "Off"
+   not, and an action nobody answers disabled without asking any validator. */
+- (void) checkFlyoutFreshFlags: (NSWindow *)window bar: (NSMenuView *)bar
+{
+  NSMenu *mainMenu = [NSApp mainMenu];
+  NSMenu *submenu = AUTORELEASE([[NSMenu alloc] initWithTitle: @"Zeta"]);
+  NSMenuItem *holder = AUTORELEASE([[NSMenuItem alloc] initWithTitle: @"Zeta" action: NULL keyEquivalent: @""]);
+  NSMenuItem *on = [submenu addItemWithTitle: @"On" action: @selector(probeFlagsAction:) keyEquivalent: @""];
+  NSMenuItem *off = [submenu addItemWithTitle: @"Off" action: @selector(probeFlagsAction:) keyEquivalent: @""];
+  NSMenuItem *orphan = [submenu addItemWithTitle: @"Nobody" action: NSSelectorFromString(@"probeNobodyAnswers:")
+                                   keyEquivalent: @""];
+  NSArray *menus = nil;
+  NSString *problem = nil;
+
+  [on setTarget: self];
+  [off setTarget: self];
+  [holder setSubmenu: submenu];
+  [mainMenu addItem: holder];
+  QuirkProbeDispatchEvents(0.1);
+  /* Stale, the opposite of what validation says. */
+  [on setEnabled: NO];
+  [off setEnabled: YES];
+  [orphan setEnabled: YES];
+  _flagValidations = 0;
+  QuirkProbeSendKey(window, QuirkProbeKeyString('z'), NSAlternateKeyMask);
+  menus = QuirkProbeSessionMenus(bar);
+  if ([menus count] != 2 || [[[menus objectAtIndex: 1] title] isEqualToString: @"Zeta"] == NO)
+    {
+      [self skip: @"menu-style-more-fresh-flags"
+          detail: [NSString stringWithFormat: @"Alt+z opened %lu menus", (unsigned long)[menus count]]];
+    }
+  else
+    {
+      NSMenu *copy = [menus objectAtIndex: 1];
+
+      if (copy == submenu)
+        {
+          problem = @"the flyout's submenu isn't a copy";
+        }
+      else if ([[[copy menuRepresentation] window] isVisible] == NO)
+        {
+          problem = @"the copied submenu isn't shown";
+        }
+      else if ([[copy itemAtIndex: 0] isEnabled] == NO || [[copy itemAtIndex: 1] isEnabled]
+               || [[copy itemAtIndex: 2] isEnabled] || _flagValidations < 2)
+        {
+          problem = [NSString stringWithFormat: @"On %d, Off %d, Nobody %d after %lu validations",
+            (int)[[copy itemAtIndex: 0] isEnabled], (int)[[copy itemAtIndex: 1] isEnabled],
+            (int)[[copy itemAtIndex: 2] isEnabled], (unsigned long)_flagValidations];
+        }
+      if (problem == nil)
+        {
+          [self pass: @"menu-style-more-fresh-flags" detail: [NSString stringWithFormat:
+            @"shown with On enabled, Off and Nobody not, from stale flags (%lu validations)",
+            (unsigned long)_flagValidations]];
+        }
+      else
+        {
+          [self fail: @"menu-style-more-fresh-flags" detail: problem];
+        }
+    }
+  QuirkProbeSendKey(window, QuirkProbeKeyString(0x1b), 0);
+  QuirkProbeSendKey(window, QuirkProbeKeyString(0x1b), 0);
+  QuirkProbeSendKey(window, QuirkProbeKeyString(0x1b), 0);
+  [mainMenu removeItem: holder];
+  QuirkProbeDispatchEvents(0.1);
+}
+
 /* WinUIThemeMenuStyle `more` (#130): the bar shows only its "..." button
    at its end, whose flyout holds every menu; Alt plus a menu's access key
    opens the flyout and that menu in it. Set back to `menubar`, the titles
@@ -12174,6 +12258,7 @@ static BOOL QuirkProbeMenuItemPicked = NO;
       QuirkProbeSendKey(window, escape, 0);
       QuirkProbeSendKey(window, escape, 0);
       QuirkProbeSendKey(window, escape, 0);
+      [self checkFlyoutFreshFlags: window bar: bar];
     }
   else if ([problems count] == 0)
     {

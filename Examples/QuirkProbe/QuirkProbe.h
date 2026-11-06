@@ -38,6 +38,7 @@
   NSUInteger _known;
   NSUInteger _skipped;
   NSUInteger _datePickerActions;
+  NSUInteger _flagValidations;
   /* The date picker flyout's frame as it opened on a scaled display. */
   NSRect _scaledFlyoutFrame;
   BOOL _offersNewTab;
