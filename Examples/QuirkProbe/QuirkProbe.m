@@ -8423,6 +8423,7 @@ QuirkProbeCloseButtonInkOnScreen(HWND hwnd)
   NSMutableArray *problems = [NSMutableArray array];
   DWORD transparency = 1;
   DWORD size = sizeof(transparency);
+  BOOL unseen = NO;
 
   RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
                L"EnableTransparency", RRF_RT_REG_DWORD, NULL, &transparency, &size);
@@ -8514,7 +8515,13 @@ QuirkProbeCloseButtonInkOnScreen(HWND hwnd)
         QuirkProbeDispatchEvents(0.5);
         without = QuirkProbeCloseButtonInkOnScreen((HWND)[plain windowHandle]);
         [plain orderOut: nil];
-        if (without == 0 || withMica > without * 3 / 2 + 4)
+        /* No ink on a plain window: something is in the way on the screen,
+           so this part saw nothing (a skip, not a pass). */
+        if (without == 0)
+          {
+            unseen = YES;
+          }
+        else if (withMica > without * 3 / 2 + 4)
           {
             [problems addObject: [NSString stringWithFormat:
               @"the close button shows %lu pixels of ink on the screen, %lu without Mica: DWM's buttons too?",
@@ -8526,7 +8533,12 @@ QuirkProbeCloseButtonInkOnScreen(HWND hwnd)
   [window orderOut: nil];
   [panel orderOut: nil];
   [[NSUserDefaults standardUserDefaults] setBool: NO forKey: @"WinUIThemeMica"];
-  if ([problems count] == 0)
+  if ([problems count] == 0 && unseen)
+    {
+      [self skip: @"mica-chrome" detail:
+        @"no close button ink on the screen even without Mica (a window in the way?), so DWM's buttons weren't checked; Mica, the menu bar and the panel were fine"];
+    }
+  else if ([problems count] == 0)
     {
       [self pass: @"mica-chrome" detail: @"Mica behind a transparent menu bar, opaque content; none on a panel"];
     }
