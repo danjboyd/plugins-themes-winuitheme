@@ -476,7 +476,8 @@ WinUIThemeUpdateSegmentFrame(NSSegmentedCell *cell,
 static NSDictionary *
 WinUIThemeSegmentedLabelAttributes(NSSegmentedCell *cell,
                                    WinUITheme *theme,
-                                   BOOL selected)
+                                   BOOL selected,
+                                   BOOL enabled)
 {
   NSMutableDictionary *attributes = nil;
   NSFont *font = nil;
@@ -503,11 +504,14 @@ WinUIThemeSegmentedLabelAttributes(NSSegmentedCell *cell,
      Segmented draws them (TextFillColorPrimary) and as the segments'
      template icons are; the selection is the raised item and its pill.
      Unselected labels were the secondary colour. In high contrast the
-     selected segment is the highlight: its text colour. */
-  color = WinUIThemeColorFromTheme(theme,
-                                   (selected && [[theme settings] highContrastEnabled])
-                                     ? @"accentTextColor" : @"labelColor",
-                                   [NSColor controlTextColor]);
+     selected segment is the highlight: its text colour. Disabled, the
+     disabled text colour, as the segment's icon is. */
+  color = (enabled == NO)
+    ? WinUIThemeColorFromTheme(theme, @"disabledControlTextColor", [NSColor disabledControlTextColor])
+    : WinUIThemeColorFromTheme(theme,
+                               (selected && [[theme settings] highContrastEnabled])
+                                 ? @"accentTextColor" : @"labelColor",
+                               [NSColor controlTextColor]);
   if (color != nil)
     {
       [attributes setObject: color forKey: NSForegroundColorAttributeName];
@@ -527,6 +531,7 @@ WinUIThemeDrawSegmentedLabel(NSSegmentedCell *cell,
                              NSString *label,
                              NSRect frame,
                              BOOL selected,
+                             BOOL enabled,
                              BOOL roundedLeft,
                              BOOL roundedRight)
 {
@@ -542,7 +547,7 @@ WinUIThemeDrawSegmentedLabel(NSSegmentedCell *cell,
       return;
     }
 
-  attributes = WinUIThemeSegmentedLabelAttributes(cell, theme, selected);
+  attributes = WinUIThemeSegmentedLabelAttributes(cell, theme, selected, enabled);
   titleSize = [label sizeWithAttributes: attributes];
 
   if ([cell _shouldShortenStringForRect: frame
@@ -2019,6 +2024,8 @@ WinUIThemeDrawSliderTicks(WinUITheme *theme, NSSliderCell *cell, NSRect rect,
   BOOL roundedLeft = (segmentIndex == 0);
   BOOL roundedRight = (segmentIndex == ([cell segmentCount] - 1));
   NSView *controlView = [cell controlView];
+  /* -setEnabled: on the control disables the cell, not its segments. */
+  BOOL enabled = ([cell isEnabled] && [cell isEnabledForSegment: segmentIndex]);
 
   if ([cell trackingMode] == NSSegmentSwitchTrackingSelectOne)
     {
@@ -2030,7 +2037,7 @@ WinUIThemeDrawSliderTicks(WinUITheme *theme, NSSliderCell *cell, NSRect rect,
     }
 
   WinUIThemeUpdateSegmentFrame(cell, segmentIndex, frame);
-  if ([cell isEnabledForSegment: segmentIndex] == NO)
+  if (enabled == NO)
     {
       state = GSThemeDisabledState;
     }
@@ -2063,6 +2070,7 @@ WinUIThemeDrawSliderTicks(WinUITheme *theme, NSSliderCell *cell, NSRect rect,
                                    label,
                                    frame,
                                    selected,
+                                   enabled,
                                    roundedLeft,
                                    roundedRight);
     }
@@ -2070,7 +2078,7 @@ WinUIThemeDrawSliderTicks(WinUITheme *theme, NSSliderCell *cell, NSRect rect,
   WinUIThemeDrawSegmentedImage(segmentImage,
                                frame,
                                (controlView != nil) ? controlView : view,
-                               [cell isEnabledForSegment: segmentIndex]);
+                               enabled);
 }
 
 - (void) _overrideNSPopUpButtonCellMethod_drawInteriorWithFrame: (NSRect)cellFrame
