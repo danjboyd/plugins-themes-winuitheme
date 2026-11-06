@@ -2469,6 +2469,72 @@ WinUIThemeProbeToolbarInRow(NSWindow *window)
     {
       [self fail: @"menu-style-more-toolbar" detail: [problems componentsJoinedByString: @"; "]];
     }
+
+  /* Hiding the toolbar sends the "..." to the title bar, where the theme
+     draws the caption, and showing it brings it back; the content keeps
+     its size and the window ends as it began. */
+  if ([GSCurrentServer() respondsToSelector: @selector(clientDrawsCaptions)] == NO
+      || [(id)GSCurrentServer() clientDrawsCaptions] == NO)
+    {
+      [self skip: @"menu-style-more-toolbar-toggle" detail: @"Windows draws the caption (a stock libs-back)"];
+    }
+  else
+    {
+      NSToolbar *shownToolbar = [window toolbar];
+      CGFloat height = NSHeight([window frame]);
+      CGFloat content = NSHeight([[window contentView] frame]);
+      CGFloat hiddenHeight, hiddenContent, hiddenRow;
+
+      [problems removeAllObjects];
+      [shownToolbar setVisible: NO];
+      QuirkProbeDispatchEvents(0.2);
+      [decoration display];
+      hiddenHeight = NSHeight([window frame]);
+      hiddenContent = NSHeight([[window contentView] frame]);
+      hiddenRow = [[GSTheme theme] menuHeightForWindow: window];
+      barFrame = [decoration convertRect: [bar bounds] fromView: bar];
+      [self saveView: decoration named: @"menu-style-more-toolbar-hidden"];
+      if (hiddenRow != 0.0)
+        {
+          [problems addObject: [NSString stringWithFormat: @"hidden: the row is %.0fpt", hiddenRow]];
+        }
+      if (fabs(hiddenContent - content) > 1.5)
+        {
+          [problems addObject: [NSString stringWithFormat: @"hidden: content %.0f, was %.0f (window %.0f, was %.0f)",
+                                                           hiddenContent, content, hiddenHeight, height]];
+        }
+      if (NSMinY(barFrame) < NSMaxY([decoration convertRect: [[window contentView] bounds]
+                                                   fromView: [window contentView]]) - 1.5)
+        {
+          [problems addObject: [NSString stringWithFormat: @"hidden: the bar %@ is over the content",
+                                                           NSStringFromRect(barFrame)]];
+        }
+      [shownToolbar setVisible: YES];
+      QuirkProbeDispatchEvents(0.2);
+      [decoration display];
+      toolbarFrame = [decoration convertRect: [toolbarView bounds] fromView: toolbarView];
+      barFrame = [decoration convertRect: [bar bounds] fromView: bar];
+      if (fabs(NSHeight([window frame]) - height) > 0.5 || fabs(NSHeight([[window contentView] frame]) - content) > 1.5)
+        {
+          [problems addObject: [NSString stringWithFormat: @"shown again: window %.0f, was %.0f; content %.0f, was %.0f",
+                                                           NSHeight([window frame]), height,
+                                                           NSHeight([[window contentView] frame]), content]];
+        }
+      if ([toolbarView superview] != decoration || fabs(NSMinY(toolbarFrame) - NSMinY(barFrame)) > 0.5)
+        {
+          [problems addObject: [NSString stringWithFormat: @"shown again: the toolbar %@ isn't in the row %@",
+                                                           NSStringFromRect(toolbarFrame), NSStringFromRect(barFrame)]];
+        }
+      if ([problems count] == 0)
+        {
+          [self pass: @"menu-style-more-toolbar-toggle" detail: [NSString stringWithFormat:
+            @"hidden: no row, content %.0f, window %.0f; shown: back to %.0f", hiddenContent, hiddenHeight, height]];
+        }
+      else
+        {
+          [self fail: @"menu-style-more-toolbar-toggle" detail: [problems componentsJoinedByString: @"; "]];
+        }
+    }
   [defaults removeObjectForKey: @"WinUIThemeMenuStyle"];
   [defaults removeObjectForKey: @"GSThemeToolbarInMenuBar"];
   [[NSNotificationCenter defaultCenter] postNotificationName: NSUserDefaultsDidChangeNotification
