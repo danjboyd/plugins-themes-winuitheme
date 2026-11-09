@@ -23,6 +23,16 @@ gnustep-gui 0.32 or later. Tested with the carried libs-back
   Viewer's source pane got a horizontal scroller from 0.667pt at 150%
   (#190). QuirkProbe `scroller-autohide-snap-overflow`.
 
+**Scroll origin at 125% and 150%**
+- At a fractional scale, libs-gui's clip view moved a scroll view's origin
+  by a fraction of a pixel on every layout with nothing scrolled, so the
+  content crept and the overlay scrollbar showed at rest. The theme's
+  `-constrainScrollPoint:` puts the document on the pixel grid instead
+  (#191). QuirkProbe `scroll-origin-settles`. Tested at a real 125% and
+  150% with the carried libs-back. No real app has run it at those scales.
+- QuirkProbe's `scaled-125` passes on the stock libs-back, and CI runs it
+  (#191).
+
 **Segmented controls**
 - `-setEnabled:NO` dims the labels and icons. The theme asked only
   `-isEnabledForSegment:`, so a disabled control stayed at full strength.
