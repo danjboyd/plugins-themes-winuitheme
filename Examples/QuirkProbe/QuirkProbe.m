@@ -5881,12 +5881,24 @@ QuirkProbeTwelveHourClock(void)
         [window orderOut: nil];
         return;
       }
-    [window setFrameOrigin: NSMakePoint(400, 300)];
-    field = [date convertRect: [date bounds] toView: nil];
-    field.origin = [window convertBaseToScreen: field.origin];
-    [window setFrameOrigin: NSMakePoint(400, 300 + floor(NSMinY(visible) + 221.0 * flyoutScale
-                                                              + 0.5 * (NSHeight(visible) - 401.0 * flyoutScale)
-                                                              - NSMidY(field)))];
+    /* Where the field lands for two window origins: at a forced scale the
+       window's origin and the field on the screen needn't move alike. */
+    {
+      CGFloat target = NSMinY(visible) + 221.0 * flyoutScale
+        + 0.5 * (NSHeight(visible) - 401.0 * flyoutScale);
+      CGFloat low, high, slope;
+
+      [window setFrameOrigin: NSMakePoint(400, 300)];
+      field = [date convertRect: [date bounds] toView: nil];
+      field.origin = [window convertBaseToScreen: field.origin];
+      low = NSMidY(field);
+      [window setFrameOrigin: NSMakePoint(400, 400)];
+      field = [date convertRect: [date bounds] toView: nil];
+      field.origin = [window convertBaseToScreen: field.origin];
+      high = NSMidY(field);
+      slope = (high - low) / 100.0;
+      [window setFrameOrigin: NSMakePoint(400, 300 + floor((target - low) / (slope > 0.0 ? slope : 1.0)))];
+    }
     field = [date convertRect: [date bounds] toView: nil];
     field.origin = [window convertBaseToScreen: field.origin];
     _scaledFlyoutFrame = NSZeroRect;
