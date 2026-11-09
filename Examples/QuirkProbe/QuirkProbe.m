@@ -5863,27 +5863,34 @@ QuirkProbeTwelveHourClock(void)
     NSRect visible = [[NSScreen mainScreen] visibleFrame];
     CGFloat bandY, flyoutScale;
 
-    /* The flyout reaches 270px above the field's middle and 331px below:
+    /* A -GSScaleFactor argument outranks the 1.5 set below: scaled-125
+       stays at 1.25. */
+    flyoutScale = [[[defaults volatileDomainForName: NSArgumentDomain] objectForKey: @"GSScaleFactor"] doubleValue];
+    if (flyoutScale <= 0.0)
+      {
+        flyoutScale = 1.5;
+      }
+    /* The flyout reaches 180pt above the field's middle and 221pt below:
        put the field where both fit (on CI's 1024x768 screen a fixed
        origin left too little room above). */
-    if (NSHeight(visible) < 401.0 * 1.5 + 8.0)
+    if (NSHeight(visible) < 401.0 * flyoutScale + 8.0)
       {
         [self skip: @"date-picker-flyout-scaled" detail: [NSString stringWithFormat:
-          @"the screen's visible frame is %.0fpx high, too short for a 602px flyout", NSHeight(visible)]];
+          @"the screen's visible frame is %.0fpx high, too short for a %.0fpx flyout",
+          NSHeight(visible), 401.0 * flyoutScale]];
         [window orderOut: nil];
         return;
       }
     [window setFrameOrigin: NSMakePoint(400, 300)];
     field = [date convertRect: [date bounds] toView: nil];
     field.origin = [window convertBaseToScreen: field.origin];
-    [window setFrameOrigin: NSMakePoint(400, 300 + floor(NSMinY(visible) + 331.0 + 0.5 * (NSHeight(visible) - 601.0)
+    [window setFrameOrigin: NSMakePoint(400, 300 + floor(NSMinY(visible) + 221.0 * flyoutScale
+                                                              + 0.5 * (NSHeight(visible) - 401.0 * flyoutScale)
                                                               - NSMidY(field)))];
     field = [date convertRect: [date bounds] toView: nil];
     field.origin = [window convertBaseToScreen: field.origin];
     _scaledFlyoutFrame = NSZeroRect;
     [defaults setObject: @"1.5" forKey: @"GSScaleFactor"];
-    /* A -GSScaleFactor argument outranks this: scaled-125 stays at 1.25. */
-    flyoutScale = [[defaults objectForKey: @"GSScaleFactor"] doubleValue];
     [[NSRunLoop currentRunLoop] addTimer: timer forMode: NSEventTrackingRunLoopMode];
     [date mouseDown: click];
     [timer invalidate];
@@ -12648,10 +12655,14 @@ QuirkProbeSendMove(NSWindow *window, NSPoint location)
   if (below < [flyout numberOfItems] && [submenu numberOfItems] >= 3)
     {
       NSRect belowRect = [parentView convertRect: [parentView rectOfItemAtIndex: below] toView: nil];
+      /* On a narrow screen (CI's 1024x768 at 125%) the submenu opens on the
+         left: head that way instead. */
+      BOOL left = NSMidX([subWindow frame]) < NSMidX([parentWindow frame]);
       BOOL held, switched;
 
-      QuirkProbeSendMove(parentWindow, NSMakePoint(NSMinX(item) + 6.0, NSMidY(item)));
-      QuirkProbeSendMove(parentWindow, NSMakePoint(NSMaxX(belowRect) - 3.0, NSMidY(belowRect)));
+      QuirkProbeSendMove(parentWindow, NSMakePoint(left ? NSMaxX(item) - 6.0 : NSMinX(item) + 6.0, NSMidY(item)));
+      QuirkProbeSendMove(parentWindow, NSMakePoint(left ? NSMinX(belowRect) + 3.0 : NSMaxX(belowRect) - 3.0,
+                                                   NSMidY(belowRect)));
       open = QuirkProbeSessionMenus(bar);
       held = ([open count] == 2 && [[[open objectAtIndex: 1] title] isEqualToString: [submenu title]]
               && [parentView highlightedItemIndex] == target);
@@ -12665,8 +12676,9 @@ QuirkProbeSendMove(NSWindow *window, NSPoint location)
       else
         {
           [self fail: @"menu-submenu-aim" detail: [NSString stringWithFormat:
-            @"crossing the item below: %@; resting there: %@",
-            held ? @"kept" : @"switched at once", switched ? @"switched" : @"didn't switch"]];
+            @"crossing the item below towards a submenu on the %@: %@; resting there: %@",
+            left ? @"left" : @"right", held ? @"kept" : @"switched at once",
+            switched ? @"switched" : @"didn't switch"]];
         }
     }
   else
