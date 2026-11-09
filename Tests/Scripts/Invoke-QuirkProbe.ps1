@@ -59,6 +59,8 @@ $configurationArguments = @{
   # 100% monitor (dpi-per-monitor-aware and the caption hit tests fail);
   # there, set the monitor itself to 150% instead.
   "scaled-150"    = @("--mode", "light", "-GSScaleFactor", "1.5")
+  # The same at 1.25, on the stock backend too: its corners and strokes land
+  # between pixels where 1.5 often lands on them. CI runs it.
   "scaled-125"    = @("--mode", "light", "-GSScaleFactor", "1.25")
   "dusk"          = @("--mode", "light", "--high-contrast", "yes", "--contrast-theme", "dusk")
   "desert"        = @("--mode", "light", "--high-contrast", "yes", "--contrast-theme", "desert")
