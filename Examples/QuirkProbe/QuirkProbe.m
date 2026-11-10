@@ -9573,12 +9573,17 @@ QuirkProbeFontAdvancesWhole(NSFont *font)
                       NSStringFromRect(barFrame), NSStringFromRect(rowFrame),
                       NSStringFromRect([content frame]), round(40.0 * desktop)]];
         }
-      /* Windows: a tab is the gui's, the row beside the tabs drags. */
+      /* Windows: a tab is the gui's, the row beside the tabs drags. The
+         probes are points times the window's own scale, in device pixels
+         (a real 125% or 150% sets it through per-monitor DPI); `desktop`
+         stays on the theme's metrics. */
+      CGFloat device = [second userSpaceScaleFactor];
+
       ClientToScreen(hwnd, &origin);
-      onTab = QuirkProbeHitTest(hwnd, origin.x + (LONG)NSMidX(firstTab),
-                                origin.y + (LONG)(rowTop + NSHeight(rowFrame) - 12.0 * desktop));
-      beside = QuirkProbeHitTest(hwnd, origin.x + (LONG)(NSMaxX(barFrame) + 20.0 * desktop),
-                                 origin.y + (LONG)(rowTop + NSHeight(rowFrame) / 2.0));
+      onTab = QuirkProbeHitTest(hwnd, origin.x + (LONG)(NSMidX(firstTab) * device),
+                                origin.y + (LONG)((rowTop + NSHeight(rowFrame) - 12.0 * desktop) * device));
+      beside = QuirkProbeHitTest(hwnd, origin.x + (LONG)((NSMaxX(barFrame) + 20.0 * desktop) * device),
+                                 origin.y + (LONG)((rowTop + NSHeight(rowFrame) / 2.0) * device));
       if (onTab == HTCLIENT && beside == HTCAPTION)
         {
           [self pass: @"window-tab-title-bar-hit-test" detail:
