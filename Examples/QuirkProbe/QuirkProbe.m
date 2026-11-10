@@ -9113,7 +9113,10 @@ QuirkProbeFontAdvancesWhole(NSFont *font)
   ClientToScreen(hwnd, &origin);
   right = origin.x + client.right;
   mid = (windowRect.left + windowRect.right) / 2;
-  /* The middles of the 46x32 buttons, from the right */
+  /* The middles of the 46x32 buttons, from the right, in device pixels:
+     the row's points times the window's own scale, which a real 125% or
+     150% sets through per-monitor DPI (the row stays 40pt there). */
+  scale *= [window userSpaceScaleFactor];
   caption = QuirkProbeHitTest(hwnd, origin.x + 100, origin.y + 16 * scale);
   close = QuirkProbeHitTest(hwnd, right - 23 * scale, origin.y + 16 * scale);
   zoom = QuirkProbeHitTest(hwnd, right - 69 * scale, origin.y + 16 * scale);
