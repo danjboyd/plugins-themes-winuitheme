@@ -6873,8 +6873,18 @@ QuirkProbeSumAt(NSBitmapImageRep *rep, NSInteger x, NSInteger y)
   titleRect = [box convertRect: [box titleRect] toView: content];
   cardRect = [box convertRect: [box borderRect] toView: content];
   cardRect.size.height = NSMinY(titleRect) - NSMinY(cardRect);
+  {
+    /* The card's top row: its top edge converted as a point into window
+       base (device pixels), less the content view's base origin, then
+       counted from the render's top. The rect conversion's scale is the
+       capture's ratio, which at a real 150% (fractional content bounds)
+       put it a row above the edge. */
+    NSPoint topBase = [content convertPoint: NSMakePoint(NSMinX(cardRect), NSMaxY(cardRect)) toView: nil];
+    NSPoint contentOrigin = [content convertPoint: NSZeroPoint toView: nil];
+
+    cardTop = (NSInteger)ceil([rep pixelsHigh] - (topBase.y - contentOrigin.y) - 0.001);
+  }
   cardRect = QuirkProbePixelRect(content, cardRect, scale);
-  cardTop = (NSInteger)NSMinY(cardRect);
   cardLeft = (NSInteger)NSMinX(cardRect);
   cardBottom = (NSInteger)NSMaxY(cardRect) - 1;
   middleX = (NSInteger)NSMidX(cardRect);
