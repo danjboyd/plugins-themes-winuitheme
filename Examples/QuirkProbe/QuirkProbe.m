@@ -6661,7 +6661,17 @@ QuirkProbeChannelDistance(NSBitmapImageRep *rep, NSInteger x, NSInteger y, NSInt
     NSRect divider = NSMakeRect(0, NSMaxY(leading), NSWidth([thick bounds]), [thick dividerThickness]);
     NSRect pixels = QuirkProbePixelRect(content, [content convertRect: divider fromView: thick], scale);
     NSInteger x, y, lineRows = 0, windowRows = 0, otherRows = 0;
-    NSInteger x0 = (NSInteger)NSMinX(pixels), x1 = (NSInteger)NSMaxX(pixels);
+    /* The columns: the whole device pixels between the split view's left
+       and right edges, converted as points into window base (device
+       pixels) less the content view's own base origin. The rect
+       conversion's scale is the capture's ratio, which at a real 125% or
+       150% (fractional content bounds) put the first column a pixel left
+       of the split view, on the window (#23017). */
+    NSPoint left = [thick convertPoint: NSMakePoint(NSMinX([thick bounds]), NSMidY(divider)) toView: nil];
+    NSPoint right = [thick convertPoint: NSMakePoint(NSMaxX([thick bounds]), NSMidY(divider)) toView: nil];
+    NSPoint contentOrigin = [content convertPoint: NSZeroPoint toView: nil];
+    NSInteger x0 = (NSInteger)ceil(MIN(left.x, right.x) - contentOrigin.x - 0.001);
+    NSInteger x1 = (NSInteger)floor(MAX(left.x, right.x) - contentOrigin.x + 0.001);
 
     for (y = (NSInteger)NSMinY(pixels); y < (NSInteger)NSMaxY(pixels); y++)
       {
