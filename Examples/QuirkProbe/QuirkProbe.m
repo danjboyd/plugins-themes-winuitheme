@@ -4768,8 +4768,25 @@ static BOOL
 QuirkProbeGuiScaledFractionally(void)
 {
   CGFloat factor = [[NSUserDefaults standardUserDefaults] floatForKey: @"GSScaleFactor"];
+  NSEnumerator *windows;
+  NSWindow *window;
 
-  return factor > 1.01 && factor != floor(factor);
+  if (factor > 1.01 && factor != floor(factor))
+    {
+      return YES;
+    }
+  /* At a real 125% or 150% the carried backend's per-monitor DPI scales
+     the gui with no GSScaleFactor set: the windows' own scale says so. */
+  windows = [[NSApp windows] objectEnumerator];
+  while ((window = [windows nextObject]) != nil)
+    {
+      factor = [window userSpaceScaleFactor];
+      if (factor > 1.01 && factor != floor(factor))
+        {
+          return YES;
+        }
+    }
+  return NO;
 }
 
 static CGFloat
@@ -6856,8 +6873,18 @@ QuirkProbeSumAt(NSBitmapImageRep *rep, NSInteger x, NSInteger y)
   titleRect = [box convertRect: [box titleRect] toView: content];
   cardRect = [box convertRect: [box borderRect] toView: content];
   cardRect.size.height = NSMinY(titleRect) - NSMinY(cardRect);
+  {
+    /* The card's top row: its top edge converted as a point into window
+       base (device pixels), less the content view's base origin, then
+       counted from the render's top. The rect conversion's scale is the
+       capture's ratio, which at a real 150% (fractional content bounds)
+       put it a row above the edge. */
+    NSPoint topBase = [content convertPoint: NSMakePoint(NSMinX(cardRect), NSMaxY(cardRect)) toView: nil];
+    NSPoint contentOrigin = [content convertPoint: NSZeroPoint toView: nil];
+
+    cardTop = (NSInteger)ceil([rep pixelsHigh] - (topBase.y - contentOrigin.y) - 0.001);
+  }
   cardRect = QuirkProbePixelRect(content, cardRect, scale);
-  cardTop = (NSInteger)NSMinY(cardRect);
   cardLeft = (NSInteger)NSMinX(cardRect);
   cardBottom = (NSInteger)NSMaxY(cardRect) - 1;
   middleX = (NSInteger)NSMidX(cardRect);
@@ -9096,7 +9123,10 @@ QuirkProbeFontAdvancesWhole(NSFont *font)
   ClientToScreen(hwnd, &origin);
   right = origin.x + client.right;
   mid = (windowRect.left + windowRect.right) / 2;
-  /* The middles of the 46x32 buttons, from the right */
+  /* The middles of the 46x32 buttons, from the right, in device pixels:
+     the row's points times the window's own scale, which a real 125% or
+     150% sets through per-monitor DPI (the row stays 40pt there). */
+  scale *= [window userSpaceScaleFactor];
   caption = QuirkProbeHitTest(hwnd, origin.x + 100, origin.y + 16 * scale);
   close = QuirkProbeHitTest(hwnd, right - 23 * scale, origin.y + 16 * scale);
   zoom = QuirkProbeHitTest(hwnd, right - 69 * scale, origin.y + 16 * scale);
@@ -9553,12 +9583,17 @@ QuirkProbeFontAdvancesWhole(NSFont *font)
                       NSStringFromRect(barFrame), NSStringFromRect(rowFrame),
                       NSStringFromRect([content frame]), round(40.0 * desktop)]];
         }
-      /* Windows: a tab is the gui's, the row beside the tabs drags. */
+      /* Windows: a tab is the gui's, the row beside the tabs drags. The
+         probes are points times the window's own scale, in device pixels
+         (a real 125% or 150% sets it through per-monitor DPI); `desktop`
+         stays on the theme's metrics. */
+      CGFloat device = [second userSpaceScaleFactor];
+
       ClientToScreen(hwnd, &origin);
-      onTab = QuirkProbeHitTest(hwnd, origin.x + (LONG)NSMidX(firstTab),
-                                origin.y + (LONG)(rowTop + NSHeight(rowFrame) - 12.0 * desktop));
-      beside = QuirkProbeHitTest(hwnd, origin.x + (LONG)(NSMaxX(barFrame) + 20.0 * desktop),
-                                 origin.y + (LONG)(rowTop + NSHeight(rowFrame) / 2.0));
+      onTab = QuirkProbeHitTest(hwnd, origin.x + (LONG)(NSMidX(firstTab) * device),
+                                origin.y + (LONG)((rowTop + NSHeight(rowFrame) - 12.0 * desktop) * device));
+      beside = QuirkProbeHitTest(hwnd, origin.x + (LONG)((NSMaxX(barFrame) + 20.0 * desktop) * device),
+                                 origin.y + (LONG)((rowTop + NSHeight(rowFrame) / 2.0) * device));
       if (onTab == HTCLIENT && beside == HTCAPTION)
         {
           [self pass: @"window-tab-title-bar-hit-test" detail:
