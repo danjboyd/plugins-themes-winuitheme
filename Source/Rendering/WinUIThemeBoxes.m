@@ -103,6 +103,135 @@ WinUIThemeDrawBoxTitle(WinUITheme *theme, NSBox *box, CGFloat x)
       withAttributes: attributes];
 }
 
+/* A 1pt line on whole device pixels (pilot: the split view divider and
+   the separator box; the design is in the lead's review thread #19728).
+
+   The view's points map into window base space with -convertPoint:toView:,
+   whose units on GNUstep are the backing's device pixels: QuirkProbe saw a
+   unit step of 1.25 at 125% on the carried backend and with a forced
+   GSScaleFactor. Assumed, not proved: the backing's pixel grid has its
+   origin on whole base coordinates. The mapping is measured with the
+   line's origin and a unit step along each axis; a rotation, shear or
+   unequal scale, or no window, leaves the line as it was.
+
+   Across the line, it's max(1, round(thickness x scale)) pixels: 1 at 125%,
+   2 at 150%. With `centre` it's centred on the line's middle; otherwise its
+   leading edge (the smaller device coordinate across the line) is rounded,
+   so it moves by half a pixel at most and may end up to half a pixel past
+   the rect on its trailing side. A non-empty `bar` (in view coordinates)
+   bounds it to the bar's device span rounded outward (its low edge down,
+   its high edge up), so the bound doesn't depend on which way the device
+   axis runs; it can reach up to just under a pixel past the bar's own
+   edges, into panes that draw over it. A bar that rounds to nothing
+   leaves the line as it was.
+
+   `snapped`, if given, says whether the result is on whole device pixels
+   (YES) or is the line handed in, unchanged (NO). */
+static NSRect
+WinUIThemeDeviceLine(NSView *view, NSRect line, NSRect bar, NSRect clip, BOOL horizontal, BOOL centre,
+                     BOOL *snapped)
+{
+  const CGFloat epsilon = 0.001;
+  NSPoint origin, stepX, stepY;
+  CGFloat scale, start, end, across, thickness, low, high, pixels, first, last;
+  NSRect result = line;
+
+  if (snapped != NULL)
+    {
+      *snapped = NO;
+    }
+  if (view == nil || [view window] == nil || NSIsEmptyRect(line))
+    {
+      return line;
+    }
+  origin = [view convertPoint: line.origin toView: nil];
+  stepX = [view convertPoint: NSMakePoint(NSMinX(line) + 1.0, NSMinY(line)) toView: nil];
+  stepY = [view convertPoint: NSMakePoint(NSMinX(line), NSMinY(line) + 1.0) toView: nil];
+  if (fabs(stepX.y - origin.y) > epsilon || fabs(stepY.x - origin.x) > epsilon
+      || fabs(fabs(stepX.x - origin.x) - fabs(stepY.y - origin.y)) > epsilon
+      || fabs(stepX.x - origin.x) < epsilon)
+    {
+      return line;
+    }
+  /* Device pixels per point across the line, with its sign. */
+  scale = horizontal ? stepY.y - origin.y : stepX.x - origin.x;
+  across = horizontal ? NSMinY(line) : NSMinX(line);
+  thickness = horizontal ? NSHeight(line) : NSWidth(line);
+  start = horizontal ? origin.y : origin.x;
+  end = start + scale * thickness;
+  low = MIN(start, end);
+  high = MAX(start, end);
+  pixels = MAX(1.0, floor(fabs(scale) * thickness + 0.5));
+  first = centre ? floor((low + high) / 2.0 - pixels / 2.0 + 0.5) : floor(low + 0.5);
+  last = first + pixels;
+  if (NSIsEmptyRect(bar) == NO)
+    {
+      CGFloat barStart = start + scale * ((horizontal ? NSMinY(bar) : NSMinX(bar)) - across);
+      CGFloat barEnd = barStart + scale * (horizontal ? NSHeight(bar) : NSWidth(bar));
+      CGFloat barLow = floor(MIN(barStart, barEnd) + epsilon);
+      CGFloat barHigh = ceil(MAX(barStart, barEnd) - epsilon);
+
+      if (barHigh <= barLow)
+        {
+          return line;
+        }
+      first = MAX(first, barLow);
+      last = MIN(last, barHigh);
+      if (last <= first)
+        {
+          return line;
+        }
+    }
+  /* A non-empty `clip` (in view coordinates) is where the drawing is
+     clipped, such as a box's own bounds: only whole device pixels inside
+     it, [k, k + 1) within [low, high) for k from ceil(low) to
+     floor(high) - 1, can be filled without an antialiased edge. None
+     whole (a 1.5px box at phase .25, say) leaves the line as it was:
+     antialiased at that phase, a known limit. */
+  if (NSIsEmptyRect(clip) == NO)
+    {
+      CGFloat clipStart = start + scale * ((horizontal ? NSMinY(clip) : NSMinX(clip)) - across);
+      CGFloat clipEnd = clipStart + scale * (horizontal ? NSHeight(clip) : NSWidth(clip));
+      CGFloat wholeLow = ceil(MIN(clipStart, clipEnd) - 0.001);
+      CGFloat wholeHigh = floor(MAX(clipStart, clipEnd) + 0.001);
+
+      if (wholeHigh <= wholeLow)
+        {
+          return line;
+        }
+      first = MAX(first, wholeLow);
+      last = MIN(last, wholeHigh);
+      if (last <= first)
+        {
+          /* The snapped rows miss the whole ones: take the whole ones
+             nearest, up to the thickness. */
+          first = wholeLow;
+          last = MIN(wholeHigh, wholeLow + pixels);
+        }
+    }
+  /* Back to the view's points, through the same mapping. */
+  {
+    CGFloat a = across + (first - start) / scale;
+    CGFloat b = across + (last - start) / scale;
+
+    if (horizontal)
+      {
+        result.origin.y = MIN(a, b);
+        result.size.height = fabs(b - a);
+      }
+    else
+      {
+        result.origin.x = MIN(a, b);
+        result.size.width = fabs(b - a);
+      }
+  }
+  if (snapped != NULL)
+    {
+      *snapped = YES;
+    }
+  return result;
+}
+
 /* Split view dividers (#75): WinUI separates panes with a 1px
    DividerStrokeColorDefault line and no grip. libs-gui stroked a thin
    divider in whatever colour was set (controlShadowColor, cached at
@@ -114,17 +243,38 @@ WinUIThemeDrawBoxTitle(WinUITheme *theme, NSBox *box, CGFloat x)
 static void
 WinUIThemeDrawSplitViewDivider(NSSplitView *splitView, NSRect rect)
 {
-  NSRect line = rect;
+  NSRect centred = rect, line;
+  BOOL snapped = NO;
 
+  /* The 1pt line on the bar's exact middle goes to the device snap; flooring
+     it to whole points first could move it off a bar at a fractional
+     position, and the snap would then miss the bar (#20235). */
   if ([splitView isVertical])
     {
-      line.origin.x = floor(NSMidX(rect) - 0.5);
-      line.size.width = 1.0;
+      centred.origin.x = NSMidX(rect) - 0.5;
+      centred.size.width = 1.0;
     }
   else
     {
-      line.origin.y = floor(NSMidY(rect) - 0.5);
-      line.size.height = 1.0;
+      centred.origin.y = NSMidY(rect) - 0.5;
+      centred.size.height = 1.0;
+    }
+  /* Centred on the bar, within its outward-rounded device span. */
+  line = WinUIThemeDeviceLine(splitView, centred, rect, NSZeroRect, [splitView isVertical] == NO, YES,
+                              &snapped);
+  if (snapped == NO)
+    {
+      /* Not snappable (no window, a rotation or shear): the line as before,
+         on whole points. */
+      line = centred;
+      if ([splitView isVertical])
+        {
+          line.origin.x = floor(NSMidX(rect) - 0.5);
+        }
+      else
+        {
+          line.origin.y = floor(NSMidY(rect) - 0.5);
+        }
     }
   [[splitView dividerColor] set];
   NSRectFill(line);
@@ -207,8 +357,14 @@ WinUIThemeBoxTitleFont(void)
   (void)clipRect;
   if (boxType == NSBoxSeparator)
     {
+      NSRect line = [box borderRect];
+
+      /* The line is the borderRect: its leading edge rounded to a device
+         pixel, its thickness whole pixels, but only in whole pixels inside
+         the box's bounds, which its drawing is clipped to. */
+      line = WinUIThemeDeviceLine(box, line, NSZeroRect, [box bounds], NSWidth(line) >= NSHeight(line), NO, NULL);
       [WinUIThemeDividerColor(self) set];
-      NSRectFill([box borderRect]);
+      NSRectFill(line);
       return;
     }
   /* A custom box keeps the colours and border its app chose. */

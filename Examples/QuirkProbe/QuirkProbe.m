@@ -838,6 +838,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkFocusVisual;
 - (void) checkFocusRedisplayPerKey;
 - (void) checkTextBox;
+- (void) checkHairlineSnap;
 - (void) checkLineReaderControls;
 - (void) checkFocusedPlaceholder;
 - (void) checkContrastPopUpSelection;
@@ -952,6 +953,19 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (BOOL) isOpaque
 {
   return YES;
+}
+@end
+
+/* A separator drawn without the theme: its borderRect filled directly in
+   the divider colour. The fallback reference for unsupported transforms. */
+@interface QuirkProbePlainSeparator : NSBox
+@end
+
+@implementation QuirkProbePlainSeparator
+- (void) drawRect: (NSRect)rect
+{
+  [[AUTORELEASE([[NSSplitView alloc] init]) dividerColor] set];
+  NSRectFill([self borderRect]);
 }
 @end
 
@@ -6611,7 +6625,13 @@ QuirkProbeChannelDistance(NSBitmapImageRep *rep, NSInteger x, NSInteger y, NSInt
     NSRect leading = [[[thin subviews] objectAtIndex: 0] frame];
     NSRect divider = NSMakeRect(NSMaxX(leading), 0, [thin dividerThickness], NSHeight([thin bounds]));
     NSRect pixels = QuirkProbePixelRect(content, [content convertRect: divider fromView: thin], scale);
-    NSInteger x = (NSInteger)NSMinX(pixels), y = (NSInteger)NSMidY(pixels);
+    /* The column: the gap's first device pixel, from the leading pane's
+       maxX converted as a point into window base (device pixels), less
+       the content view's own base origin. The rect conversion above lands
+       a pixel short at 1.5, inside the leading pane (#22894). */
+    NSPoint gap = [thin convertPoint: NSMakePoint(NSMaxX(leading), NSMidY([thin bounds])) toView: nil];
+    NSPoint contentOrigin = [content convertPoint: NSZeroPoint toView: nil];
+    NSInteger x = (NSInteger)floor(gap.x - contentOrigin.x + 0.001), y = (NSInteger)NSMidY(pixels);
     NSInteger drawn = QuirkProbeChannelDistance(rep, x, y, expected);
     NSInteger said = MAX(llabs(reported[0] - expected[0]), MAX(llabs(reported[1] - expected[1]), llabs(reported[2] - expected[2])));
     NSUInteger red = 0, green = 0, blue = 0;
@@ -10689,6 +10709,313 @@ QuirkProbeBrightnessLeftOf(NSView *view)
   [window orderOut: nil];
 }
 
+/* The hairline pilot (#19728): a separator box's 1pt line on whole device
+   pixels, max(1, round(scale)) of them, at fractional origins that put
+   its geometric edge a quarter, half and three quarters of the way into
+   a pixel, in a container whose y-axis runs up and one whose y-axis runs
+   down. A rotated container isn't supported: its line is drawn as it was
+   (only its drawing at all is checked). */
+static NSString *QuirkProbeHairlineBasis = nil;
+
+
+
+/* Whole pixel cells [k, k + 1) inside the half-open span [low, high): k
+   from ceil(low) to floor(high) - 1. */
+static NSInteger
+QuirkProbeWholeRows(CGFloat low, CGFloat high)
+{
+  return (NSInteger)MAX(0.0, floor(high + 0.001) - ceil(low - 0.001));
+}
+
+/* Two renders of the same size compared pixel by pixel: how many differ by
+   more than 12 in red + green + blue, and the bounding box of those, so a
+   displaced line shows as a box away from where the line is. */
+static NSInteger
+QuirkProbeRenderDiff(NSBitmapImageRep *one, NSBitmapImageRep *two, NSRect *box)
+{
+  NSInteger x, y, count = 0, minX = NSIntegerMax, minY = NSIntegerMax, maxX = -1, maxY = -1;
+
+  for (y = 0; y < MIN([one pixelsHigh], [two pixelsHigh]); y++)
+    for (x = 0; x < MIN([one pixelsWide], [two pixelsWide]); x++)
+      {
+        if (llabs((long long)(QuirkProbeSumAt(one, x, y) - QuirkProbeSumAt(two, x, y))) > 12)
+          {
+            count++;
+            minX = MIN(minX, x);
+            minY = MIN(minY, y);
+            maxX = MAX(maxX, x);
+            maxY = MAX(maxY, y);
+          }
+      }
+  *box = (count > 0) ? NSMakeRect(minX, minY, maxX - minX + 1, maxY - minY + 1) : NSZeroRect;
+  return count;
+}
+
+/* Rows down column `x` from `top` for `count` rows: how many are within 6
+   of the darkest, and how many are neither that nor `windowSum`. */
+static void
+QuirkProbeLineRowsAt(NSBitmapImageRep *rep, NSInteger x, NSInteger top, NSInteger count,
+                     NSInteger windowSum, NSInteger *lineRows, NSInteger *otherRows)
+{
+  NSInteger y, darkest = windowSum;
+
+  *lineRows = 0;
+  *otherRows = 0;
+  for (y = top; y < top + count; y++)
+    {
+      darkest = MIN(darkest, QuirkProbeSumAt(rep, x, y));
+    }
+  for (y = top; y < top + count; y++)
+    {
+      NSInteger value = QuirkProbeSumAt(rep, x, y);
+
+      if (llabs((long long)(value - darkest)) <= 6 && darkest < windowSum - 12)
+        {
+          (*lineRows)++;
+        }
+      else if (llabs((long long)(value - windowSum)) > 6)
+        {
+          (*otherRows)++;
+        }
+    }
+}
+
+- (void) checkHairlineSnap
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(160, 160, 300, 260) title: @"QuirkProbe Hairlines"];
+  NSView *content = [window contentView];
+  CGFloat scale = MAX(1.0, [window userSpaceScaleFactor]);
+  NSInteger pixels = (NSInteger)MAX(1.0, floor(scale + 0.5));
+  NSMutableArray *boxes = [NSMutableArray array];
+  NSMutableArray *wrong = [NSMutableArray array];
+  NSMutableArray *limits = [NSMutableArray array];
+  NSBitmapImageRep *rep;
+  NSUInteger i;
+  CGFloat phases[3] = { 0.25, 0.5, 0.75 };
+  NSView *upward, *downward, *rotated;
+  NSBox *box;
+
+  if (QuirkProbeHasArgument(@"--high-contrast", nil))
+    {
+      [self skip: @"hairline-snap" detail: @"high contrast draws its separator in the text colour"];
+      return;
+    }
+  /* Hand-calculated whole-row counts (the lead's #20090): [90.625, 91.875)
+     and [0.25, 1.75) hold none, an aligned 1.5px span [1, 2.5) holds one. */
+  {
+    struct { CGFloat low, high; NSInteger rows; } fixed[] = {
+      { 90.625, 91.875, 0 }, { 0.25, 1.75, 0 }, { 1.0, 2.5, 1 }, { 90.0, 91.25, 1 }, { 108.0, 110.0, 2 },
+    };
+    NSUInteger f;
+
+    for (f = 0; f < sizeof(fixed) / sizeof(fixed[0]); f++)
+      {
+        if (QuirkProbeWholeRows(fixed[f].low, fixed[f].high) != fixed[f].rows)
+          {
+            [wrong addObject: [NSString stringWithFormat: @"whole rows in [%.3f, %.3f): %ld, by hand %ld",
+              fixed[f].low, fixed[f].high, (long)QuirkProbeWholeRows(fixed[f].low, fixed[f].high),
+              (long)fixed[f].rows]];
+          }
+      }
+  }
+  upward = AUTORELEASE([[NSView alloc] initWithFrame: NSMakeRect(10, 130, 130, 120)]);
+  downward = AUTORELEASE([[QuirkProbeFlippedView alloc] initWithFrame: NSMakeRect(150, 130, 130, 120)]);
+  [content addSubview: upward];
+  [content addSubview: downward];
+  for (i = 0; i < 3; i++)
+    {
+      /* Each phase's offset, in points, of a pixel past the 30pt rows. */
+      CGFloat y = 20.0 + 30.0 * i + phases[i] / scale;
+
+      box = AUTORELEASE([[NSBox alloc] initWithFrame: NSMakeRect(10, y, 100, 1)]);
+      [box setBoxType: NSBoxSeparator];
+      [upward addSubview: box];
+      [boxes addObject: box];
+      box = AUTORELEASE([[NSBox alloc] initWithFrame: NSMakeRect(10, y, 100, 1)]);
+      [box setBoxType: NSBoxSeparator];
+      [downward addSubview: box];
+      [boxes addObject: box];
+    }
+  rotated = AUTORELEASE([[NSView alloc] initWithFrame: NSMakeRect(10, 10, 100, 100)]);
+  [rotated setBoundsRotation: 30.0];
+  box = AUTORELEASE([[NSBox alloc] initWithFrame: NSMakeRect(10, 40, 80, 1)]);
+  [box setBoxType: NSBoxSeparator];
+  [rotated addSubview: box];
+  [content addSubview: rotated];
+  [window orderFront: nil];
+  [window display];
+
+  rep = QuirkProbeRender(content);
+  [self saveView: content named: @"hairline-snap"];
+  /* The mapping the theme measures, recorded rather than assumed: a unit
+     step in a separator's points, in window base units. */
+  {
+    NSBox *first = [boxes objectAtIndex: 0];
+    NSPoint o = [first convertPoint: NSZeroPoint toView: nil];
+    NSPoint ox = [first convertPoint: NSMakePoint(1, 0) toView: nil];
+    NSPoint oy = [first convertPoint: NSMakePoint(0, 1) toView: nil];
+
+    ASSIGN(QuirkProbeHairlineBasis, ([NSString stringWithFormat: @"basis x (%.3f, %.3f) y (%.3f, %.3f)",
+                                              ox.x - o.x, ox.y - o.y, oy.x - o.x, oy.y - o.y]));
+  }
+  for (i = 0; i < [boxes count]; i++)
+    {
+      NSBox *separator = [boxes objectAtIndex: i];
+      NSRect frame = [separator convertRect: [separator bounds] toView: content];
+      CGFloat repScale = QuirkProbeScale(rep, content);
+      NSInteger x = (NSInteger)(NSMidX(frame) * repScale);
+      CGFloat low = (NSHeight([content bounds]) - NSMaxY(frame)) * repScale;
+      CGFloat high = (NSHeight([content bounds]) - NSMinY(frame)) * repScale;
+      NSInteger top = (NSInteger)floor(low) - 3;
+      NSInteger windowSum = QuirkProbeSumAt(rep, x, top), lineRows, otherRows;
+      /* The box clips to its own bounds: whole rows inside them, up to t. */
+      NSInteger expected = MIN(pixels, QuirkProbeWholeRows(low, high));
+
+      QuirkProbeLineRowsAt(rep, x, top, 6 + pixels, windowSum, &lineRows, &otherRows);
+      if (expected == 0)
+        {
+          /* No whole row: drawn as before, antialiased (a known limit). */
+          [limits addObject: [NSString stringWithFormat: @"%s [%.3f, %.3f): no whole row",
+            (i % 2) ? "y down" : "y up", low, high]];
+        }
+      else if (lineRows != expected || otherRows != 0)
+        {
+          [wrong addObject: [NSString stringWithFormat:
+            @"%s separator [%.3f, %.3f): %ld rows of the line (expected %ld), %ld partial",
+            (i % 2) ? "y down" : "y up", low, high, (long)lineRows, (long)expected, (long)otherRows]];
+        }
+    }
+  /* Split view dividers, horizontal: a thick bar (not bounded: t rows) and a
+     thin one (bounded by the bar's device span rounded outward), at the
+     same three phases. The expected width is the intersection the theme
+     computes: t pixels centred on the bar, cut to the bar's outward-rounded
+     span. */
+  {
+    NSUInteger k;
+
+    for (k = 0; k < 2; k++)
+      for (i = 0; i < 3; i++)
+        {
+          NSWindow *sw = [self windowWithFrame: NSMakeRect(160, 160, 220, 140) title: @"QuirkProbe Hairline Split"];
+          NSSplitView *split = AUTORELEASE([[NSSplitView alloc]
+            initWithFrame: NSMakeRect(10, 10 + phases[i] / scale, 200, 100)]);
+          NSView *a = AUTORELEASE([[NSView alloc] initWithFrame: NSMakeRect(0, 0, 200, 40)]);
+          NSView *b = AUTORELEASE([[NSView alloc] initWithFrame: NSMakeRect(0, 0, 200, 40)]);
+          NSBitmapImageRep *srep;
+          NSRect bar;
+          CGFloat repScale, barTop, barBottom, lineTop;
+          NSInteger x, lineRows, otherRows, expected, windowSum, top;
+
+          [split setDividerStyle: (k == 0) ? NSSplitViewDividerStyleThick : NSSplitViewDividerStyleThin];
+          [split setVertical: NO];
+          [split addSubview: a];
+          [split addSubview: b];
+          [[sw contentView] addSubview: split];
+          [split adjustSubviews];
+          [sw orderFront: nil];
+          [sw display];
+          srep = QuirkProbeRender([sw contentView]);
+          [self saveView: [sw contentView] named: [NSString stringWithFormat: @"hairline-split-%lu-%lu",
+                                                            (unsigned long)k, (unsigned long)i]];
+          repScale = QuirkProbeScale(srep, [sw contentView]);
+          bar = [split convertRect: NSMakeRect(0, NSMaxY([a frame]), 200, [split dividerThickness])
+                            toView: [sw contentView]];
+          /* Device rows, top-down. */
+          barTop = (NSHeight([[sw contentView] bounds]) - NSMaxY(bar)) * repScale;
+          barBottom = (NSHeight([[sw contentView] bounds]) - NSMinY(bar)) * repScale;
+          /* The theme centres in window base, whose y runs up, rounding a
+             half towards the top; top-down that's a half rounding down,
+             ceil(x - 0.5) of the line's top. The bar's span is rounded
+             outward, which reads the same either way (#20235). */
+          lineTop = ceil((barTop + barBottom) / 2.0 - pixels / 2.0 - 0.5);
+          expected = (NSInteger)(MIN(lineTop + pixels, ceil(barBottom - 0.001))
+                                 - MAX(lineTop, floor(barTop + 0.001)));
+          if (expected < 1)
+            {
+              expected = 1;
+            }
+          x = (NSInteger)(NSMidX(bar) * repScale);
+          top = (NSInteger)floor(barTop) - 3;
+          windowSum = QuirkProbeSumAt(srep, x, top);
+          QuirkProbeLineRowsAt(srep, x, top, (NSInteger)ceil(barBottom - barTop) + 6, windowSum,
+                               &lineRows, &otherRows);
+          if (lineRows != expected || otherRows != 0)
+            {
+              [wrong addObject: [NSString stringWithFormat:
+                @"%.0fpt split divider [%.3f, %.3f): %ld rows of the line (expected %ld), %ld partial",
+                [split dividerThickness], barTop, barBottom, (long)lineRows, (long)expected, (long)otherRows]];
+            }
+          [sw orderOut: nil];
+        }
+  }
+
+  /* Unsupported transforms fall back to the original line: a separator in
+     a rotated container, and one in a container scaled (1, 2), must draw
+     as a plain separator (its borderRect filled directly, no theme) in a
+     container with the same transform. Both renders and their difference
+     are saved; the difference is reported with its bounding box. */
+  {
+    NSUInteger t;
+
+    for (t = 0; t < 2; t++)
+      {
+        NSView *themed = AUTORELEASE([[NSView alloc] initWithFrame: NSMakeRect(150, 10, 100, 100)]);
+        NSView *plain = AUTORELEASE([[NSView alloc] initWithFrame: NSMakeRect(150, 10, 100, 100)]);
+        NSBox *a = AUTORELEASE([[NSBox alloc] initWithFrame: NSMakeRect(10, 20, 80, 1)]);
+        NSBox *b = AUTORELEASE([[QuirkProbePlainSeparator alloc] initWithFrame: NSMakeRect(10, 20, 80, 1)]);
+        NSBitmapImageRep *one, *two;
+        NSRect box;
+        NSInteger differ;
+
+        [a setBoxType: NSBoxSeparator];
+        [b setBoxType: NSBoxSeparator];
+        if (t == 0)
+          {
+            [themed setBoundsRotation: 30.0];
+            [plain setBoundsRotation: 30.0];
+          }
+        else
+          {
+            [themed scaleUnitSquareToSize: NSMakeSize(1.0, 2.0)];
+            [plain scaleUnitSquareToSize: NSMakeSize(1.0, 2.0)];
+          }
+        [themed addSubview: a];
+        [plain addSubview: b];
+        [content addSubview: themed];
+        [window display];
+        one = QuirkProbeRender(themed);
+        [self saveView: themed named: (t == 0) ? @"hairline-rotated-theme" : @"hairline-scaled-theme"];
+        [themed removeFromSuperview];
+        [content addSubview: plain];
+        [window display];
+        two = QuirkProbeRender(plain);
+        [self saveView: plain named: (t == 0) ? @"hairline-rotated-plain" : @"hairline-scaled-plain"];
+        [plain removeFromSuperview];
+        differ = QuirkProbeRenderDiff(one, two, &box);
+        if (differ > 0)
+          {
+            [wrong addObject: [NSString stringWithFormat:
+              @"the %@ separator differs from a plain one in %ld px, within %@",
+              (t == 0) ? @"rotated" : @"(1, 2)-scaled", (long)differ, NSStringFromRect(box)]];
+          }
+      }
+  }
+
+  if ([wrong count] == 0)
+    {
+      [self pass: @"hairline-snap" detail: [NSString stringWithFormat:
+        @"at %.2f (%@): separators in whole rows inside their bounds, y up and down; split dividers as computed; rotated and (1, 2)-scaled match a plain separator%@",
+        scale, QuirkProbeHairlineBasis,
+        [limits count] ? [@"; limits: " stringByAppendingString: [limits componentsJoinedByString: @", "]] : @""]];
+    }
+  else
+    {
+      [self fail: @"hairline-snap" detail: [NSString stringWithFormat: @"at %.2f (%@): %@",
+        scale, QuirkProbeHairlineBasis, [wrong componentsJoinedByString: @"; "]]];
+    }
+  [window orderOut: nil];
+}
+
 - (void) checkTextBox
 {
   NSWindow *window = [self windowWithFrame: NSMakeRect(780, 620, 300, 100)
@@ -14605,6 +14932,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkFocusRedisplayPerKey];
   [self checkTextBox];
   [self checkLineReaderControls];
+  [self checkHairlineSnap];
   [self checkFocusedPlaceholder];
   [self checkContrastPopUpSelection];
   [self checkComboBoxes];
