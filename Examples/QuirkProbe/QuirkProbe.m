@@ -370,38 +370,98 @@ QuirkProbeRowCount(NSBitmapImageRep *rep, QuirkProbePixelTest test,
   return count;
 }
 
-/* Red + green + blue of the line along the bottom of `view`, read from the
-   window's content view: at a fractional scale a view's own capture can miss
-   its last row, and the line can spread over two rows. Takes whichever of
-   the two differs most from the window just below. */
+static NSInteger QuirkProbeSumAt(NSBitmapImageRep *rep, NSInteger x, NSInteger y);
+
+/* Of the pixel rows a line from `top` to `bottom` (device pixels, top-left
+   origin) covers, at column `x`, the red + green + blue that differs most
+   from `reference`; `reference` if it covers none. The rows come from the
+   line's geometry: at a fractional scale a 1pt line can cover parts of two
+   rows and fill neither. */
 static NSInteger
-QuirkProbeBottomLine(NSView *view)
+QuirkProbeCoveredRows(NSBitmapImageRep *rep, NSInteger x, CGFloat top, CGFloat bottom,
+                      NSInteger reference)
 {
-  NSView *content = [[view window] contentView];
-  NSBitmapImageRep *rep = QuirkProbeRender(content);
-  CGFloat scale = QuirkProbeScale(rep, content);
-  NSRect frame = [view convertRect: [view bounds] toView: content];
-  NSInteger x = (NSInteger)(NSMidX(frame) * scale);
-  NSInteger below = ([content isFlipped] ? (NSInteger)(NSMaxY(frame) * scale)
-                                         : [rep pixelsHigh] - (NSInteger)floor(NSMinY(frame) * scale));
-  NSUInteger red = 0, green = 0, blue = 0;
-  NSInteger window, line = 0, y;
+  NSInteger y, best = reference;
 
-  QuirkProbePixel(rep, x, below + 2, &red, &green, &blue);
-  window = (NSInteger)(red + green + blue);
-  line = window;
-  for (y = below - 1; y <= below; y++)
+  for (y = (NSInteger)floor(top + 0.001); y < (NSInteger)ceil(bottom - 0.001); y++)
     {
-      NSInteger value;
+      NSUInteger red, green, blue;
 
-      QuirkProbePixel(rep, x, y, &red, &green, &blue);
-      value = (NSInteger)(red + green + blue);
-      if (llabs((long long)(value - window)) > llabs((long long)(line - window)))
+      if (QuirkProbePixel(rep, x, y, &red, &green, &blue)
+          && llabs((long long)(red + green + blue) - (long long)reference)
+             > llabs((long long)(best - reference)))
         {
-          line = value;
+          best = (NSInteger)(red + green + blue);
         }
     }
-  return line;
+  return best;
+}
+
+/* For a horizontal line expected at `rect` (in `view`'s coordinates), read
+   from `view`'s own capture: the strongest of the rows it covers against
+   the fill (*covered), and the strongest of the row just above the first
+   and the row just below the last (*beside), which a line of the right
+   thickness doesn't reach. */
+static void
+QuirkProbeLineAt(NSView *view, NSRect rect, NSInteger *fill, NSInteger *covered, NSInteger *beside)
+{
+  NSBitmapImageRep *rep = QuirkProbeRender(view);
+  CGFloat scale = QuirkProbeScale(rep, view);
+  NSInteger x = (NSInteger)(NSMidX(rect) * scale);
+  CGFloat top, bottom;
+  NSInteger above, below;
+
+  if ([view isFlipped] == NO)
+    {
+      rect.origin.y = NSHeight([view bounds]) - NSMaxY(rect);
+    }
+  top = NSMinY(rect) * scale;
+  bottom = NSMaxY(rect) * scale;
+  *fill = QuirkProbeSumAt(rep, x, (NSInteger)floor(top) - (NSInteger)ceil(4.0 * scale));
+  *covered = QuirkProbeCoveredRows(rep, x, top, bottom, *fill);
+  above = QuirkProbeSumAt(rep, x, (NSInteger)floor(top + 0.001) - 1);
+  below = QuirkProbeSumAt(rep, x, (NSInteger)ceil(bottom - 0.001));
+  *beside = (llabs((long long)(above - *fill)) >= llabs((long long)(below - *fill))) ? above : below;
+}
+
+/* Red + green + blue of `view`'s 1pt bottom line, from the rows its geometry
+   covers, against the fill at its middle; `control` gets the same read of a
+   1pt band across the middle, where there's no line, so a reader that finds
+   lines anywhere shows up. The view's own capture is read unless it's short
+   of the line's rows (at a forced scale the backing store read can miss the
+   last row): then the window's content view is. */
+static NSInteger
+QuirkProbeBottomLine(NSView *view, NSInteger *control)
+{
+  NSBitmapImageRep *rep = QuirkProbeRender(view);
+  CGFloat scale = QuirkProbeScale(rep, view);
+  CGFloat height = NSHeight([view bounds]) * scale;
+  NSInteger x = [rep pixelsWide] / 2;
+  CGFloat offset = 0.0;
+  NSInteger fill;
+
+  if ([rep pixelsHigh] < (NSInteger)ceil(height - 0.001))
+    {
+      NSView *content = [[view window] contentView];
+      NSRect frame = [view convertRect: [view bounds] toView: content];
+
+      rep = QuirkProbeRender(content);
+      scale = QuirkProbeScale(rep, content);
+      height = NSHeight(frame) * scale;
+      if ([content isFlipped] == NO)
+        {
+          frame.origin.y = NSHeight([content bounds]) - NSMaxY(frame);
+        }
+      offset = NSMinY(frame) * scale;
+      x = (NSInteger)(NSMidX(frame) * scale);
+    }
+  fill = QuirkProbeSumAt(rep, x, (NSInteger)(offset + height / 2.0));
+  if (control != NULL)
+    {
+      *control = QuirkProbeCoveredRows(rep, x, offset + height / 2.0 - scale / 2.0,
+                                       offset + height / 2.0 + scale / 2.0, fill);
+    }
+  return QuirkProbeCoveredRows(rep, x, offset + height - scale, offset + height, fill);
 }
 
 /* From the first pixel in row `y` that passes `test` to the last. */
@@ -778,6 +838,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkFocusVisual;
 - (void) checkFocusRedisplayPerKey;
 - (void) checkTextBox;
+- (void) checkLineReaderControls;
 - (void) checkFocusedPlaceholder;
 - (void) checkContrastPopUpSelection;
 - (void) checkComboBoxes;
@@ -863,6 +924,35 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 /* A document view in mid grey, 128 in each channel, for telling a scroll
    bar from what's under it. */
 @interface QuirkProbeFillView : NSView
+@end
+
+/* A fill and, unless `line` is empty, a line in `lineColor` at `line`
+   (points, unflipped): the line readers' controls draw known lines. */
+@interface QuirkProbeLineView : NSView
+{
+@public
+  NSRect line;
+  NSColor *fill;
+  NSColor *lineColor;
+}
+@end
+
+@implementation QuirkProbeLineView
+- (void) drawRect: (NSRect)rect
+{
+  [fill set];
+  NSRectFill([self bounds]);
+  if (NSIsEmptyRect(line) == NO)
+    {
+      [lineColor set];
+      NSRectFill(line);
+    }
+}
+
+- (BOOL) isOpaque
+{
+  return YES;
+}
 @end
 
 @implementation QuirkProbeFillView
@@ -4572,7 +4662,7 @@ QuirkProbeBrightnessAt(NSBitmapImageRep *rep, CGFloat scale, CGFloat x, CGFloat 
       NSInteger expectTop = (NSInteger)round(255.0 * ([page redComponent] + (ink - [page redComponent]) * topWeight));
       NSInteger expectBottom = (NSInteger)round(255.0 * ([page redComponent] + (ink - [page redComponent]) * bottomWeight));
       NSUInteger red, green, blue;
-      NSInteger topRed, bottomRed;
+      NSInteger topRed, bottomRed, control = -1, fillSum = -1;
 
       rep = QuirkProbeRender(button);
       QuirkProbePixel(rep, [rep pixelsWide] / 2, 0, &red, &green, &blue);
@@ -4581,9 +4671,16 @@ QuirkProbeBrightnessAt(NSBitmapImageRep *rep, CGFloat scale, CGFloat x, CGFloat 
       bottomRed = red;
       if ([window userSpaceScaleFactor] != rint([window userSpaceScaleFactor]))
         {
-          bottomRed = QuirkProbeBottomLine(button) / 3;
+          bottomRed = QuirkProbeBottomLine(button, &control) / 3;
+          fillSum = QuirkProbeSumAt(rep, [rep pixelsWide] / 2, [rep pixelsHigh] / 2);
         }
-      if (llabs((long long)(topRed - expectTop)) <= 2 && llabs((long long)(bottomRed - expectBottom)) <= 2)
+      if (control >= 0 && llabs((long long)(control - fillSum)) > 12)
+        {
+          [self fail: @"button-stroke-over-window" detail: [NSString stringWithFormat:
+            @"the line reader found %ld across the button's middle, a fill of %ld: it reads more than the line",
+            (long)control, (long)fillSum]];
+        }
+      else if (llabs((long long)(topRed - expectTop)) <= 2 && llabs((long long)(bottomRed - expectBottom)) <= 2)
         {
           [self pass: @"button-stroke-over-window" detail: [NSString stringWithFormat:
             @"the border is %ld at the top, %ld at the bottom", (long)topRed, (long)bottomRed]];
@@ -6802,11 +6899,31 @@ QuirkProbeSumAt(NSBitmapImageRep *rep, NSInteger x, NSInteger y)
      controlShadowColor is twice as strong); the text colour in high
      contrast. */
   {
-    NSRect line = QuirkProbePixelRect(content, [separator convertRect: [separator borderRect] toView: content], scale);
-    NSInteger lineSum = QuirkProbeSumAt(rep, (NSInteger)NSMidX(line), (NSInteger)NSMinY(line));
-    NSInteger difference = ABS(lineSum - windowSum);
+    NSRect line = [separator convertRect: [separator borderRect] toView: content];
+    CGFloat top, bottom;
+    NSInteger lineSum, control, difference;
 
-    if (highContrast ? difference > 150 : (difference > 12 && difference < 90))
+    if ([content isFlipped] == NO)
+      {
+        line.origin.y = NSHeight([content bounds]) - NSMaxY(line);
+      }
+    /* The rows the line covers, from its geometry: at 125% a 1pt line
+       covers parts of two rows. The control reads as many rows 6pt above
+       it, where there's only the window. */
+    top = NSMinY(line) * scale;
+    bottom = NSMaxY(line) * scale;
+    lineSum = QuirkProbeCoveredRows(rep, (NSInteger)(NSMidX(line) * scale), top, bottom, windowSum);
+    control = QuirkProbeCoveredRows(rep, (NSInteger)(NSMidX(line) * scale),
+                                    top - 6.0 * scale, bottom - 6.0 * scale, windowSum);
+    difference = ABS(lineSum - windowSum);
+
+    if (ABS(control - windowSum) > 6)
+      {
+        [self fail: @"box-separator" detail: [NSString stringWithFormat:
+          @"6pt above the divider the reader finds %ld on a window of %ld: it reads more than the line",
+          (long)control, (long)windowSum]];
+      }
+    else if (highContrast ? difference > 150 : (difference > 12 && difference < 90))
       {
         [self pass: @"box-separator" detail: [NSString stringWithFormat:
           @"the divider is %ld from the window's %ld", (long)lineSum, (long)windowSum]];
@@ -10514,6 +10631,64 @@ QuirkProbeBrightnessLeftOf(NSView *view)
 /* WinUI's TextBox (issue #37): filled with ControlFillColorDefault, a
    step off the window rather than the window's own colour; a darker
    bottom edge; focused, a 2px accent underline. */
+/* The line readers' controls (the lead's #19559): the same geometry and
+   readers, on lines drawn where and how the checks expect them, and on a
+   missing line, one 2pt off, one too faint and one 3pt thick. The readers
+   must find the first and none of the others, or a check that uses them
+   could pass on a border that happens to be near. */
+- (void) checkLineReaderControls
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(200, 200, 260, 120) title: @"QuirkProbe Line Readers"];
+  NSColor *fill = [NSColor colorWithCalibratedWhite: 252.0 / 255.0 alpha: 1.0];
+  struct { const char *name; CGFloat offset, thickness, white; BOOL drawn; BOOL expect; } cases[] = {
+    { "right", 0.0, 1.0, 135.0 / 255.0, YES, YES },
+    { "missing", 0.0, 1.0, 135.0 / 255.0, NO, NO },
+    { "2pt off", 2.0, 1.0, 135.0 / 255.0, YES, NO },
+    { "too faint", 0.0, 1.0, 245.0 / 255.0, YES, NO },
+    { "3pt thick", 0.0, 3.0, 135.0 / 255.0, YES, NO },
+  };
+  NSMutableArray *wrong = [NSMutableArray array];
+  NSUInteger i;
+
+  for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+    {
+      /* A separator 16pt up a 200x32 view. */
+      QuirkProbeLineView *view = AUTORELEASE([[QuirkProbeLineView alloc] initWithFrame: NSMakeRect(20, 40, 200, 32)]);
+      NSRect expected = NSMakeRect(0, 16, 200, 1);
+      NSInteger fillSum, covered, beside;
+      BOOL found;
+
+      view->fill = fill;
+      view->lineColor = [NSColor colorWithCalibratedWhite: cases[i].white alpha: 1.0];
+      view->line = cases[i].drawn
+        ? NSMakeRect(0, 16 + cases[i].offset - (cases[i].thickness - 1.0), 200, cases[i].thickness)
+        : NSZeroRect;
+      [[window contentView] addSubview: view];
+      [window orderFront: nil];
+      [window display];
+      QuirkProbeLineAt(view, expected, &fillSum, &covered, &beside);
+      found = llabs((long long)(covered - fillSum)) >= 150 && llabs((long long)(beside - fillSum)) <= 12;
+      if (found != cases[i].expect)
+        {
+          [wrong addObject: [NSString stringWithFormat: @"%s: %@ (line %ld, beside %ld, fill %ld)",
+            cases[i].name, found ? @"found" : @"not found", (long)covered, (long)beside, (long)fillSum]];
+        }
+      [view removeFromSuperview];
+    }
+  if ([wrong count] == 0)
+    {
+      [self pass: @"line-reader-controls" detail: [NSString stringWithFormat:
+        @"at %.2f the reader finds the right line and rejects a missing one, one 2pt off, a faint one and a 3pt one",
+        [window userSpaceScaleFactor]]];
+    }
+  else
+    {
+      [self fail: @"line-reader-controls" detail: [NSString stringWithFormat: @"at %.2f: %@",
+        [window userSpaceScaleFactor], [wrong componentsJoinedByString: @"; "]]];
+    }
+  [window orderOut: nil];
+}
+
 - (void) checkTextBox
 {
   NSWindow *window = [self windowWithFrame: NSMakeRect(780, 620, 300, 100)
@@ -10549,7 +10724,15 @@ QuirkProbeBrightnessLeftOf(NSView *view)
   edge = (NSInteger)(red + green + blue);
   if ([window userSpaceScaleFactor] != rint([window userSpaceScaleFactor]))
     {
-      edge = QuirkProbeBottomLine(field);
+      NSInteger control;
+
+      edge = QuirkProbeBottomLine(field, &control);
+      /* The same read across the middle finds only the fill, or it would
+         pass on anything. */
+      if (llabs((long long)(control - fill)) > 12)
+        {
+          edge = fill;
+        }
     }
 
   if (highContrast)
@@ -14421,6 +14604,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkFocusVisual];
   [self checkFocusRedisplayPerKey];
   [self checkTextBox];
+  [self checkLineReaderControls];
   [self checkFocusedPlaceholder];
   [self checkContrastPopUpSelection];
   [self checkComboBoxes];
