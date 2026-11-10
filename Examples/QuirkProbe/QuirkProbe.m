@@ -9076,6 +9076,7 @@ QuirkProbeFontAdvancesWhole(NSFont *font)
     {
       [self skip: @"client-caption-row" detail: @"the backend draws the caption (stock libs-back)"];
       [self skip: @"client-caption-hit-test" detail: @"the backend draws the caption (stock libs-back)"];
+      [self skip: @"client-caption-edges" detail: @"the backend draws the caption (stock libs-back)"];
       [self skip: @"client-caption-no-system-menu" detail: @"the backend draws the caption (stock libs-back)"];
       return;
     }
@@ -9133,6 +9134,26 @@ QuirkProbeFontAdvancesWhole(NSFont *font)
   minimize = QuirkProbeHitTest(hwnd, right - 115 * scale, origin.y + 16 * scale);
   top = QuirkProbeHitTest(hwnd, mid, origin.y + 1);
   content = QuirkProbeHitTest(hwnd, mid, origin.y + client.bottom - 20);
+  /* The row's first and last device columns (#199): its first is the
+     caption, its last the close button, at every scale. At a real 150%
+     the first read as the client: the declared region began a hair past
+     the pixel (11.0000002). */
+  {
+    LRESULT first = QuirkProbeHitTest(hwnd, origin.x, origin.y + 16 * scale);
+    LRESULT last = QuirkProbeHitTest(hwnd, right - 1, origin.y + 16 * scale);
+    NSString *edges = [NSString stringWithFormat:
+      @"at %.2f: first column %ld, last column %ld (expected %d %d)",
+      [window userSpaceScaleFactor], (long)first, (long)last, HTCAPTION, HTCLOSE];
+
+    if (first == HTCAPTION && last == HTCLOSE)
+      {
+        [self pass: @"client-caption-edges" detail: edges];
+      }
+    else
+      {
+        [self fail: @"client-caption-edges" detail: edges];
+      }
+  }
   detail = [NSString stringWithFormat:
     @"drag %ld, close %ld, zoom %ld, minimize %ld, top edge %ld, content %ld "
     @"(expected %d %d %d %d %d %d)",
