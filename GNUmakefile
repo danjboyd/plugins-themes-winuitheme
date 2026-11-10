@@ -22,7 +22,8 @@ WinUITheme_INSTALL_DIR = $(GNUSTEP_LIBRARY)/Themes
 # plist without GSThemeDomain.
 WinUITheme_RESOURCE_FILES = \
 	Resources/ThemeImages \
-	Resources/ThemeTiles
+	Resources/ThemeTiles \
+	Resources/ThemeSettings.plist
 
 WinUITheme_OBJC_FILES = \
 	Source/WinUITheme.m \
