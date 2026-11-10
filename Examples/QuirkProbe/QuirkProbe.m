@@ -4768,8 +4768,25 @@ static BOOL
 QuirkProbeGuiScaledFractionally(void)
 {
   CGFloat factor = [[NSUserDefaults standardUserDefaults] floatForKey: @"GSScaleFactor"];
+  NSEnumerator *windows;
+  NSWindow *window;
 
-  return factor > 1.01 && factor != floor(factor);
+  if (factor > 1.01 && factor != floor(factor))
+    {
+      return YES;
+    }
+  /* At a real 125% or 150% the carried backend's per-monitor DPI scales
+     the gui with no GSScaleFactor set: the windows' own scale says so. */
+  windows = [[NSApp windows] objectEnumerator];
+  while ((window = [windows nextObject]) != nil)
+    {
+      factor = [window userSpaceScaleFactor];
+      if (factor > 1.01 && factor != floor(factor))
+        {
+          return YES;
+        }
+    }
+  return NO;
 }
 
 static CGFloat
