@@ -720,6 +720,33 @@ WinUIThemeCaptionHasSystemMenu(NSWindow *window)
   [menuView setNeedsDisplay: YES];
 }
 
+/* A caption region's edges in window base, whose units are the backing's
+   device pixels: an edge within a hundredth of a whole pixel is put on it.
+   The caption row's inset reaches the gui as the frame's whole-pixel
+   offset over the scale (11px / 1.5 = 7.3333335pt in a float), and back
+   in base it's a hair off the pixel (11.0000002). libs-back's hit test
+   asks whether a whole-pixel point is in the rect, so the row's first
+   column, x = 11.0, missed it and read as the client at a real 150%
+   (#199). Edges between pixels (57.5px buttons at 125%) are left alone. */
+static CGFloat
+WinUIThemeRegionEdge(CGFloat edge)
+{
+  CGFloat whole = floor(edge + 0.5);
+
+  return (fabs(edge - whole) < 0.01) ? whole : edge;
+}
+
+static NSRect
+WinUIThemeRegionRect(NSRect rect)
+{
+  CGFloat minX = WinUIThemeRegionEdge(NSMinX(rect));
+  CGFloat maxX = WinUIThemeRegionEdge(NSMaxX(rect));
+  CGFloat minY = WinUIThemeRegionEdge(NSMinY(rect));
+  CGFloat maxY = WinUIThemeRegionEdge(NSMaxY(rect));
+
+  return NSMakeRect(minX, minY, maxX - minX, maxY - minY);
+}
+
 - (void) declareRegions: (int)windowNumber
 {
   GSDisplayServer *server = GSCurrentServer();
@@ -766,6 +793,14 @@ WinUIThemeCaptionHasSystemMenu(NSWindow *window)
       rects[count] = [_close convertRect: [_close bounds] toView: nil];
       kinds[count++] = WinUIThemeCaptionRegionClose;
     }
+  {
+    unsigned i;
+
+    for (i = 0; i < count; i++)
+      {
+        rects[i] = WinUIThemeRegionRect(rects[i]);
+      }
+  }
   [server setCaptionRegionRects: rects kinds: kinds count: count forWindow: windowNumber];
 }
 
