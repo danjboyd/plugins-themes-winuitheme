@@ -856,6 +856,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkClientCaption;
 - (void) checkClientCaptionScaled;
 - (void) checkMoveLoopTimers;
+- (void) checkMoveLoopModal;
 - (void) checkDPIAwareness;
 - (void) checkFontHintingSystemDpi;
 - (void) checkMica;
@@ -8789,6 +8790,130 @@ QuirkProbeMoveLoopEscape(HWND hwnd, UINT message, UINT_PTR timer, DWORD time)
     }
 }
 
+/* A timer that opens a modal panel in the middle of a drag
+   (danjboyd/libs-back#10): the panel runs under Windows' move loop, and
+   before carry 0.32.0.6 the panel's event loop took the drag's input, so
+   the drag could outlive the panel and lose its Escape. The backend now
+   cancels the drag when the nested loop first asks for an event. */
+static volatile LONG QuirkProbeMoveLoopModalRuns = 0;
+static volatile LONG QuirkProbeMoveLoopModalReturned = 0;
+static volatile LONG QuirkProbeMoveLoopDragOverAfterModal = 0;
+
+- (void) moveLoopStopPanel: (NSTimer *)timer
+{
+  /* -stopModal takes effect at the modal loop's next event. */
+  [NSApp stopModal];
+  [NSApp postEvent: [NSEvent otherEventWithType: NSApplicationDefined
+                                       location: NSZeroPoint
+                                  modifierFlags: 0
+                                      timestamp: 0
+                                   windowNumber: 0
+                                        context: nil
+                                        subtype: 0
+                                          data1: 0
+                                          data2: 0]
+           atStart: NO];
+}
+
+- (void) moveLoopModalTick: (NSTimer *)timer
+{
+  NSPanel *panel;
+  NSTimer *stop;
+
+  if (QuirkProbeMoveLoopModalRuns != 0 || QuirkProbeInMoveSize() == NO)
+    {
+      return;
+    }
+  InterlockedIncrement(&QuirkProbeMoveLoopModalRuns);
+  panel = [[NSPanel alloc] initWithContentRect: NSMakeRect(360, 360, 200, 80)
+                                     styleMask: NSTitledWindowMask
+                                       backing: NSBackingStoreBuffered
+                                         defer: NO];
+  [panel setTitle: @"QuirkProbe Mid-drag Modal"];
+  stop = [NSTimer timerWithTimeInterval: 0.3
+                                 target: self
+                               selector: @selector(moveLoopStopPanel:)
+                               userInfo: nil
+                                repeats: NO];
+  [[NSRunLoop currentRunLoop] addTimer: stop forMode: NSModalPanelRunLoopMode];
+  [NSApp runModalForWindow: panel];
+  [panel orderOut: nil];
+  RELEASE(panel);
+  InterlockedIncrement(&QuirkProbeMoveLoopModalReturned);
+}
+
+- (void) checkMoveLoopModal
+{
+  GSDisplayServer *server = GSCurrentServer();
+  NSWindow *window;
+  NSTimer *ticker;
+  NSDate *limit;
+  BOOL cancels;
+  NSString *detail;
+
+  window = [self windowWithFrame: NSMakeRect(320, 320, 260, 140) title: @"QuirkProbe Move Loop Modal"];
+  [window display];
+  QuirkProbeMoveLoopWindow = (HWND)[window windowHandle];
+  QuirkProbeMoveLoopEscaped = 0;
+  QuirkProbeMoveLoopEntered = 0;
+  QuirkProbeMoveLoopModalRuns = 0;
+  QuirkProbeMoveLoopModalReturned = 0;
+  QuirkProbeMoveLoopDragOverAfterModal = 0;
+  ticker = [NSTimer timerWithTimeInterval: 0.02
+                                   target: self
+                                 selector: @selector(moveLoopModalTick:)
+                                 userInfo: nil
+                                  repeats: YES];
+  [[NSRunLoop currentRunLoop] addTimer: ticker forMode: NSDefaultRunLoopMode];
+  SetTimer(NULL, 0, 1500, QuirkProbeMoveLoopEscape);
+  PostMessageW(QuirkProbeMoveLoopWindow, WM_SYSCOMMAND, SC_MOVE, 0);
+  limit = [NSDate dateWithTimeIntervalSinceNow: 5.0];
+  while ([limit timeIntervalSinceNow] > 0 && QuirkProbeMoveLoopEscaped == 0)
+    {
+      [[NSRunLoop currentRunLoop] runMode: NSDefaultRunLoopMode
+                               beforeDate: [NSDate dateWithTimeIntervalSinceNow: 0.05]];
+    }
+  /* The Escape timer noted whether the window was still in the move loop
+     when it fired, 1.5 s in: a drag the panel ended was over by then. */
+  QuirkProbeMoveLoopDragOverAfterModal = (QuirkProbeMoveLoopEscaped != 0 && QuirkProbeMoveLoopEntered == 0);
+  [ticker invalidate];
+  [[NSRunLoop currentRunLoop] runUntilDate: [NSDate dateWithTimeIntervalSinceNow: 0.2]];
+  if (QuirkProbeInMoveSize())
+    {
+      PostMessageW(QuirkProbeMoveLoopWindow, WM_CANCELMODE, 0, 0);
+      [[NSRunLoop currentRunLoop] runUntilDate: [NSDate dateWithTimeIntervalSinceNow: 0.2]];
+    }
+  [window orderOut: nil];
+
+  cancels = [server respondsToSelector: @selector(cancelSizeMoveForNestedEventLoop)];
+  detail = [NSString stringWithFormat:
+    @"panel ran %ld, returned %ld; the drag %@ before the Escape timer (backend %@ the drag cancel)",
+    (long)QuirkProbeMoveLoopModalRuns, (long)QuirkProbeMoveLoopModalReturned,
+    QuirkProbeMoveLoopDragOverAfterModal != 0 ? @"ended" : @"didn't end",
+    cancels ? @"has" : @"lacks"];
+  if (QuirkProbeMoveLoopModalRuns == 0
+      && [server respondsToSelector: @selector(decodeWM_TIMERParams:::)])
+    {
+      /* With the timer pump, the panel opens only once Windows is in the
+         loop; it never was. */
+      [self skip: @"move-loop-modal" detail: @"Windows didn't run the move loop"];
+    }
+  else if (QuirkProbeMoveLoopModalRuns == 1 && QuirkProbeMoveLoopModalReturned == 1
+           && QuirkProbeMoveLoopDragOverAfterModal != 0)
+    {
+      [self pass: @"move-loop-modal" detail: detail];
+    }
+  else if (!cancels)
+    {
+      [self known: @"move-loop-modal" detail: [detail stringByAppendingString:
+        @": libs-back before carry 0.32.0.6 doesn't end a drag for a timer's modal panel"]];
+    }
+  else
+    {
+      [self fail: @"move-loop-modal" detail: detail];
+    }
+}
+
 /* Mica (#47): a main window shows Windows' Mica backdrop (from 11 22H2)
    through its title bar, menu bar and toolbar, which leave their pixels
    transparent; its content stays opaque. Panels don't. */
@@ -15145,6 +15270,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkClientCaption];
   [self checkClientCaptionScaled];
   [self checkMoveLoopTimers];
+  [self checkMoveLoopModal];
   [self checkDPIAwareness];
   [self checkFontHintingSystemDpi];
   [self checkMica];
