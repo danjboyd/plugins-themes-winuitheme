@@ -12209,13 +12209,25 @@ QuirkProbeInkIn(NSBitmapImageRep *rep, NSRect area, NSInteger fill, NSInteger th
     {
       [self fail: @"late-window-menu" detail: @"a window created after launch has no menu bar"];
     }
-  [self saveView: [[_lateWindow contentView] superview] named: @"late-window"];
-  [self checkMenuBarTitles: _lateWindow];
-  [self checkMenuBarKeyboard: _lateWindow];
-  [self checkMenuBarOverflow: _lateWindow];
-  [self checkMenuStyleMore: _lateWindow];
-  [self checkWindowsMenuConventions];
-  [self checkThemeSwitchRestoresMethods];
+  /* An exception here would skip -finish, and the run would only end at
+     its timeout with no summary (seen with another theme): report it and
+     finish anyway. */
+  NS_DURING
+    {
+      [self saveView: [[_lateWindow contentView] superview] named: @"late-window"];
+      [self checkMenuBarTitles: _lateWindow];
+      [self checkMenuBarKeyboard: _lateWindow];
+      [self checkMenuBarOverflow: _lateWindow];
+      [self checkMenuStyleMore: _lateWindow];
+      [self checkWindowsMenuConventions];
+      [self checkThemeSwitchRestoresMethods];
+    }
+  NS_HANDLER
+    {
+      [self fail: @"late-window-checks" detail: [NSString stringWithFormat:
+        @"stopped by %@: %@", [localException name], [localException reason]]];
+    }
+  NS_ENDHANDLER
   [self finish];
 }
 
