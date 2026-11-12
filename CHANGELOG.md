@@ -5,6 +5,70 @@ Releases of the WinUI theme for GNUstep. Versions are semver pre-releases
 `GSThemeVersion` in `WinUIThemeInfo.plist`, and an annotated tag on `main`.
 Apps that bundle the theme should pin a tag, not `main`.
 
+## 0.1.0-alpha14 (unreleased)
+
+Scrollers stop appearing for a one-pixel overflow at 125% and 150%, which
+was Markdown Viewer's stray bar (#325). Disabled segmented controls dim.
+With `WinUIThemeMenuStyle = more`, the "..." moves into the title bar when
+there's no toolbar, and windows keep their size as the toolbar or a menu
+comes and goes. The toolbar's ">>" reads in dark mode. Requires
+gnustep-gui 0.32 or later. Tested with the carried libs-back
+`carry-0.32.0.5` and the stock MSYS2 libs-back 0.32.0-6.
+
+**Scrollers**
+- Under overlay scrollers, an overflow of one device pixel or less at the
+  window's scale (1pt at 100%, 0.8pt at 125%, 0.667pt at 150%) no longer
+  turns an auto-hiding scroller on. Larger overflows still do, on any
+  axis, as apps that rely on libs-gui's auto-hiding expect. Markdown
+  Viewer's source pane got a horizontal scroller from 0.667pt at 150%
+  (#190). QuirkProbe `scroller-autohide-snap-overflow`.
+
+**Scroll origin at 125% and 150%**
+- At a fractional scale, libs-gui's clip view moved a scroll view's origin
+  by a fraction of a pixel on every layout with nothing scrolled, so the
+  content crept and the overlay scrollbar showed at rest. The theme's
+  `-constrainScrollPoint:` puts the document on the pixel grid instead
+  (#191). QuirkProbe `scroll-origin-settles`. Tested at a real 125% and
+  150% with the carried libs-back. No real app has run it at those scales.
+- QuirkProbe's `scaled-125` passes on the stock libs-back, and CI runs it
+  (#191).
+
+**Segmented controls**
+- `-setEnabled:NO` dims the labels and icons. The theme asked only
+  `-isEnabledForSegment:`, so a disabled control stayed at full strength.
+  A segment now counts as enabled only if the cell is too (#187).
+  QuirkProbe `segment-disabled-dims`.
+
+**Menu style `more`**
+- The "..." goes in the title bar whenever the theme draws the caption
+  and no toolbar is showing: right after the tabs, or before the caption
+  buttons. A window with no toolbar no longer keeps an empty row (#185).
+- Removing a menu refunds the row it was charged, so the window no longer
+  ends a row off (#185). QuirkProbe `menu-style-more-no-tabs`,
+  `menu-row-refund`.
+- Hiding the toolbar gives up its whole row and showing it takes the row
+  back, so the content keeps its size (#188). QuirkProbe
+  `menu-style-more-toolbar-toggle`.
+
+**Toolbar**
+- The ">>" is drawn in the title's colour, like a template image, so it
+  reads in dark mode at every scale (#181). QuirkProbe
+  `toolbar-overflow-chevron-ink`.
+
+**QuirkProbe**
+- The date flyout's timer events post through `-postEventFromTimer:`, so
+  CI's light run no longer hangs after them (#179).
+- `menu-style-more-fresh-flags`: the "..." flyout's copied submenus are
+  validated before they show (#186).
+- `mica-chrome` reports its caption part as skipped, with the reason,
+  when another window covers the probe's (#189).
+
+**Docs**
+- `Docs/RELEASE_READINESS.md` brought up to date as of alpha13, and the
+  segmented track follow-up corrected (#180, #189).
+- `Scripts/Run-ObjcMarkdownValidation.ps1` puts GPUpdaterCore's and
+  GPUpdaterUI's `obj` folders on `PATH` (#180).
+
 ## 0.1.0-alpha13 (2026-10-22)
 
 Window tabs move onto the shared tabbing code's `main`: tabs drag and
