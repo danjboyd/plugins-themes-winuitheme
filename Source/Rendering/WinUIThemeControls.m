@@ -2093,6 +2093,7 @@ WinUIThemeDrawSliderTicks(WinUITheme *theme, NSSliderCell *cell, NSRect rect,
   NSImage *savedArrowImage = nil;
   NSFont *originalFont = [cell font];
   NSFont *popupFont = nil;
+  NSView *savedControlView = nil;
   NSPopUpArrowPosition originalArrowPosition = NSPopUpNoArrow;
   BOOL restoreArrowPosition = NO;
 
@@ -2106,6 +2107,13 @@ WinUIThemeDrawSliderTicks(WinUITheme *theme, NSSliderCell *cell, NSRect rect,
     }
 
   popupFont = WinUIThemePreferredControlFont(theme, originalFont, NO);
+
+  /* The swaps below are undone after the draw, but -setFont: and the other
+     setters tell the control view to redisplay (-updateCell:), which marked
+     the pop-up and its container for another draw every time it drew
+     (#194).  Detach the cell from its view while it swaps and restores. */
+  savedControlView = [cell controlView];
+  [cell setControlView: nil];
 
   if ([cell respondsToSelector: @selector(menuItem)])
     {
@@ -2138,10 +2146,12 @@ WinUIThemeDrawSliderTicks(WinUITheme *theme, NSSliderCell *cell, NSRect rect,
       [cell setFont: popupFont];
     }
 
+  [cell setControlView: savedControlView];
   if (originalIMP != NULL)
     {
       originalIMP(self, _cmd, cellFrame, controlView);
     }
+  [cell setControlView: nil];
 
   if (savedArrowImage != nil)
     {
@@ -2156,6 +2166,7 @@ WinUIThemeDrawSliderTicks(WinUITheme *theme, NSSliderCell *cell, NSRect rect,
     {
       [cell setFont: originalFont];
     }
+  [cell setControlView: savedControlView];
 }
 
 - (NSRect) _overrideNSPopUpButtonCellMethod_titleRectForBounds: (NSRect)aRect

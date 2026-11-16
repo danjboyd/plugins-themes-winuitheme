@@ -532,6 +532,71 @@ QuirkProbeModuleOfAddress(void *address)
 
 #pragma mark Window tabs
 
+/* A pop-up button that counts the calls asking it to draw again
+   (popup-draw-no-redisplay, #194). */
+@interface QuirkProbeCountingPopUp : NSPopUpButton
+{
+@public
+  NSUInteger updates;
+  NSUInteger marks;
+}
+@end
+
+@implementation QuirkProbeCountingPopUp
+- (void) updateCell: (NSCell *)aCell
+{
+  updates++;
+  [super updateCell: aCell];
+}
+
+- (void) setNeedsDisplay: (BOOL)flag
+{
+  if (flag)
+    {
+      marks++;
+    }
+  [super setNeedsDisplay: flag];
+}
+
+- (void) setNeedsDisplayInRect: (NSRect)rect
+{
+  marks++;
+  [super setNeedsDisplayInRect: rect];
+}
+@end
+
+/* The same counts for a plain push button: the baseline. */
+@interface QuirkProbeCountingButton : NSButton
+{
+@public
+  NSUInteger updates;
+  NSUInteger marks;
+}
+@end
+
+@implementation QuirkProbeCountingButton
+- (void) updateCell: (NSCell *)aCell
+{
+  updates++;
+  [super updateCell: aCell];
+}
+
+- (void) setNeedsDisplay: (BOOL)flag
+{
+  if (flag)
+    {
+      marks++;
+    }
+  [super setNeedsDisplay: flag];
+}
+
+- (void) setNeedsDisplayInRect: (NSRect)rect
+{
+  marks++;
+  [super setNeedsDisplayInRect: rect];
+}
+@end
+
 /* Apple's window tabbing API and the shared tab bar's layout methods
    (gnustep-window-tabbing), which the theme installs at run time (#72).
    The probe doesn't compile that code in, so it declares what it calls and
@@ -11454,6 +11519,58 @@ QuirkProbeInkIn(NSBitmapImageRep *rep, NSRect area, NSInteger fill, NSInteger th
   return count;
 }
 
+/* Drawing a pop-up button mustn't ask for another draw (#194): the theme
+   swaps the cell's font and arrow while it draws, and the setters told the
+   control view to redisplay (-updateCell:, -setNeedsDisplay...), so each
+   draw of a pop-up marked it, and its container, for the next.  The
+   pop-up counts those calls during one draw; there must be none. */
+- (void) checkPopUpDrawNoRedisplay
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(780, 260, 260, 80)
+                                     title: @"QuirkProbe PopUp redisplay"];
+  QuirkProbeCountingPopUp *popUp = AUTORELEASE([[QuirkProbeCountingPopUp alloc]
+    initWithFrame: NSMakeRect(20, 20, 200, 32) pullsDown: NO]);
+  QuirkProbeCountingButton *button = AUTORELEASE([[QuirkProbeCountingButton alloc]
+    initWithFrame: NSMakeRect(20, 20, 120, 32)]);
+  NSUInteger updates, marks, baseUpdates, baseMarks;
+
+  [popUp addItemsWithTitles: [NSArray arrayWithObjects: @"A", @"B", nil]];
+  [button setTitle: @"Plain"];
+  [[window contentView] addSubview: popUp];
+  [window orderFront: nil];
+  [window display];
+  popUp->updates = 0;
+  popUp->marks = 0;
+  [popUp display];
+  updates = popUp->updates;
+  marks = popUp->marks;
+  [popUp removeFromSuperview];
+  [[window contentView] addSubview: button];
+  [window display];
+  button->updates = 0;
+  button->marks = 0;
+  [button display];
+  baseUpdates = button->updates;
+  baseMarks = button->marks;
+  if (updates <= baseUpdates && marks <= baseMarks)
+    {
+      [self pass: @"popup-draw-no-redisplay" detail: [NSString stringWithFormat:
+        @"one draw of the pop-up made %lu -updateCell: and %lu -setNeedsDisplay calls,"
+        @" no more than a plain button's %lu and %lu",
+        (unsigned long)updates, (unsigned long)marks,
+        (unsigned long)baseUpdates, (unsigned long)baseMarks]];
+    }
+  else
+    {
+      [self fail: @"popup-draw-no-redisplay" detail: [NSString stringWithFormat:
+        @"one draw of the pop-up made %lu -updateCell: and %lu -setNeedsDisplay calls,"
+        @" a plain button's %lu and %lu",
+        (unsigned long)updates, (unsigned long)marks,
+        (unsigned long)baseUpdates, (unsigned long)baseMarks]];
+    }
+  [window orderOut: nil];
+}
+
 /* WinUI's ComboBox (issues #40, #8): a pop-up button is one box, its title
    in the primary text colour and no divided lane before its chevron; a
    non-editable combo box keeps its value when focused, without a text
@@ -11480,6 +11597,8 @@ QuirkProbeInkIn(NSBitmapImageRep *rep, NSRect area, NSInteger fill, NSInteger th
   [window makeKeyAndOrderFront: nil];
   [window makeFirstResponder: window];
   [window display];
+
+  [self checkPopUpDrawNoRedisplay];
 
   rep = QuirkProbeRender(popUp);
   scale = QuirkProbeScale(rep, popUp);
