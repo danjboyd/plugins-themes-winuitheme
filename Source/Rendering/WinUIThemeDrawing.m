@@ -940,15 +940,19 @@ WinUIThemeRemoveDefaultButtonGlyph(NSButtonCell *cell)
       return;
     }
 
-  if ([cell image] == returnImage)
+  /* Only when something changes: this runs each time a button is drawn,
+     and the setters ask for the button to be drawn again, so an unchanged
+     -setImagePosition: marked every button, and the view behind it, for
+     another draw after each draw (#194). */
+  if (returnImage != nil && [cell image] == returnImage)
     {
       [cell setImage: nil];
     }
-  if ([cell alternateImage] == returnAlternateImage)
+  if (returnAlternateImage != nil && [cell alternateImage] == returnAlternateImage)
     {
       [cell setAlternateImage: nil];
     }
-  if ([cell image] == nil)
+  if ([cell image] == nil && [cell imagePosition] != NSNoImage)
     {
       [cell setImagePosition: NSNoImage];
     }
