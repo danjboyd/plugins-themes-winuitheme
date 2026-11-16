@@ -24,6 +24,7 @@
 #import "Settings/WinUIThemeMetrics.h"
 #import "Rendering/WinUIThemePalette.h"
 #import "Rendering/WinUIThemeDrawing.h"
+#import "Rendering/WinUIThemeNibWindows.h"
 #import "Native/WinUIThemeShellDialogs.h"
 #import "Native/WinUIThemeWindowIntegration.h"
 #import "Native/WinUIThemeToolbarInMenuBar.h"
@@ -130,6 +131,8 @@ WinUIThemeRightTextAlignment(void)
         GSWindowTabbingInstall();
       }
   }
+  /* Compact metrics for windows loaded from nibs (#182). */
+  WinUIThemeNibWindowsInstall();
   self = [super initWithBundle: bundle];
   if (self != nil)
     {

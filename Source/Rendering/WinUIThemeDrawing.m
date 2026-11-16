@@ -19,6 +19,7 @@
 */
 
 #import "WinUIThemeDrawing.h"
+#import "WinUIThemeNibWindows.h"
 
 #import "../Settings/WinUIThemeMetrics.h"
 #import "../Settings/WinUIThemeSettings.h"
@@ -727,6 +728,12 @@ WinUIThemePreferredControlFont(WinUITheme *theme,
   if (theme != nil && [[theme metrics] compact])
     {
       minimumSize = MIN(minimumSize, [[theme settings] interfaceFontSize]);
+    }
+  else if (WinUIThemeCompactMetricsInEffect(theme))
+    {
+      /* A control in a window from a nib (#182) keeps the 12pt font it was
+         laid out with. */
+      minimumSize = MIN(minimumSize, [font pointSize]);
     }
   pointSize = MAX(minimumSize, [font pointSize]);
   if (fabs(pointSize - [font pointSize]) > 0.01)

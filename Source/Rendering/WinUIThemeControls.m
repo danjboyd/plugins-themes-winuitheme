@@ -19,6 +19,7 @@
 */
 
 #import "WinUIThemeDrawing.h"
+#import "WinUIThemeNibWindows.h"
 
 #import "../Settings/WinUIThemeMetrics.h"
 #import "../Settings/WinUIThemeSettings.h"
@@ -993,6 +994,9 @@ static char WinUIThemeButtonStyleKey;
                                   state: (GSThemeControlState)state
 {
   GSThemeMargins margins;
+  /* Compact metrics, for the app or for the cell's window from a nib (#182). */
+  BOOL compact = WinUIThemeCompactMetricsInEffect(self)
+    || WinUIThemeWindowUsesCompactMetrics([[cell controlView] window]);
 
   if ([cell isKindOfClass: [NSPopUpButtonCell class]])
     {
@@ -1000,7 +1004,7 @@ static char WinUIThemeButtonStyleKey;
 
       /* Compact (#31): the title from 8pt in, clear of the chevron 20pt
          from the trailing edge, and no more height than GNUstep's. */
-      if ([[self metrics] compact])
+      if (compact)
         {
           margins.left = 8.0;
           margins.right = WinUIThemeComboBoxGlyphInset + 8.0;
@@ -1017,7 +1021,7 @@ static char WinUIThemeButtonStyleKey;
 
   /* Compact (#31): GNUstep's own margins, which nib and Gorm layouts were
      made with. */
-  if (WinUIThemeUsesModernPushButton(style) == NO || [[self metrics] compact])
+  if (WinUIThemeUsesModernPushButton(style) == NO || compact)
     {
       return [super buttonMarginsForCell: cell style: style state: state];
     }

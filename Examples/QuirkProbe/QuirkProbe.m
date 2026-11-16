@@ -890,6 +890,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkCellSizes;
 - (void) checkTabView;
 - (void) checkMetricsChoice;
+- (void) checkNibWindowCompact;
 - (void) checkTableDefaults;
 - (void) checkLiveSettings;
 - (void) checkLiveTextSize;
@@ -7751,6 +7752,120 @@ QuirkProbeAccentRuns(NSBitmapImageRep *rep, NSInteger y, CGFloat scale, CGFloat 
             @"\"Miniaturize window\" needs %.0fpt; a nib made at GNUstep's 12pt gives it 107", needed.width]];
         }
     }
+}
+
+/* A window loaded from a nib in an app built in code (#182): the app keeps
+   WinUI's metrics, but the nib's controls were laid out at GNUstep's, so
+   that window gets compact metrics: its "Miniaturize" button (72x22pt)
+   shows its whole title, and its 107pt label fits "Miniaturize window".
+   The code-built windows keep WinUI's 14pt (metrics-choice). */
+- (void) checkNibWindowCompact
+{
+  NSString *path = [[NSBundle mainBundle] pathForResource: @"NibProbe" ofType: @"xib"];
+  NSMutableArray *objects = [NSMutableArray array];
+  NSDictionary *table = [NSDictionary dictionaryWithObjectsAndKeys:
+    self, NSNibOwner, objects, NSNibTopLevelObjects, nil];
+  NSWindow *window = nil;
+  id object = nil;
+  NSButton *button = nil;
+  NSTextField *label = nil;
+  NSEnumerator *enumerator = nil;
+  NSView *view = nil;
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale, titleWidth, codeFont;
+  NSUInteger red, green, blue;
+  QuirkProbeInk ink;
+  NSSize needed;
+
+  if (QuirkProbeCompactMetrics())
+    {
+      [self skip: @"nib-window-compact" detail: @"the whole app has compact metrics"];
+      return;
+    }
+  if (path == nil
+      || [NSBundle loadNibFile: path externalNameTable: table withZone: NSDefaultMallocZone()] == NO)
+    {
+      [self fail: @"nib-window-compact" detail: @"couldn't load NibProbe.xib"];
+      return;
+    }
+  enumerator = [objects objectEnumerator];
+  while ((object = [enumerator nextObject]) != nil)
+    {
+      if ([object isKindOfClass: [NSWindow class]])
+        {
+          window = object;
+        }
+    }
+  enumerator = [[[window contentView] subviews] objectEnumerator];
+  while ((view = [enumerator nextObject]) != nil)
+    {
+      if ([view isKindOfClass: [NSButton class]])
+        {
+          button = (NSButton *)view;
+        }
+      else if ([view isKindOfClass: [NSTextField class]])
+        {
+          label = (NSTextField *)view;
+        }
+    }
+  if (window == nil || button == nil || label == nil)
+    {
+      [self fail: @"nib-window-compact" detail: [NSString stringWithFormat:
+        @"NibProbe.xib's window or controls are missing (top-level objects: %@)",
+        [objects valueForKey: @"className"]]];
+      return;
+    }
+
+  [window orderFront: nil];
+  [window display];
+  rep = QuirkProbeRender(button);
+  scale = QuirkProbeScale(rep, button);
+  [self saveView: button named: @"nib-window-compact"];
+  QuirkProbePixel(rep, [rep pixelsWide] / 2, 3 * scale, &red, &green, &blue);
+  QuirkProbeInkBackground = red + green + blue;
+  ink = QuirkProbeMeasureIn(rep, QuirkProbeIsInk,
+                            NSMakeRect(2 * scale, 3 * scale, [rep pixelsWide] - 4 * scale, [rep pixelsHigh] - 6 * scale));
+  titleWidth = [@"Miniaturize" sizeWithAttributes:
+    [NSDictionary dictionaryWithObject: [button font] forKey: NSFontAttributeName]].width;
+  needed = [[label cell] cellSize];
+  codeFont = [[NSFont systemFontOfSize: 0.0] pointSize];
+  /* With a larger text size the nib's controls get GNUstep's size scaled
+     by it, as compact metrics do, so they no longer fit a 12pt layout. */
+  if ([[NSUserDefaults standardUserDefaults] floatForKey: @"WinUIThemeTextScaleFactor"] > 100.0)
+    {
+      if ([[button font] pointSize] < codeFont - 0.5)
+        {
+          [self pass: @"nib-window-compact" detail: [NSString stringWithFormat:
+            @"the nib's controls at %.0fpt (code-built: %.0fpt); a larger text size, so"
+            @" the 12pt layout isn't measured", [[button font] pointSize], codeFont]];
+        }
+      else
+        {
+          [self fail: @"nib-window-compact" detail: [NSString stringWithFormat:
+            @"the nib's controls at %.0fpt, as code-built ones", [[button font] pointSize]]];
+        }
+      [window orderOut: nil];
+      return;
+    }
+  if ([[button font] pointSize] < codeFont - 0.5
+      && ink.count > 0 && ink.width / scale >= titleWidth - 3.0
+      && needed.width <= NSWidth([label frame]) + 0.5)
+    {
+      [self pass: @"nib-window-compact" detail: [NSString stringWithFormat:
+        @"the nib's controls at %.0fpt (code-built: %.0fpt): \"Miniaturize\" shows whole"
+        @" (%.0fpt of ink, the title %.0fpt), and the label needs %.0fpt of its %.0fpt",
+        [[button font] pointSize], codeFont, ink.width / scale, titleWidth,
+        needed.width, NSWidth([label frame])]];
+    }
+  else
+    {
+      [self fail: @"nib-window-compact" detail: [NSString stringWithFormat:
+        @"the nib's controls at %.0fpt (code-built: %.0fpt): %.0fpt of ink for a %.0fpt title"
+        @" in a 72x22pt button, and the label needs %.0fpt of its %.0fpt",
+        [[button font] pointSize], codeFont, ink.width / scale, titleWidth,
+        needed.width, NSWidth([label frame])]];
+    }
+  [window orderOut: nil];
 }
 
 /* A table built in code looks like a WinUI list (issue #28): libs-gui's
@@ -15360,6 +15475,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkCellSizes];
   [self checkTabView];
   [self checkMetricsChoice];
+  [self checkNibWindowCompact];
   [self checkTableDefaults];
   [self checkLiveSettings];
   [self checkLiveTextSize];
