@@ -19,6 +19,7 @@
 */
 
 #import "WinUIThemeDrawing.h"
+#import "WinUIThemeNibWindows.h"
 #import "../Settings/WinUIThemeSettings.h"
 
 #import <AppKit/AppKit.h>
@@ -269,11 +270,14 @@ WinUIThemeDrawFocusRing(NSView *view)
   typedef void (*DrawRectIMP)(id, SEL, NSRect);
   DrawRectIMP originalIMP = (DrawRectIMP)WinUIThemeOriginalMethod(_cmd, self, [NSControl class]);
 
+  /* A control in a window from a nib draws at compact metrics (#182). */
+  WinUIThemeBeginDrawingInView((NSView *)self);
   if (originalIMP != NULL)
     {
       originalIMP(self, _cmd, rect);
     }
   WinUIThemeDrawFocusRing((NSView *)self);
+  WinUIThemeEndDrawingInView((NSView *)self);
 }
 
 - (void) _overrideNSSwitchMethod_drawRect: (NSRect)rect

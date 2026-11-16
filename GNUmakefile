@@ -49,6 +49,7 @@ WinUITheme_OBJC_FILES = \
 	Source/Rendering/WinUIThemeMotion.m \
 	Source/Rendering/WinUIThemeScrollers.m \
 	Source/Rendering/WinUIThemeFocus.m \
+	Source/Rendering/WinUIThemeNibWindows.m \
 	Source/Rendering/WinUIThemeTextScale.m \
 	Source/Native/WinUIThemeShellDialogs.m \
 	Source/Native/WinUIThemeWindowIntegration.m \

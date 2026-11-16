@@ -18,6 +18,9 @@ QuirkProbe_OBJC_FILES = \
 	QuirkProbe.m \
 	QuirkProbeDialogs.m
 
+QuirkProbe_RESOURCE_FILES = \
+	NibProbe.xib
+
 QuirkProbe_HEADER_FILES = \
 	QuirkProbe.h
 
