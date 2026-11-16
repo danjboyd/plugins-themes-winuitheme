@@ -565,7 +565,7 @@ QuirkProbeModuleOfAddress(void *address)
 }
 @end
 
-/* The same counts for a plain push button: the baseline. */
+/* The same counts for a plain push button (button-draw-no-redisplay). */
 @interface QuirkProbeCountingButton : NSButton
 {
 @public
@@ -11552,20 +11552,31 @@ QuirkProbeInkIn(NSBitmapImageRep *rep, NSRect area, NSInteger fill, NSInteger th
   [button display];
   baseUpdates = button->updates;
   baseMarks = button->marks;
-  if (updates <= baseUpdates && marks <= baseMarks)
+  /* GNUstep's own drawing asks for none, so there must be none. */
+  if (updates == 0 && marks == 0)
     {
-      [self pass: @"popup-draw-no-redisplay" detail: [NSString stringWithFormat:
-        @"one draw of the pop-up made %lu -updateCell: and %lu -setNeedsDisplay calls,"
-        @" no more than a plain button's %lu and %lu",
-        (unsigned long)updates, (unsigned long)marks,
-        (unsigned long)baseUpdates, (unsigned long)baseMarks]];
+      [self pass: @"popup-draw-no-redisplay" detail:
+        @"one draw of the pop-up made no -updateCell: or -setNeedsDisplay calls"];
     }
   else
     {
       [self fail: @"popup-draw-no-redisplay" detail: [NSString stringWithFormat:
-        @"one draw of the pop-up made %lu -updateCell: and %lu -setNeedsDisplay calls,"
-        @" a plain button's %lu and %lu",
-        (unsigned long)updates, (unsigned long)marks,
+        @"one draw of the pop-up made %lu -updateCell: and %lu -setNeedsDisplay calls",
+        (unsigned long)updates, (unsigned long)marks]];
+    }
+  /* The same for a push button: the theme removed libs-gui's return-key
+     glyph each time it drew one, and set the image position even when it
+     hadn't changed, which marked every button, and the view behind it, for
+     another draw (#194). */
+  if (baseUpdates == 0 && baseMarks == 0)
+    {
+      [self pass: @"button-draw-no-redisplay" detail:
+        @"one draw of a push button made no -updateCell: or -setNeedsDisplay calls"];
+    }
+  else
+    {
+      [self fail: @"button-draw-no-redisplay" detail: [NSString stringWithFormat:
+        @"one draw of a push button made %lu -updateCell: and %lu -setNeedsDisplay calls",
         (unsigned long)baseUpdates, (unsigned long)baseMarks]];
     }
   [window orderOut: nil];
