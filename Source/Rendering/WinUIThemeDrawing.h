@@ -193,8 +193,11 @@ void WinUIThemeDrawInputChrome(WinUITheme *theme,
                                BOOL roundedRight);
 /* `hovered` and `hover` run from 0 to 1 (WinUIThemeHoverAmount). */
 NSColor *WinUIThemeTextBoxFillColor(WinUITheme *theme, BOOL enabled, CGFloat hovered, BOOL focused);
+NSColor *WinUIThemeTextBoxFillColorOver(WinUITheme *theme, NSColor *surface, BOOL enabled,
+                                        CGFloat hovered, BOOL focused);
+NSColor *WinUIThemeTextBoxSurface(WinUITheme *theme, NSView *view);
 void WinUIThemeDrawTextBoxChrome(WinUITheme *theme, NSRect frame, NSView *view, BOOL enabled);
-void WinUIThemeDrawTextBoxChromeInState(WinUITheme *theme, NSRect frame, BOOL flipped,
+void WinUIThemeDrawTextBoxChromeInState(WinUITheme *theme, NSRect frame, NSView *view,
                                         BOOL enabled, CGFloat hovered, BOOL focused);
 void WinUIThemeDrawSegmentChrome(WinUITheme *theme,
                                  NSRect frame,

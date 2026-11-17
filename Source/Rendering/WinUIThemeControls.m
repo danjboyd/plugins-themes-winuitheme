@@ -291,6 +291,10 @@ WinUIThemeDrawCheckboxOrRadioIndicator(WinUITheme *theme,
                                     indicatorSize);
   NSColor *window = WinUIThemeColorFromTheme(theme, @"windowBackgroundColor",
                                              [NSColor windowBackgroundColor]);
+  /* Fluent's fills are washes over the layer below: the card the box
+     sits on, or the window (#211). */
+  NSColor *surface = (controlView != nil && highContrast == NO)
+    ? WinUIThemeSurfaceColorBehindView(theme, controlView) : window;
   NSColor *ink = dark ? [NSColor whiteColor] : [NSColor blackColor];
   NSColor *accent = WinUIThemeColorFromTheme(theme, @"accentColor", [NSColor selectedControlColor]);
   NSColor *onAccent = WinUIThemeColorFromTheme(theme, @"accentTextColor",
@@ -326,8 +330,8 @@ WinUIThemeDrawCheckboxOrRadioIndicator(WinUITheme *theme,
   else if (on)
     {
       fillColor = enabled
-        ? WinUIThemeBlendColor(window, accent, (1.0 - 0.10 * hover) + (0.80 - (1.0 - 0.10 * hover)) * press)
-        : WinUIThemeBlendColor(window, ink, dark ? 0.16 : 0.22);
+        ? WinUIThemeBlendColor(surface, accent, (1.0 - 0.10 * hover) + (0.80 - (1.0 - 0.10 * hover)) * press)
+        : WinUIThemeBlendColor(surface, ink, dark ? 0.16 : 0.22);
       borderColor = fillColor;
       markColor = enabled ? onAccent
         : (dark ? WinUIThemeBlendColor(fillColor, [NSColor whiteColor], 0.53) : [NSColor whiteColor]);
@@ -335,19 +339,19 @@ WinUIThemeDrawCheckboxOrRadioIndicator(WinUITheme *theme,
   else
     {
       /* Dark's ControlAltFillColorSecondary is black at 10%. */
-      NSColor *rest = dark ? WinUIThemeBlendColor(window, [NSColor blackColor], 0.10)
-                           : WinUIThemeBlendColor(window, ink, 0.024);
-      NSColor *over = WinUIThemeBlendColor(window, ink, dark ? 0.04 : 0.06);
+      NSColor *rest = dark ? WinUIThemeBlendColor(surface, [NSColor blackColor], 0.10)
+                           : WinUIThemeBlendColor(surface, ink, 0.024);
+      NSColor *over = WinUIThemeBlendColor(surface, ink, dark ? 0.04 : 0.06);
 
       fillColor = WinUIThemeBlendColor(WinUIThemeBlendColor(rest, over, hover),
-                                       WinUIThemeBlendColor(window, ink, dark ? 0.07 : 0.09), press);
+                                       WinUIThemeBlendColor(surface, ink, dark ? 0.07 : 0.09), press);
       borderColor = enabled
-        ? WinUIThemeBlendColor(window, ink, dark ? 0.54 : 0.45)
-        : WinUIThemeBlendColor(window, ink, dark ? 0.16 : 0.22);
+        ? WinUIThemeBlendColor(surface, ink, dark ? 0.54 : 0.45)
+        : WinUIThemeBlendColor(surface, ink, dark ? 0.16 : 0.22);
       markColor = borderColor;
       if (enabled == NO)
         {
-          fillColor = window;
+          fillColor = surface;
         }
     }
 
@@ -1929,7 +1933,8 @@ WinUIThemeDrawSliderTicks(WinUITheme *theme, NSSliderCell *cell, NSRect rect,
       WinUIThemeApplyEditorFont(theme, cell, editor);
       if (WinUIThemeTextFieldUsesChromeFill(cell))
         {
-          [editor setBackgroundColor: WinUIThemeTextBoxFillColor(theme, YES, NO, YES)];
+          [editor setBackgroundColor: WinUIThemeTextBoxFillColorOver(theme,
+                                       WinUIThemeTextBoxSurface(theme, [cell controlView]), YES, NO, YES)];
           /* The chrome's focused fill shows through, and the placeholder
              the cell draws under an empty editor (#102). */
           if ([cell placeholderString] != nil || [cell placeholderAttributedString] != nil)

@@ -516,7 +516,7 @@ WinUIThemeBoxTitleFont(void)
       hovered = WinUIThemeViewIsHovered(controlView)
         && NSMouseInRect(point, entry, [controlView isFlipped]);
     }
-  WinUIThemeDrawTextBoxChromeInState(theme, entry, [controlView isFlipped], enabled, hovered, focused);
+  WinUIThemeDrawTextBoxChromeInState(theme, entry, controlView, enabled, hovered, focused);
 }
 
 - (void) _overrideNSSplitViewMethod_drawThinDividerInRect: (NSRect)rect
