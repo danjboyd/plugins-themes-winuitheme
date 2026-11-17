@@ -251,6 +251,9 @@ NSColor *WinUIThemeCardStrokeColor(WinUITheme *theme);
 /* DividerStrokeColorDefault, for separators and line borders
    (WinUIThemeBoxes.m). */
 NSColor *WinUIThemeDividerColor(WinUITheme *theme);
+/* What `view` sits on: the nearest card behind it, a custom box's fill,
+   or the window (WinUIThemeBoxes.m). */
+NSColor *WinUIThemeSurfaceColorBehindView(WinUITheme *theme, NSView *view);
 void WinUIThemeSyncBrowserColumn(NSScrollView *scrollView);
 
 /* A popover panel the app marked for the theme (its class adopts
