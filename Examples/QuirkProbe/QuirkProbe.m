@@ -11232,24 +11232,31 @@ QuirkProbeRenderDiff(NSBitmapImageRep *one, NSBitmapImageRep *two, NSRect *box)
 }
 
 /* Rows down column `x` from `top` for `count` rows: how many are within 6
-   of the darkest, and how many are neither that nor `windowSum`. */
+   of the line's colour, the one furthest from `windowSum` (darker in light
+   themes, lighter where dark ones draw a divider lighter than the window),
+   and how many are neither that nor `windowSum`. */
 static void
 QuirkProbeLineRowsAt(NSBitmapImageRep *rep, NSInteger x, NSInteger top, NSInteger count,
                      NSInteger windowSum, NSInteger *lineRows, NSInteger *otherRows)
 {
-  NSInteger y, darkest = windowSum;
+  NSInteger y, line = windowSum;
 
   *lineRows = 0;
   *otherRows = 0;
   for (y = top; y < top + count; y++)
     {
-      darkest = MIN(darkest, QuirkProbeSumAt(rep, x, y));
+      NSInteger value = QuirkProbeSumAt(rep, x, y);
+
+      if (llabs((long long)(value - windowSum)) > llabs((long long)(line - windowSum)))
+        {
+          line = value;
+        }
     }
   for (y = top; y < top + count; y++)
     {
       NSInteger value = QuirkProbeSumAt(rep, x, y);
 
-      if (llabs((long long)(value - darkest)) <= 6 && darkest < windowSum - 12)
+      if (llabs((long long)(value - line)) <= 6 && llabs((long long)(line - windowSum)) > 12)
         {
           (*lineRows)++;
         }
