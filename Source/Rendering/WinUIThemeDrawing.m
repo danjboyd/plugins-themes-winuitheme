@@ -1326,11 +1326,13 @@ WinUIThemeDrawInputChrome(WinUITheme *theme,
 }
 
 /* WinUI's TextBox (#37). Fluent's colours are white or black at an
-   opacity over the layer; these blend them over the window background.
-   ControlFillColorDefault at rest, Secondary under the pointer,
+   opacity over the layer; these blend them over `surface`, the layer the
+   box sits on (WinUIThemeTextBoxSurface: a card behind it, or the window,
+   #211). ControlFillColorDefault at rest, Secondary under the pointer,
    InputActive focused, Disabled. */
 NSColor *
-WinUIThemeTextBoxFillColor(WinUITheme *theme, BOOL enabled, CGFloat hovered, BOOL focused)
+WinUIThemeTextBoxFillColorOver(WinUITheme *theme, NSColor *surface, BOOL enabled, CGFloat hovered,
+                               BOOL focused)
 {
   BOOL dark = [[theme settings] prefersDarkAppearance];
   CGFloat rest = dark ? 0.06 : 0.70;
@@ -1342,17 +1344,41 @@ WinUIThemeTextBoxFillColor(WinUITheme *theme, BOOL enabled, CGFloat hovered, BOO
     {
       return window;
     }
+  if (surface == nil)
+    {
+      surface = window;
+    }
   if (enabled == NO)
     {
-      return WinUIThemeBlendColor(window, [NSColor whiteColor], dark ? 0.042 : 0.30);
+      return WinUIThemeBlendColor(surface, [NSColor whiteColor], dark ? 0.042 : 0.30);
     }
   if (focused)
     {
       return dark
-        ? WinUIThemeBlendColor(window, [NSColor colorWithCalibratedWhite: 30.0 / 255.0 alpha: 1.0], 0.70)
-        : WinUIThemeBlendColor(window, [NSColor whiteColor], 1.0);
+        ? WinUIThemeBlendColor(surface, [NSColor colorWithCalibratedWhite: 30.0 / 255.0 alpha: 1.0], 0.70)
+        : WinUIThemeBlendColor(surface, [NSColor whiteColor], 1.0);
     }
-  return WinUIThemeBlendColor(window, [NSColor whiteColor], rest + (over - rest) * hovered);
+  return WinUIThemeBlendColor(surface, [NSColor whiteColor], rest + (over - rest) * hovered);
+}
+
+/* Over the window: for a text box with no view behind it (the date
+   picker's flyout). */
+NSColor *
+WinUIThemeTextBoxFillColor(WinUITheme *theme, BOOL enabled, CGFloat hovered, BOOL focused)
+{
+  return WinUIThemeTextBoxFillColorOver(theme, nil, enabled, hovered, focused);
+}
+
+/* The layer a text box in `view` sits on; the window without a view or in
+   high contrast. */
+NSColor *
+WinUIThemeTextBoxSurface(WinUITheme *theme, NSView *view)
+{
+  if (view == nil || [[theme settings] highContrastEnabled])
+    {
+      return WinUIThemeColorFromTheme(theme, @"windowBackgroundColor", [NSColor windowBackgroundColor]);
+    }
+  return WinUIThemeSurfaceColorBehindView(theme, view);
 }
 
 /* A text input has focus: its field editor, or a scroll view's text view. */
@@ -1382,15 +1408,17 @@ WinUIThemeDrawTextBoxChrome(WinUITheme *theme, NSRect frame, NSView *view, BOOL 
       WinUIThemeTrackHover(view);
       hovered = WinUIThemeHoverAmount(view, WinUIThemeViewIsHovered(view));
     }
-  WinUIThemeDrawTextBoxChromeInState(theme, frame, (view != nil && [view isFlipped]),
-                                     enabled, hovered, focused);
+  WinUIThemeDrawTextBoxChromeInState(theme, frame, view, enabled, hovered, focused);
 }
 
-/* The TextBox in a given state, for views holding several (form cells). */
+/* The TextBox in a given state, for views holding several (form cells),
+   drawn in `view` (which may be nil) over the layer it sits on. */
 void
-WinUIThemeDrawTextBoxChromeInState(WinUITheme *theme, NSRect frame, BOOL flipped,
+WinUIThemeDrawTextBoxChromeInState(WinUITheme *theme, NSRect frame, NSView *view,
                                    BOOL enabled, CGFloat hovered, BOOL focused)
 {
+  BOOL flipped = (view != nil && [view isFlipped]);
+  NSColor *surface = WinUIThemeTextBoxSurface(theme, view);
   NSGraphicsContext *context = [NSGraphicsContext currentContext];
   BOOL dark = [[theme settings] prefersDarkAppearance];
   BOOL highContrast = [[theme settings] highContrastEnabled];
@@ -1403,7 +1431,7 @@ WinUIThemeDrawTextBoxChromeInState(WinUITheme *theme, NSRect frame, BOOL flipped
   NSRect drawRect = NSInsetRect(NSIntegralRect(frame), 0.5, 0.5);
   NSBezierPath *path = WinUIThemeRoundedPath(drawRect, WinUIThemeControlCornerRadius(theme));
 
-  fill = WinUIThemeTextBoxFillColor(theme, enabled, hovered, focused);
+  fill = WinUIThemeTextBoxFillColorOver(theme, surface, enabled, hovered, focused);
   if (highContrast)
     {
       stroke = enabled ? text : WinUIThemeColorFromTheme(theme, @"disabledControlTextColor",
@@ -1413,12 +1441,9 @@ WinUIThemeDrawTextBoxChromeInState(WinUITheme *theme, NSRect frame, BOOL flipped
   else
     {
       NSColor *ink = dark ? [NSColor whiteColor] : [NSColor blackColor];
-      /* Over the window, not the fill (BackgroundSizing InnerBorderEdge). */
-      NSColor *window = WinUIThemeColorFromTheme(theme, @"windowBackgroundColor",
-                                                 [NSColor windowBackgroundColor]);
-
-      stroke = WinUIThemeBlendColor(window, ink, dark ? 0.07 : 0.058);
-      bottom = enabled ? WinUIThemeBlendColor(window, ink, dark ? 0.544 : 0.446) : stroke;
+      /* Over the surface, not the fill (BackgroundSizing InnerBorderEdge). */
+      stroke = WinUIThemeBlendColor(surface, ink, dark ? 0.07 : 0.058);
+      bottom = enabled ? WinUIThemeBlendColor(surface, ink, dark ? 0.544 : 0.446) : stroke;
       if (focused)
         {
           bottom = accent;
@@ -1531,7 +1556,8 @@ WinUIThemeResolveEntryColors(WinUITheme *theme,
                                              @"accentColor",
                                              [NSColor selectedControlColor]);
   BOOL dark = [[theme settings] prefersDarkAppearance];
-  NSColor *fillColor = WinUIThemeTextBoxFillColor(theme, enabled, NO, focused);
+  NSColor *fillColor = WinUIThemeTextBoxFillColorOver(theme, WinUIThemeTextBoxSurface(theme, view),
+                                                      enabled, NO, focused);
   NSColor *borderColor = nil;
   CGFloat lineWidth = 1.0;
 

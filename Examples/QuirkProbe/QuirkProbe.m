@@ -7663,7 +7663,7 @@ QuirkProbeAccentRuns(NSBitmapImageRep *rep, NSInteger y, CGFloat scale, CGFloat 
     }
 }
 
-/* Audit (draft): controls whose rest fill is a WinUI wash over the layer
+/* Controls whose rest fill is a WinUI wash over the layer
    below (TextBox: ControlFillColorDefault; an unchecked CheckBox:
    ControlAltFillColorSecondary). The wash is inferred from the control
    on the window (its alpha toward white or black) and predicted on a
