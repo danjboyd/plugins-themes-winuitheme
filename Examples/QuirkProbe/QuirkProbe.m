@@ -565,6 +565,18 @@ QuirkProbeModuleOfAddress(void *address)
 }
 @end
 
+/* controls-draw-no-redisplay's control: a view that marks itself as it
+   draws, which the count must see. */
+@interface QuirkProbeSelfMarkingView : NSView
+@end
+
+@implementation QuirkProbeSelfMarkingView
+- (void) drawRect: (NSRect)rect
+{
+  [self setNeedsDisplay: YES];
+}
+@end
+
 /* The same counts for a plain push button (button-draw-no-redisplay). */
 @interface QuirkProbeCountingButton : NSButton
 {
@@ -887,6 +899,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkBoxes;
 - (void) checkContrastTheme;
 - (void) checkSegmentedControl;
+- (void) checkControlsDrawNoRedisplay;
 - (void) checkSegmentedTrackOnSurface;
 - (void) checkCellSizes;
 - (void) checkTabView;
@@ -11726,6 +11739,192 @@ QuirkProbeInkIn(NSBitmapImageRep *rep, NSRect area, NSInteger fill, NSInteger th
    control view to redisplay (-updateCell:, -setNeedsDisplay...), so each
    draw of a pop-up marked it, and its container, for the next.  The
    pop-up counts those calls during one draw; there must be none. */
+/* Marks for display made while counting, by the class of the view marked:
+   -setNeedsDisplay: and -setNeedsDisplayInRect: on any view. */
+static NSMutableDictionary *QuirkProbeMarkCounts = nil;
+static IMP QuirkProbeOwnSetNeedsDisplay = NULL;
+static IMP QuirkProbeOwnSetNeedsDisplayInRect = NULL;
+static NSUInteger QuirkProbeMarkDepth = 0;
+
+static void
+QuirkProbeCountMark(id view)
+{
+  NSString *name = NSStringFromClass([view class]);
+
+  /* -setNeedsDisplay: may call -setNeedsDisplayInRect:: one mark. */
+  if (QuirkProbeMarkCounts != nil && QuirkProbeMarkDepth == 0)
+    {
+      [QuirkProbeMarkCounts setObject: [NSNumber numberWithUnsignedInteger:
+                                         [[QuirkProbeMarkCounts objectForKey: name] unsignedIntegerValue] + 1]
+                               forKey: name];
+    }
+}
+
+static void
+QuirkProbeCountingSetNeedsDisplay(id self, SEL _cmd, BOOL flag)
+{
+  if (flag)
+    {
+      QuirkProbeCountMark(self);
+    }
+  QuirkProbeMarkDepth++;
+  ((void (*)(id, SEL, BOOL))QuirkProbeOwnSetNeedsDisplay)(self, _cmd, flag);
+  QuirkProbeMarkDepth--;
+}
+
+static void
+QuirkProbeCountingSetNeedsDisplayInRect(id self, SEL _cmd, NSRect rect)
+{
+  QuirkProbeCountMark(self);
+  QuirkProbeMarkDepth++;
+  ((void (*)(id, SEL, NSRect))QuirkProbeOwnSetNeedsDisplayInRect)(self, _cmd, rect);
+  QuirkProbeMarkDepth--;
+}
+
+/* Drawing a control at rest asks for no further drawing: a draw that
+   marks the control, or the view behind it, for display again redraws it
+   on every pass of the event loop, and with it the opaque view behind it
+   (#194, where the theme's button glyph setters did that for every push
+   button and pop-up). Each common control is drawn once, at rest and
+   without focus, and every mark made meanwhile is counted, whichever view
+   it marks. */
+- (void) checkControlsDrawNoRedisplay
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(300, 200, 420, 260)
+                                     title: @"QuirkProbe Controls redisplay"];
+  NSView *content = [window contentView];
+  NSMutableArray *views = [NSMutableArray array];
+  NSMutableArray *names = [NSMutableArray array];
+  NSMutableArray *wrong = [NSMutableArray array];
+  Method plain = class_getInstanceMethod([NSView class], @selector(setNeedsDisplay:));
+  Method inRect = class_getInstanceMethod([NSView class], @selector(setNeedsDisplayInRect:));
+  NSUInteger i;
+
+  {
+    NSTextField *field = AUTORELEASE([[NSTextField alloc] initWithFrame: NSMakeRect(20, 20, 200, 32)]);
+    NSTextField *label = AUTORELEASE([[NSTextField alloc] initWithFrame: NSMakeRect(20, 20, 200, 20)]);
+    NSSecureTextField *secure = AUTORELEASE([[NSSecureTextField alloc] initWithFrame: NSMakeRect(20, 20, 200, 32)]);
+    NSSearchField *search = AUTORELEASE([[NSSearchField alloc] initWithFrame: NSMakeRect(20, 20, 200, 32)]);
+    NSComboBox *combo = AUTORELEASE([[NSComboBox alloc] initWithFrame: NSMakeRect(20, 20, 200, 32)]);
+    NSButton *check = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(20, 20, 160, 24)]);
+    NSButton *radio = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(20, 20, 160, 24)]);
+    NSSlider *slider = AUTORELEASE([[NSSlider alloc] initWithFrame: NSMakeRect(20, 20, 200, 32)]);
+    NSStepper *stepper = AUTORELEASE([[NSStepper alloc] initWithFrame: NSMakeRect(20, 20, 20, 32)]);
+    NSColorWell *well = AUTORELEASE([[NSColorWell alloc] initWithFrame: NSMakeRect(20, 20, 60, 32)]);
+    NSDatePicker *date = AUTORELEASE([[NSDatePicker alloc] initWithFrame: NSMakeRect(20, 20, 200, 32)]);
+    NSLevelIndicator *level = AUTORELEASE([[NSLevelIndicator alloc] initWithFrame: NSMakeRect(20, 20, 200, 20)]);
+    NSProgressIndicator *progress = AUTORELEASE([[NSProgressIndicator alloc] initWithFrame: NSMakeRect(20, 20, 200, 20)]);
+    NSSwitch *toggle = AUTORELEASE([[NSSwitch alloc] initWithFrame: NSMakeRect(20, 20, 40, 20)]);
+    NSScrollView *scroll = AUTORELEASE([[NSScrollView alloc] initWithFrame: NSMakeRect(20, 20, 240, 150)]);
+    NSTableView *table = AUTORELEASE([[NSTableView alloc] initWithFrame: NSMakeRect(0, 0, 220, 150)]);
+    NSTableColumn *column = AUTORELEASE([[NSTableColumn alloc] initWithIdentifier: @"name"]);
+    NSTabView *tabs = AUTORELEASE([[NSTabView alloc] initWithFrame: NSMakeRect(20, 20, 300, 180)]);
+    NSTabViewItem *item = AUTORELEASE([[NSTabViewItem alloc] initWithIdentifier: @"one"]);
+    NSBox *box = AUTORELEASE([[NSBox alloc] initWithFrame: NSMakeRect(20, 20, 300, 180)]);
+    NSButton *push = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(20, 20, 120, 32)]);
+    NSPopUpButton *popUp = AUTORELEASE([[NSPopUpButton alloc] initWithFrame: NSMakeRect(20, 20, 200, 32) pullsDown: NO]);
+
+    [field setStringValue: @"Text"];
+    [label setStringValue: @"Label"];
+    [label setEditable: NO];
+    [label setBezeled: NO];
+    [label setDrawsBackground: NO];
+    [secure setStringValue: @"secret"];
+    [combo addItemsWithObjectValues: [NSArray arrayWithObjects: @"Value", @"Other", nil]];
+    [combo selectItemAtIndex: 0];
+    [check setButtonType: NSSwitchButton];
+    [check setTitle: @"Check"];
+    [radio setButtonType: NSRadioButton];
+    [radio setTitle: @"Radio"];
+    [slider setDoubleValue: 0.4];
+    [date setDateValue: [NSDate dateWithTimeIntervalSinceReferenceDate: 0]];
+    [level setMaxValue: 5];
+    [level setDoubleValue: 3];
+    [progress setIndeterminate: NO];
+    [progress setDoubleValue: 40];
+    [column setWidth: 200];
+    [table addTableColumn: column];
+    [table setDataSource: AUTORELEASE([QuirkProbeRows new])];
+    [scroll setDocumentView: table];
+    [scroll setHasVerticalScroller: YES];
+    [item setLabel: @"One"];
+    [tabs addTabViewItem: item];
+    [box setTitle: @"Box"];
+    [push setTitle: @"Push"];
+    [push setBezelStyle: NSRoundedBezelStyle];
+    [popUp addItemsWithTitles: [NSArray arrayWithObjects: @"A", @"B", nil]];
+
+    /* First, the control: a view that marks itself as it draws. */
+    [views addObject: AUTORELEASE([[QuirkProbeSelfMarkingView alloc] initWithFrame: NSMakeRect(20, 20, 40, 40)])];
+    [names addObject: @"self-marking view"];
+    [views addObjectsFromArray: [NSArray arrayWithObjects: field, label, secure, search, combo, check, radio,
+                                          slider, stepper, well, date, level, progress, toggle, scroll, tabs,
+                                          box, push, popUp, nil]];
+    [names addObjectsFromArray: [NSArray arrayWithObjects: @"text field", @"label", @"secure field",
+                                          @"search field", @"combo box", @"checkbox", @"radio", @"slider",
+                                          @"stepper", @"colour well", @"date picker", @"level indicator",
+                                          @"progress bar", @"switch", @"table", @"tab view", @"box",
+                                          @"push button", @"pop-up", nil]];
+  }
+
+  [window orderFront: nil];
+  [window makeFirstResponder: nil];
+  for (i = 0; i < [views count]; i++)
+    {
+      NSView *view = [views objectAtIndex: i];
+      NSDictionary *counts = nil;
+
+      [content addSubview: view];
+      [window display];
+      QuirkProbeDispatchEvents(0.05);
+      [window display];
+
+      ASSIGN(QuirkProbeMarkCounts, [NSMutableDictionary dictionary]);
+      QuirkProbeOwnSetNeedsDisplay = method_setImplementation(plain, (IMP)QuirkProbeCountingSetNeedsDisplay);
+      QuirkProbeOwnSetNeedsDisplayInRect = method_setImplementation(inRect, (IMP)QuirkProbeCountingSetNeedsDisplayInRect);
+      [view display];
+      method_setImplementation(plain, QuirkProbeOwnSetNeedsDisplay);
+      method_setImplementation(inRect, QuirkProbeOwnSetNeedsDisplayInRect);
+      counts = AUTORELEASE(RETAIN(QuirkProbeMarkCounts));
+      DESTROY(QuirkProbeMarkCounts);
+
+      if (i == 0)
+        {
+          if ([counts count] == 0)
+            {
+              [wrong addObject: @"the count saw no mark from a view that marks itself as it draws"];
+            }
+        }
+      else if ([counts count] > 0)
+        {
+          NSMutableArray *parts = [NSMutableArray array];
+          NSEnumerator *e = [[[counts allKeys] sortedArrayUsingSelector: @selector(compare:)] objectEnumerator];
+          NSString *name = nil;
+
+          while ((name = [e nextObject]) != nil)
+            {
+              [parts addObject: [NSString stringWithFormat: @"%@ %@", name, [counts objectForKey: name]]];
+            }
+          [wrong addObject: [NSString stringWithFormat: @"%@: %@", [names objectAtIndex: i],
+                                                       [parts componentsJoinedByString: @", "]]];
+        }
+      [view removeFromSuperview];
+    }
+  [window orderOut: nil];
+
+  if ([wrong count] == 0)
+    {
+      [self pass: @"controls-draw-no-redisplay" detail: [NSString stringWithFormat:
+        @"one draw each of %lu controls at rest made no -setNeedsDisplay calls (a self-marking view's were counted)",
+        (unsigned long)[views count] - 1]];
+    }
+  else
+    {
+      [self fail: @"controls-draw-no-redisplay" detail: [NSString stringWithFormat:
+        @"drawing marked views for display again: %@", [wrong componentsJoinedByString: @"; "]]];
+    }
+}
+
 - (void) checkPopUpDrawNoRedisplay
 {
   NSWindow *window = [self windowWithFrame: NSMakeRect(780, 260, 260, 80)
@@ -11812,6 +12011,7 @@ QuirkProbeInkIn(NSBitmapImageRep *rep, NSRect area, NSInteger fill, NSInteger th
   [window display];
 
   [self checkPopUpDrawNoRedisplay];
+  [self checkControlsDrawNoRedisplay];
 
   rep = QuirkProbeRender(popUp);
   scale = QuirkProbeScale(rep, popUp);
