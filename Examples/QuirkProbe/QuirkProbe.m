@@ -901,6 +901,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkSegmentedControl;
 - (void) checkControlsDrawNoRedisplay;
 - (void) checkSegmentedTrackOnSurface;
+- (void) checkButtonFillOnSurface;
 - (void) checkCellSizes;
 - (void) checkTabView;
 - (void) checkMetricsChoice;
@@ -7471,6 +7472,100 @@ QuirkProbeAccentRuns(NSBitmapImageRep *rep, NSInteger y, CGFloat scale, CGFloat 
     {
       [self fail: @"segmented-track-on-surface" detail: [NSString stringWithFormat:
         @"the track isn't a wash over its surface: %@", [wrong componentsJoinedByString: @"; "]]];
+    }
+}
+
+/* A push button's fill is WinUI's ControlFillColorDefault, white at 70%
+   (6% in dark) over what the button sits on: on the window and on a card
+   (a bezelled box) alike, the fill is that much above the surface beside
+   it. Mixed over the window alone, a dark button on a card was 2 levels
+   above the card instead of about 13, and nearly vanished into it. A
+   custom box with a clear fill leaves the button as on the window. */
+- (void) checkButtonFillOnSurface
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(240, 180, 380, 200)
+                                     title: @"QuirkProbe Button Surface"];
+  NSView *content = [window contentView];
+  NSBox *card = AUTORELEASE([[NSBox alloc] initWithFrame: NSMakeRect(10, 10, 360, 90)]);
+  NSButton *onWindow = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(20, 140, 120, 32)]);
+  NSButton *onCard = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(10, 15, 120, 32)]);
+  NSBox *clear = AUTORELEASE([[NSBox alloc] initWithFrame: NSMakeRect(200, 110, 170, 80)]);
+  NSButton *onClear = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(10, 15, 120, 32)]);
+  NSButton *buttons[3];
+  NSString *names[3] = { @"window", @"card", @"clear custom box" };
+  NSMutableArray *results = [NSMutableArray array];
+  NSMutableArray *wrong = [NSMutableArray array];
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale;
+  NSUInteger i;
+
+  if (QuirkProbeHasArgument(@"--high-contrast", nil))
+    {
+      [self skip: @"button-fill-on-surface" detail: @"high contrast fills buttons with ButtonFace"];
+      return;
+    }
+  [card setBoxType: NSBoxPrimary];
+  [card setBorderType: NSBezelBorder];
+  [card setTitlePosition: NSNoTitle];
+  [content addSubview: card];
+  /* A custom box with a clear fill shows the window: the fill is over
+     that, not over the clear colour. */
+  [clear setBoxType: NSBoxCustom];
+  [clear setFillColor: [NSColor clearColor]];
+  [clear setBorderWidth: 0.0];
+  [clear setTitlePosition: NSNoTitle];
+  [content addSubview: clear];
+  buttons[0] = onWindow;
+  buttons[1] = onCard;
+  buttons[2] = onClear;
+  for (i = 0; i < 3; i++)
+    {
+      [buttons[i] setTitle: @"OK"];
+      [buttons[i] setBezelStyle: NSRoundedBezelStyle];
+    }
+  [content addSubview: onWindow];
+  [[card contentView] addSubview: onCard];
+  [[clear contentView] addSubview: onClear];
+  [window orderFront: nil];
+  [window display];
+  rep = QuirkProbeRender(content);
+  scale = QuirkProbeScale(rep, content);
+  [self saveView: content named: @"button-fill-on-surface"];
+  for (i = 0; i < 3; i++)
+    {
+      /* Inside the button, 12pt from its leading edge (clear of the
+         stroke and of the centred title), and the surface 6pt above it. */
+      NSRect frame = [buttons[i] convertRect: [buttons[i] bounds] toView: content];
+      NSInteger x = (NSInteger)((NSMinX(frame) + 12.0) * scale);
+      NSInteger fillY = (NSInteger)((NSHeight([content bounds]) - NSMidY(frame)) * scale);
+      NSInteger surfaceY = (NSInteger)((NSHeight([content bounds]) - NSMaxY(frame) - 6.0) * scale);
+      NSUInteger r, g, b;
+      CGFloat fill, surface, alpha, expected;
+
+      QuirkProbePixel(rep, x, fillY, &r, &g, &b);
+      fill = (r + g + b) / 3.0;
+      QuirkProbePixel(rep, x, surfaceY, &r, &g, &b);
+      surface = (r + g + b) / 3.0;
+      alpha = (surface < 128.0) ? 0.06 : 0.70;
+      expected = (255.0 - surface) * alpha;
+      [results addObject: [NSString stringWithFormat: @"on the %@ %.0f over %.0f (%.1f expected)",
+                                                      names[i], fill - surface, surface, expected]];
+      if (fabs((fill - surface) - expected) > 2.0)
+        {
+          [wrong addObject: [results lastObject]];
+        }
+    }
+  [window orderOut: nil];
+
+  if ([wrong count] == 0)
+    {
+      [self pass: @"button-fill-on-surface" detail: [NSString stringWithFormat:
+        @"the fill is a wash over its surface: %@", [results componentsJoinedByString: @"; "]]];
+    }
+  else
+    {
+      [self fail: @"button-fill-on-surface" detail: [NSString stringWithFormat:
+        @"the fill isn't a wash over its surface: %@", [wrong componentsJoinedByString: @"; "]]];
     }
 }
 
@@ -15758,6 +15853,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkContrastTheme];
   [self checkSegmentedControl];
   [self checkSegmentedTrackOnSurface];
+  [self checkButtonFillOnSurface];
   [self checkCellSizes];
   [self checkTabView];
   [self checkMetricsChoice];

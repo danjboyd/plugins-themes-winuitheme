@@ -64,8 +64,9 @@ WinUIThemeDividerColor(WinUITheme *theme)
 
 /* The surface `view` sits on, for fills WinUI gives as a wash over what's
    under them: the nearest card behind it (a bezelled or grooved box, a tab
-   view's content, a browser column), a custom box's own fill, or else the
-   window. A box without a border, or with a line, draws no fill. */
+   view's content, a browser column), a custom box's own opaque fill, or else the
+   window. A box without a border, or with a line, draws no fill; nor
+   does a custom box with a clear or translucent fill. */
 NSColor *
 WinUIThemeSurfaceColorBehindView(WinUITheme *theme, NSView *view)
 {
@@ -83,9 +84,13 @@ WinUIThemeSurfaceColorBehindView(WinUITheme *theme, NSView *view)
             }
           if ([box boxType] == NSBoxCustom)
             {
-              if ([box isTransparent] == NO && [box fillColor] != nil)
+              /* Only an opaque RGB fill: a clear or translucent one (or a
+                 pattern) shows what's behind it, so look further out. */
+              NSColor *fill = [[box fillColor] colorUsingColorSpaceName: NSCalibratedRGBColorSpace];
+
+              if ([box isTransparent] == NO && fill != nil && [fill alphaComponent] >= 0.99)
                 {
-                  return [box fillColor];
+                  return fill;
                 }
               continue;
             }

@@ -81,7 +81,8 @@ WinUIThemeTextFieldUsesChromeFill(NSTextFieldCell *cell)
    the bottom; 4pt corners (#35); no gloss (#10). An accent button fills
    with the accent, at 90% under the pointer and 80% pressed. Fluent's
    colours are white or black at an opacity over the layer; these blend
-   them over the window background. The border lies over the window, not
+   them over the surface the button sits on: the window, or a card behind
+   it (WinUIThemeSurfaceColorBehindView). The border lies over that, not
    the fill (BackgroundSizing InnerBorderEdge), and in dark mode its
    lighter Secondary is the top. Pop-ups and combo boxes (#40) use it
    too. `hover` runs from 0 to 1 as the pointer-over state fades in
@@ -96,6 +97,8 @@ WinUIThemeDrawButtonChrome(WinUITheme *theme, NSRect frame, NSView *view, BOOL e
   NSColor *accent = WinUIThemeColorFromTheme(theme, @"accentColor", [NSColor selectedControlColor]);
   NSColor *window = WinUIThemeColorFromTheme(theme, @"windowBackgroundColor",
                                              [NSColor windowBackgroundColor]);
+  NSColor *surface = (view != nil && highContrast == NO)
+    ? WinUIThemeSurfaceColorBehindView(theme, view) : window;
   NSColor *text = WinUIThemeColorFromTheme(theme, @"labelColor", [NSColor controlTextColor]);
   NSColor *fillColor = nil;
   NSColor *strokeColor = nil;
@@ -128,7 +131,7 @@ WinUIThemeDrawButtonChrome(WinUITheme *theme, NSRect frame, NSView *view, BOOL e
 
       CGFloat over = 1.0 - 0.10 * hover;
 
-      fillColor = WinUIThemeBlendColor(window, accent, over + (0.80 - over) * press);
+      fillColor = WinUIThemeBlendColor(surface, accent, over + (0.80 - over) * press);
       /* ControlStrokeColorOnAccentDefault and ...Secondary. */
       strokeColor = WinUIThemeBlendColor(fillColor, [NSColor whiteColor], 0.08);
       bottomStrokeColor = WinUIThemeBlendColor(WinUIThemeBlendColor(fillColor, [NSColor blackColor],
@@ -140,8 +143,8 @@ WinUIThemeDrawButtonChrome(WinUITheme *theme, NSRect frame, NSView *view, BOOL e
   else if (enabled == NO)
     {
       /* ControlFillColorDisabled and TextFillColorDisabled. */
-      fillColor = WinUIThemeBlendColor(window, [NSColor whiteColor], dark ? 0.04 : 0.30);
-      strokeColor = WinUIThemeBlendColor(window, dark ? [NSColor whiteColor] : [NSColor blackColor],
+      fillColor = WinUIThemeBlendColor(surface, [NSColor whiteColor], dark ? 0.04 : 0.30);
+      strokeColor = WinUIThemeBlendColor(surface, dark ? [NSColor whiteColor] : [NSColor blackColor],
                                          dark ? 0.07 : 0.058);
       bottomStrokeColor = strokeColor;
       titleColor = WinUIThemeColorFromTheme(theme, @"disabledControlTextColor",
@@ -156,10 +159,10 @@ WinUIThemeDrawButtonChrome(WinUITheme *theme, NSRect frame, NSView *view, BOOL e
       NSColor *ink = dark ? [NSColor whiteColor] : [NSColor blackColor];
       /* ControlStrokeColorDefault and ...Secondary; pressed, Default all
          round. */
-      NSColor *strokeDefault = WinUIThemeBlendColor(window, ink, dark ? 0.07 : 0.058);
-      NSColor *strokeSecondary = WinUIThemeBlendColor(window, ink, dark ? 0.094 : 0.16);
+      NSColor *strokeDefault = WinUIThemeBlendColor(surface, ink, dark ? 0.07 : 0.058);
+      NSColor *strokeSecondary = WinUIThemeBlendColor(surface, ink, dark ? 0.094 : 0.16);
 
-      fillColor = WinUIThemeBlendColor(window, [NSColor whiteColor], fill);
+      fillColor = WinUIThemeBlendColor(surface, [NSColor whiteColor], fill);
       strokeColor = dark ? WinUIThemeBlendColor(strokeSecondary, strokeDefault, press) : strokeDefault;
       bottomStrokeColor = dark ? strokeDefault
         : WinUIThemeBlendColor(strokeSecondary, strokeDefault, press);
