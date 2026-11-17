@@ -903,6 +903,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkSegmentedTrackOnSurface;
 - (void) checkButtonFillOnSurface;
 - (void) checkControlFillOnSurface;
+- (void) checkInputFillOnSurface;
 - (void) checkCellSizes;
 - (void) checkTabView;
 - (void) checkMetricsChoice;
@@ -7659,6 +7660,116 @@ QuirkProbeAccentRuns(NSBitmapImageRep *rep, NSInteger y, CGFloat scale, CGFloat 
     {
       [self fail: @"control-fill-on-surface" detail: [NSString stringWithFormat:
         @"a fill isn't a wash over its surface: %@", [wrong componentsJoinedByString: @"; "]]];
+    }
+}
+
+/* Audit (draft): controls whose rest fill is a WinUI wash over the layer
+   below (TextBox: ControlFillColorDefault; an unchecked CheckBox:
+   ControlAltFillColorSecondary). The wash is inferred from the control
+   on the window (its alpha toward white or black) and predicted on a
+   card; a fill mixed over the window alone misses that prediction. */
+static CGFloat
+QuirkProbeWashAlpha(CGFloat surface, CGFloat fill)
+{
+  if (fill >= surface)
+    {
+      return (surface >= 255.0) ? 0.0 : (fill - surface) / (255.0 - surface);
+    }
+  return (surface <= 0.0) ? 0.0 : (surface - fill) / surface;
+}
+
+static CGFloat
+QuirkProbeWashOver(CGFloat surface, CGFloat alpha, BOOL toWhite)
+{
+  return toWhite ? surface + (255.0 - surface) * alpha : surface - surface * alpha;
+}
+
+- (void) checkInputFillOnSurface
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(260, 160, 440, 260)
+                                     title: @"QuirkProbe Input Surface"];
+  NSView *content = [window contentView];
+  NSBox *card = AUTORELEASE([[NSBox alloc] initWithFrame: NSMakeRect(10, 10, 420, 120)]);
+  NSView *controls[4];
+  NSPoint offsets[2] = { { 5.0, -4.0 }, { 10.0, 0.0 } };
+  NSString *names[2] = { @"text field", @"checkbox" };
+  NSMutableArray *results = [NSMutableArray array];
+  NSMutableArray *wrong = [NSMutableArray array];
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale;
+  NSUInteger i;
+
+  if (QuirkProbeHasArgument(@"--high-contrast", nil))
+    {
+      [self skip: @"input-fill-on-surface" detail: @"high contrast uses system colours"];
+      return;
+    }
+  [card setBoxType: NSBoxPrimary];
+  [card setBorderType: NSBezelBorder];
+  [card setTitlePosition: NSNoTitle];
+  [content addSubview: card];
+  for (i = 0; i < 2; i++)
+    {
+      NSView *parent = (i == 0) ? content : [card contentView];
+      CGFloat y = (i == 0) ? 190.0 : 30.0;
+      NSTextField *field = AUTORELEASE([[NSTextField alloc] initWithFrame: NSMakeRect(10, y, 150, 32)]);
+      NSButton *check = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(180, y + 6, 20, 20)]);
+
+      [field setStringValue: @""];
+      [check setButtonType: NSSwitchButton];
+      [check setTitle: @""];
+      [check setState: NSOffState];
+      [parent addSubview: field];
+      [parent addSubview: check];
+      controls[i * 2] = field;
+      controls[i * 2 + 1] = check;
+    }
+  [window orderFront: nil];
+  [window makeFirstResponder: nil];
+  [window display];
+  rep = QuirkProbeRender(content);
+  scale = QuirkProbeScale(rep, content);
+  [self saveView: content named: @"input-fill-on-surface"];
+  for (i = 0; i < 2; i++)
+    {
+      CGFloat fills[2], surfaces[2], alpha, predicted;
+      NSUInteger side;
+
+      for (side = 0; side < 2; side++)
+        {
+          NSView *control = controls[side * 2 + i];
+          NSRect frame = [control convertRect: [control bounds] toView: content];
+          CGFloat px = NSMinX(frame) + offsets[i].x;
+          CGFloat py = (offsets[i].y < 0.0) ? NSMaxY(frame) + offsets[i].y : NSMidY(frame);
+          NSInteger x = (NSInteger)(px * scale);
+          NSInteger fillY = (NSInteger)((NSHeight([content bounds]) - py) * scale);
+          NSInteger surfaceY = (NSInteger)((NSHeight([content bounds]) - NSMaxY(frame) - 6.0) * scale);
+          NSUInteger r, g, b;
+
+          QuirkProbePixel(rep, x, fillY, &r, &g, &b);
+          fills[side] = (r + g + b) / 3.0;
+          QuirkProbePixel(rep, x, surfaceY, &r, &g, &b);
+          surfaces[side] = (r + g + b) / 3.0;
+        }
+      alpha = QuirkProbeWashAlpha(surfaces[0], fills[0]);
+      predicted = QuirkProbeWashOver(surfaces[1], alpha, fills[0] >= surfaces[0]);
+      [results addObject: [NSString stringWithFormat:
+        @"%@: on the window %.0f on %.0f (wash %.3f), on the card %.0f on %.0f (%.1f predicted)",
+        names[i], fills[0], surfaces[0], alpha, fills[1], surfaces[1], predicted]];
+      if (fabs(fills[1] - predicted) > 2.0)
+        {
+          [wrong addObject: [results lastObject]];
+        }
+    }
+  [window orderOut: nil];
+
+  if ([wrong count] == 0)
+    {
+      [self pass: @"input-fill-on-surface" detail: [results componentsJoinedByString: @"; "]];
+    }
+  else
+    {
+      [self fail: @"input-fill-on-surface" detail: [wrong componentsJoinedByString: @"; "]];
     }
 }
 
@@ -15948,6 +16059,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkSegmentedTrackOnSurface];
   [self checkButtonFillOnSurface];
   [self checkControlFillOnSurface];
+  [self checkInputFillOnSurface];
   [self checkCellSizes];
   [self checkTabView];
   [self checkMetricsChoice];
