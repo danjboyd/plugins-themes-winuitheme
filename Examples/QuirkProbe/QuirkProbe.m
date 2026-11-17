@@ -887,6 +887,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkBoxes;
 - (void) checkContrastTheme;
 - (void) checkSegmentedControl;
+- (void) checkSegmentedTrackOnSurface;
 - (void) checkCellSizes;
 - (void) checkTabView;
 - (void) checkMetricsChoice;
@@ -7379,6 +7380,85 @@ QuirkProbeAccentRuns(NSBitmapImageRep *rep, NSInteger y, CGFloat scale, CGFloat 
       }
   }
   [window orderOut: nil];
+}
+
+/* The segmented track is WinUI's ControlAltFillColorSecondary, a wash
+   (black at 2.4%, 10% in dark) over what the control sits on (#162): on
+   the window and on a card (a bezelled box) alike, the track is that much
+   below the surface just above it. Over the window alone, the track on a
+   card was 14-15 levels down instead of 5-6. */
+- (void) checkSegmentedTrackOnSurface
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(220, 160, 380, 200)
+                                     title: @"QuirkProbe Segment Track"];
+  NSView *content = [window contentView];
+  NSBox *card = AUTORELEASE([[NSBox alloc] initWithFrame: NSMakeRect(10, 10, 360, 90)]);
+  NSSegmentedControl *onWindow = nil;
+  NSSegmentedControl *onCard = nil;
+  NSSegmentedControl *controls[2];
+  NSString *names[2] = { @"window", @"card" };
+  NSMutableArray *results = [NSMutableArray array];
+  NSMutableArray *wrong = [NSMutableArray array];
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale;
+  NSUInteger i;
+
+  if (QuirkProbeHasArgument(@"--high-contrast", nil))
+    {
+      [self skip: @"segmented-track-on-surface" detail: @"high contrast fills the track with the window colour"];
+      return;
+    }
+  [card setBoxType: NSBoxPrimary];
+  [card setBorderType: NSBezelBorder];
+  [card setTitlePosition: NSNoTitle];
+  [content addSubview: card];
+  onWindow = QuirkProbeSegments(content, NSMakeRect(20, 140, 300, 32), NSSegmentSwitchTrackingSelectOne);
+  onCard = QuirkProbeSegments([card contentView], NSMakeRect(10, 15, 300, 32), NSSegmentSwitchTrackingSelectOne);
+  [onWindow setSelectedSegment: 0];
+  [onCard setSelectedSegment: 0];
+  [window orderFront: nil];
+  [window display];
+  rep = QuirkProbeRender(content);
+  scale = QuirkProbeScale(rep, content);
+  [self saveView: content named: @"segmented-track-on-surface"];
+  controls[0] = onWindow;
+  controls[1] = onCard;
+  for (i = 0; i < 2; i++)
+    {
+      /* The join between the two unselected segments, at mid-height, and
+         the surface 6pt above the control. */
+      NSRect frame = [controls[i] convertRect: [controls[i] bounds] toView: content];
+      NSInteger x = (NSInteger)((NSMinX(frame) + 200.0) * scale);
+      NSInteger trackY = (NSInteger)((NSHeight([content bounds]) - NSMidY(frame)) * scale);
+      NSInteger surfaceY = (NSInteger)((NSHeight([content bounds]) - NSMaxY(frame) - 6.0) * scale);
+      NSUInteger r, g, b;
+      CGFloat track, surface, alpha, expected;
+
+      QuirkProbePixel(rep, x, trackY, &r, &g, &b);
+      track = (r + g + b) / 3.0;
+      QuirkProbePixel(rep, x, surfaceY, &r, &g, &b);
+      surface = (r + g + b) / 3.0;
+      alpha = (surface < 128.0) ? 0.10 : 0.024;
+      expected = surface * alpha;
+      [results addObject: [NSString stringWithFormat: @"on the %@ %.0f under %.0f (%.1f expected)",
+                                                      names[i], surface - track, surface, expected]];
+      if (fabs((surface - track) - expected) > 2.0)
+        {
+          [wrong addObject: [results lastObject]];
+        }
+    }
+  [window orderOut: nil];
+
+  if ([wrong count] == 0)
+    {
+      [self pass: @"segmented-track-on-surface" detail: [NSString stringWithFormat:
+        @"the track is a wash over its surface: %@", [results componentsJoinedByString: @"; "]]];
+    }
+  else
+    {
+      [self fail: @"segmented-track-on-surface" detail: [NSString stringWithFormat:
+        @"the track isn't a wash over its surface: %@", [wrong componentsJoinedByString: @"; "]]];
+    }
 }
 
 /* -cellSize gives the height the theme draws a control at (issue #86). An
@@ -15472,6 +15552,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkBoxes];
   [self checkContrastTheme];
   [self checkSegmentedControl];
+  [self checkSegmentedTrackOnSurface];
   [self checkCellSizes];
   [self checkTabView];
   [self checkMetricsChoice];

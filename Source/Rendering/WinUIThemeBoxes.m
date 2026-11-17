@@ -62,6 +62,55 @@ WinUIThemeDividerColor(WinUITheme *theme)
   return WinUIThemeBlendColor(window, text, [[theme settings] highContrastEnabled] ? 1.0 : 0.08);
 }
 
+/* The surface `view` sits on, for fills WinUI gives as a wash over what's
+   under them: the nearest card behind it (a bezelled or grooved box, a tab
+   view's content, a browser column), a custom box's own fill, or else the
+   window. A box without a border, or with a line, draws no fill. */
+NSColor *
+WinUIThemeSurfaceColorBehindView(WinUITheme *theme, NSView *view)
+{
+  NSView *ancestor = nil;
+
+  for (ancestor = [view superview]; ancestor != nil; ancestor = [ancestor superview])
+    {
+      if ([ancestor isKindOfClass: [NSBox class]])
+        {
+          NSBox *box = (NSBox *)ancestor;
+
+          if ([box boxType] == NSBoxSeparator)
+            {
+              continue;
+            }
+          if ([box boxType] == NSBoxCustom)
+            {
+              if ([box isTransparent] == NO && [box fillColor] != nil)
+                {
+                  return [box fillColor];
+                }
+              continue;
+            }
+          if ([box borderType] != NSNoBorder && [box borderType] != NSLineBorder)
+            {
+              return WinUIThemeBrowserCardColor(theme);
+            }
+        }
+      else if ([ancestor isKindOfClass: [NSTabView class]])
+        {
+          NSTabViewType type = [(NSTabView *)ancestor tabViewType];
+
+          if (type == NSTopTabsBezelBorder || type == NSNoTabsBezelBorder)
+            {
+              return WinUIThemeBrowserCardColor(theme);
+            }
+        }
+      else if (WinUIThemeIsBrowserColumn(ancestor))
+        {
+          return WinUIThemeBrowserCardColor(theme);
+        }
+    }
+  return WinUIThemeColorFromTheme(theme, @"windowBackgroundColor", [NSColor windowBackgroundColor]);
+}
+
 /* The card's colours: the browser column's (WinUIThemeBrowser.m). */
 static void
 WinUIThemeDrawBoxCard(WinUITheme *theme, NSRect frame)

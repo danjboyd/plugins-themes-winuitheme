@@ -1112,7 +1112,12 @@ static char WinUIThemeButtonStyleKey;
   /* WinUI's Segmented control (#48): one rounded container,
      ControlAltFillColorSecondary inside ControlStrokeColorDefault, with no
      dividers between segments. Each segment draws its share; at a join the
-     outline runs past the segment's edge, so no line is drawn there. */
+     outline runs past the segment's edge, so no line is drawn there. The
+     fill is a wash (black at 2.4%, 10% dark) over the surface the control
+     sits on, a card or the window, as the Toolkit's is: over the window
+     alone it was 14-15 levels below a card instead of 5-6 (#162). It's
+     blended here, not drawn translucent, so a redraw over the control's
+     old pixels doesn't darken it. */
   if (highContrast)
     {
       containerFill = window;
@@ -1122,7 +1127,8 @@ static char WinUIThemeButtonStyleKey;
     }
   else
     {
-      containerFill = WinUIThemeBlendColor(window, [NSColor blackColor], dark ? 0.10 : 0.024);
+      containerFill = WinUIThemeBlendColor(WinUIThemeSurfaceColorBehindView(self, controlView),
+                                           [NSColor blackColor], dark ? 0.10 : 0.024);
       containerStroke = WinUIThemeBlendColor(containerFill, ink, dark ? 0.08 : 0.07);
     }
   if (roundedLeft == NO)
