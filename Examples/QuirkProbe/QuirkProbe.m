@@ -14508,7 +14508,10 @@ QuirkProbeAnimates(NSView *view, void (*change)(NSView *, BOOL), NSString **deta
 - (void) checkMotion
 {
   NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-  NSWindow *window = [self windowWithFrame: NSMakeRect(420, 300, 300, 80)
+  /* Tall enough for the row hover's table (y 60-150): a view outside the
+     window isn't in its backing store, which the renders read at a desktop
+     scale, so its first row read as never filled. */
+  NSWindow *window = [self windowWithFrame: NSMakeRect(420, 300, 300, 160)
                                      title: @"QuirkProbe Motion"];
   NSButton *button = AUTORELEASE([[NSButton alloc] initWithFrame: NSMakeRect(20, 20, 120, 32)]);
   CGFloat scale = 1.0;
@@ -14668,11 +14671,6 @@ QuirkProbeAnimates(NSView *view, void (*change)(NSView *, BOOL), NSString **deta
     else if (QuirkProbeAnimates(table, QuirkProbeHoverFirstRow, &detail))
       {
         [self pass: @"motion-row-hover-fades" detail: detail];
-      }
-    else if (QuirkProbeDesktopScale() > 1.01)
-      {
-        [self known: @"motion-row-hover-fades" detail: [NSString stringWithFormat:
-          @"%@: no hover fill at a desktop scale in the probe, cause not found", detail]];
       }
     else
       {
