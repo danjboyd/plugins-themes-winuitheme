@@ -902,6 +902,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkControlsDrawNoRedisplay;
 - (void) checkSegmentedTrackOnSurface;
 - (void) checkButtonFillOnSurface;
+- (void) checkControlFillOnSurface;
 - (void) checkCellSizes;
 - (void) checkTabView;
 - (void) checkMetricsChoice;
@@ -7566,6 +7567,98 @@ QuirkProbeAccentRuns(NSBitmapImageRep *rep, NSInteger y, CGFloat scale, CGFloat 
     {
       [self fail: @"button-fill-on-surface" detail: [NSString stringWithFormat:
         @"the fill isn't a wash over its surface: %@", [wrong componentsJoinedByString: @"; "]]];
+    }
+}
+
+/* Pop-ups, colour wells and date fields share the push button's chrome
+   (WinUIThemeDrawButtonChrome): their fill is the same wash over the
+   surface they sit on, the window or a card (#209). Each is measured 5pt
+   in and 4pt down from its top-left corner, clear of the corner, the
+   colour well's swatch and the date's text. */
+- (void) checkControlFillOnSurface
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(260, 160, 440, 260)
+                                     title: @"QuirkProbe Control Surface"];
+  NSView *content = [window contentView];
+  NSBox *card = AUTORELEASE([[NSBox alloc] initWithFrame: NSMakeRect(10, 10, 420, 120)]);
+  NSControl *controls[6];
+  NSString *names[3] = { @"pop-up", @"colour well", @"date field" };
+  NSMutableArray *results = [NSMutableArray array];
+  NSMutableArray *wrong = [NSMutableArray array];
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale;
+  NSUInteger i;
+
+  if (QuirkProbeHasArgument(@"--high-contrast", nil))
+    {
+      [self skip: @"control-fill-on-surface" detail: @"high contrast fills controls with ButtonFace"];
+      return;
+    }
+  [card setBoxType: NSBoxPrimary];
+  [card setBorderType: NSBezelBorder];
+  [card setTitlePosition: NSNoTitle];
+  [content addSubview: card];
+  for (i = 0; i < 2; i++)
+    {
+      NSView *parent = (i == 0) ? content : [card contentView];
+      CGFloat y = (i == 0) ? 190.0 : 30.0;
+      NSPopUpButton *popUp = AUTORELEASE([[NSPopUpButton alloc] initWithFrame: NSMakeRect(10, y, 130, 32)
+                                                                     pullsDown: NO]);
+      NSColorWell *well = AUTORELEASE([[NSColorWell alloc] initWithFrame: NSMakeRect(160, y, 64, 32)]);
+      NSDatePicker *date = AUTORELEASE([[NSDatePicker alloc] initWithFrame: NSMakeRect(240, y, 160, 32)]);
+
+      [popUp addItemsWithTitles: [NSArray arrayWithObjects: @"One", @"Two", nil]];
+      [well setColor: [NSColor colorWithCalibratedRed: 1.0 green: 0.0 blue: 0.0 alpha: 1.0]];
+      [date setDatePickerElements: NSYearMonthDayDatePickerElementFlag];
+      [date setTimeZone: [NSTimeZone timeZoneWithName: @"America/Chicago"]];
+      [date setDateValue: [NSCalendarDate dateWithYear: 2026 month: 10 day: 5 hour: 12 minute: 0 second: 0
+                                              timeZone: [NSTimeZone timeZoneWithName: @"America/Chicago"]]];
+      [parent addSubview: popUp];
+      [parent addSubview: well];
+      [parent addSubview: date];
+      controls[i * 3] = popUp;
+      controls[i * 3 + 1] = well;
+      controls[i * 3 + 2] = date;
+    }
+  [window orderFront: nil];
+  [window display];
+  rep = QuirkProbeRender(content);
+  scale = QuirkProbeScale(rep, content);
+  [self saveView: content named: @"control-fill-on-surface"];
+  for (i = 0; i < 6; i++)
+    {
+      NSRect frame = [controls[i] convertRect: [controls[i] bounds] toView: content];
+      NSInteger x = (NSInteger)((NSMinX(frame) + 5.0) * scale);
+      NSInteger fillY = (NSInteger)((NSHeight([content bounds]) - NSMaxY(frame) + 4.0) * scale);
+      NSInteger surfaceY = (NSInteger)((NSHeight([content bounds]) - NSMaxY(frame) - 6.0) * scale);
+      NSUInteger r, g, b;
+      CGFloat fill, surface, alpha, expected;
+
+      QuirkProbePixel(rep, x, fillY, &r, &g, &b);
+      fill = (r + g + b) / 3.0;
+      QuirkProbePixel(rep, x, surfaceY, &r, &g, &b);
+      surface = (r + g + b) / 3.0;
+      alpha = (surface < 128.0) ? 0.06 : 0.70;
+      expected = (255.0 - surface) * alpha;
+      [results addObject: [NSString stringWithFormat: @"%@ on the %@ %.0f over %.0f (%.1f expected)",
+                                                      names[i % 3], (i < 3) ? @"window" : @"card",
+                                                      fill - surface, surface, expected]];
+      if (fabs((fill - surface) - expected) > 2.0)
+        {
+          [wrong addObject: [results lastObject]];
+        }
+    }
+  [window orderOut: nil];
+
+  if ([wrong count] == 0)
+    {
+      [self pass: @"control-fill-on-surface" detail: [NSString stringWithFormat:
+        @"the fills are a wash over their surface: %@", [results componentsJoinedByString: @"; "]]];
+    }
+  else
+    {
+      [self fail: @"control-fill-on-surface" detail: [NSString stringWithFormat:
+        @"a fill isn't a wash over its surface: %@", [wrong componentsJoinedByString: @"; "]]];
     }
 }
 
@@ -15854,6 +15947,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkSegmentedControl];
   [self checkSegmentedTrackOnSurface];
   [self checkButtonFillOnSurface];
+  [self checkControlFillOnSurface];
   [self checkCellSizes];
   [self checkTabView];
   [self checkMetricsChoice];

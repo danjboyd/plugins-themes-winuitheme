@@ -47,6 +47,9 @@ $configurationArguments = @{
   "dark"          = @("--mode", "dark")
   "high-contrast" = @("--mode", "light", "--high-contrast", "yes")
   "light-150"     = @("--mode", "light", "--scale", "1.5")
+  # Dark at 150% (#209): card fills and washes at a scaled desktop. Not in
+  # the default list; run it with -Configuration dark-150.
+  "dark-150"      = @("--mode", "dark", "--scale", "1.5")
   # Windows' Text size at 150% (Accessibility).
   "large-text"    = @("--mode", "light", "-WinUIThemeTextScaleFactor", "150")
   # Compact metrics (#31), as apps with a main nib or Gorm file get them.
