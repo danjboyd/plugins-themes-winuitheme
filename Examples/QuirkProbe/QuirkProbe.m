@@ -7406,14 +7406,15 @@ QuirkProbeAccentRuns(NSBitmapImageRep *rep, NSInteger y, CGFloat scale, CGFloat 
    card was 14-15 levels down instead of 5-6. */
 - (void) checkSegmentedTrackOnSurface
 {
-  NSWindow *window = [self windowWithFrame: NSMakeRect(220, 160, 380, 200)
+  NSWindow *window = [self windowWithFrame: NSMakeRect(220, 160, 380, 290)
                                      title: @"QuirkProbe Segment Track"];
   NSView *content = [window contentView];
-  NSBox *card = AUTORELEASE([[NSBox alloc] initWithFrame: NSMakeRect(10, 10, 360, 90)]);
-  NSSegmentedControl *onWindow = nil;
-  NSSegmentedControl *onCard = nil;
-  NSSegmentedControl *controls[2];
-  NSString *names[2] = { @"window", @"card" };
+  NSBox *card = AUTORELEASE([[NSBox alloc] initWithFrame: NSMakeRect(10, 10, 360, 140)]);
+  NSSegmentedControl *controls[4];
+  /* Disabled as well as enabled: the track is the same wash in every
+     state, so a disabled control on a card isn't the window's colour
+     either. */
+  NSString *names[4] = { @"window", @"card", @"window, disabled", @"card, disabled" };
   NSMutableArray *results = [NSMutableArray array];
   NSMutableArray *wrong = [NSMutableArray array];
   NSBitmapImageRep *rep = nil;
@@ -7429,18 +7430,21 @@ QuirkProbeAccentRuns(NSBitmapImageRep *rep, NSInteger y, CGFloat scale, CGFloat 
   [card setBorderType: NSBezelBorder];
   [card setTitlePosition: NSNoTitle];
   [content addSubview: card];
-  onWindow = QuirkProbeSegments(content, NSMakeRect(20, 140, 300, 32), NSSegmentSwitchTrackingSelectOne);
-  onCard = QuirkProbeSegments([card contentView], NSMakeRect(10, 15, 300, 32), NSSegmentSwitchTrackingSelectOne);
-  [onWindow setSelectedSegment: 0];
-  [onCard setSelectedSegment: 0];
+  controls[0] = QuirkProbeSegments(content, NSMakeRect(20, 235, 300, 32), NSSegmentSwitchTrackingSelectOne);
+  controls[1] = QuirkProbeSegments([card contentView], NSMakeRect(10, 70, 300, 32), NSSegmentSwitchTrackingSelectOne);
+  controls[2] = QuirkProbeSegments(content, NSMakeRect(20, 180, 300, 32), NSSegmentSwitchTrackingSelectOne);
+  controls[3] = QuirkProbeSegments([card contentView], NSMakeRect(10, 15, 300, 32), NSSegmentSwitchTrackingSelectOne);
+  for (i = 0; i < 4; i++)
+    {
+      [controls[i] setSelectedSegment: 0];
+      [controls[i] setEnabled: (i < 2)];
+    }
   [window orderFront: nil];
   [window display];
   rep = QuirkProbeRender(content);
   scale = QuirkProbeScale(rep, content);
   [self saveView: content named: @"segmented-track-on-surface"];
-  controls[0] = onWindow;
-  controls[1] = onCard;
-  for (i = 0; i < 2; i++)
+  for (i = 0; i < 4; i++)
     {
       /* The join between the two unselected segments, at mid-height, and
          the surface 6pt above the control. */
