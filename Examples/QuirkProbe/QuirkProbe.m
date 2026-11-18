@@ -9317,9 +9317,54 @@ QuirkProbeHitTest(HWND hwnd, int x, int y)
 
 /* The pixels of ink in a window's close button (its last 46x32pt of the
    caption row) as the screen shows it: the ones unlike the button's
-   corner. */
+   corner. The probe runs on a desktop with other windows (a terminal
+   that started it, say), and Windows' foreground lock keeps
+   -makeKeyAndOrderFront: from raising a background process's window
+   above them, so the capture saw that window instead and the check
+   always skipped. The window is made topmost, without activating it, for
+   the capture, then put back. If something is still on top (another
+   topmost window), `covered` names its class and the result is 0. */
+static NSUInteger QuirkProbeCloseButtonInkCapture(HWND hwnd);
+
 static NSUInteger
-QuirkProbeCloseButtonInkOnScreen(HWND hwnd)
+QuirkProbeCloseButtonInkOnScreen(HWND hwnd, NSString **covered)
+{
+  CGFloat desktopScale = QuirkProbeDesktopScale();
+  RECT clientRect;
+  POINT clientOrigin = {0, 0};
+  POINT centre;
+  HWND top;
+  NSUInteger result;
+
+  SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+  /* Give DWM a frame or two to composite the raised window. */
+  Sleep(200);
+  GetClientRect(hwnd, &clientRect);
+  ClientToScreen(hwnd, &clientOrigin);
+  centre.x = clientOrigin.x + clientRect.right - (LONG)round(23.0 * desktopScale);
+  centre.y = clientOrigin.y + (LONG)round(16.0 * desktopScale);
+  top = WindowFromPoint(centre);
+  if (top != NULL && GetAncestor(top, GA_ROOT) != hwnd)
+    {
+      char name[128] = "";
+
+      GetClassNameA(GetAncestor(top, GA_ROOT), name, sizeof(name));
+      if (covered != NULL)
+        {
+          *covered = [NSString stringWithUTF8String: name];
+        }
+      result = 0;
+    }
+  else
+    {
+      result = QuirkProbeCloseButtonInkCapture(hwnd);
+    }
+  SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+  return result;
+}
+
+static NSUInteger
+QuirkProbeCloseButtonInkCapture(HWND hwnd)
 {
   CGFloat desktop = QuirkProbeDesktopScale();
   int width = (int)round(46.0 * desktop);
@@ -9619,6 +9664,8 @@ static volatile LONG QuirkProbeMoveLoopDragOverAfterModal = 0;
   DWORD transparency = 1;
   DWORD size = sizeof(transparency);
   BOOL unseen = NO;
+  NSString *unseenBy = nil;
+  NSString *inkReport = @"";
 
   RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
                L"EnableTransparency", RRF_RT_REG_DWORD, NULL, &transparency, &size);
@@ -9698,23 +9745,35 @@ static volatile LONG QuirkProbeMoveLoopDragOverAfterModal = 0;
       {
         NSWindow *plain;
         NSUInteger withMica, without;
+        NSString *coveredMica = nil, *coveredPlain = nil;
 
         [window makeKeyAndOrderFront: nil];
         [frameView display];
         QuirkProbeDispatchEvents(0.5);
-        withMica = QuirkProbeCloseButtonInkOnScreen((HWND)[window windowHandle]);
+        withMica = QuirkProbeCloseButtonInkOnScreen((HWND)[window windowHandle], &coveredMica);
         [[NSUserDefaults standardUserDefaults] setBool: NO forKey: @"WinUIThemeMica"];
         plain = [self windowWithFrame: NSMakeRect(240, 260, 320, 200) title: @"QuirkProbe No Mica"];
         [plain makeKeyAndOrderFront: nil];
         [plain display];
         QuirkProbeDispatchEvents(0.5);
-        without = QuirkProbeCloseButtonInkOnScreen((HWND)[plain windowHandle]);
+        without = QuirkProbeCloseButtonInkOnScreen((HWND)[plain windowHandle], &coveredPlain);
         [plain orderOut: nil];
-        /* No ink on a plain window: something is in the way on the screen,
-           so this part saw nothing (a skip, not a pass). */
-        if (without == 0)
+        /* Either window covered, or no ink on a plain window: this part saw
+           nothing (a skip, not a pass). A covered Mica window would read as
+           no ink, which would pass. */
+        if (coveredMica != nil || coveredPlain != nil || without == 0)
           {
             unseen = YES;
+            unseenBy = (coveredMica != nil) ? coveredMica : coveredPlain;
+          }
+        else
+          {
+            inkReport = [NSString stringWithFormat: @"; close button ink %lu with Mica, %lu without",
+                                                    (unsigned long)withMica, (unsigned long)without];
+          }
+        if (unseen)
+          {
+            /* nothing to compare */
           }
         else if (withMica > without * 3 / 2 + 4)
           {
@@ -9730,12 +9789,15 @@ static volatile LONG QuirkProbeMoveLoopDragOverAfterModal = 0;
   [[NSUserDefaults standardUserDefaults] setBool: NO forKey: @"WinUIThemeMica"];
   if ([problems count] == 0 && unseen)
     {
-      [self skip: @"mica-chrome" detail:
-        @"no close button ink on the screen even without Mica (a window in the way?), so DWM's buttons weren't checked; Mica, the menu bar and the panel were fine"];
+      [self skip: @"mica-chrome" detail: [NSString stringWithFormat:
+        @"the close button wasn't visible on the screen (%@), so DWM's buttons weren't checked; Mica, the menu bar and the panel were fine",
+        (unseenBy != nil) ? [NSString stringWithFormat: @"a %@ window stays on top of it", unseenBy]
+                          : @"no ink even without Mica"]];
     }
   else if ([problems count] == 0)
     {
-      [self pass: @"mica-chrome" detail: @"Mica behind a transparent menu bar, opaque content; none on a panel"];
+      [self pass: @"mica-chrome" detail: [NSString stringWithFormat:
+        @"Mica behind a transparent menu bar, opaque content; none on a panel%@", inkReport]];
     }
   else
     {
