@@ -104,7 +104,23 @@ foreach ($name in $Configuration) {
 
     Write-Output "== $name"
     $finished = $process.WaitForExit($TimeoutSeconds * 1000)
+    $hangLog = $null
     if (-not $finished) {
+      # Where it hung: every thread's backtrace, from MSYS2's lldb when
+      # there is one, before the probe is killed. lldb's batch mode treats
+      # the attach break as a crash, so the commands go in -k.
+      $lldb = "C:\msys64\clang64\bin\lldb.exe"
+      if (Test-Path $lldb) {
+        $hangLog = Join-Path $logDirectory "$name.hang.txt"
+        $debugger = Start-Process -FilePath $lldb -PassThru -WindowStyle Hidden `
+                                  -ArgumentList @("--batch", "-p", $process.Id, "-k", "`"thread backtrace all`"",
+                                                  "-k", "`"process detach`"", "-k", "quit") `
+                                  -RedirectStandardOutput $hangLog `
+                                  -RedirectStandardError (Join-Path $logDirectory "$name.hang.err")
+        if (-not $debugger.WaitForExit(90000)) {
+          Stop-Process -Id $debugger.Id -Force -ErrorAction SilentlyContinue
+        }
+      }
       Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
       $null = $process.WaitForExit(5000)
     }
@@ -116,6 +132,16 @@ foreach ($name in $Configuration) {
     # What it had got through, and anything it said, to show where it hung.
     Get-Content $stdout -Tail 20 -ErrorAction SilentlyContinue | ForEach-Object { "  out: $_" }
     Get-Content $stderr -Tail 40 -ErrorAction SilentlyContinue | ForEach-Object { "  err: $_" }
+    if ($hangLog -and (Test-Path $hangLog)) {
+      # The main thread's innermost frames; the whole dump is in the file.
+      $main = @(Get-Content $hangLog | Select-String -Pattern '^\*? *thread #1\b' -Context 0, 12)
+      if ($main.Count -gt 0) {
+        "  hang: thread #1 (all threads in $hangLog)"
+        $main[0].Context.PostContext | Where-Object { $_ -match 'frame #' } | ForEach-Object { "  hang: $($_.Trim())" }
+      } else {
+        "  hang: no backtrace in $hangLog"
+      }
+    }
     $totalFailed += 1
     continue
   }
