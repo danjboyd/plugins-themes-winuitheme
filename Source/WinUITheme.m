@@ -224,6 +224,7 @@ WinUIThemeRightTextAlignment(void)
                                            selector: @selector(defaultsDidChange:)
                                                name: NSUserDefaultsDidChangeNotification
                                              object: nil];
+  WinUIThemeOverlayScrollersSettingChanged();
   WinUIThemeToolbarInMenuBarSetActive(YES);
   if ([self shouldUseWindowIntegration])
     {
@@ -252,7 +253,7 @@ WinUIThemeRightTextAlignment(void)
 
 /* Settings that apply to open windows, changed by the app or the user
    (NSUserDefaults notices a `defaults write` when it synchronises): the
-   toolbar in the menu bar's row (#91). */
+   toolbar in the menu bar's row (#91), and overlay scroll bars. */
 - (void) defaultsDidChange: (NSNotification *)notification
 {
   /* Defaults may change on any thread; windows only on the main one. */
@@ -264,6 +265,7 @@ WinUIThemeRightTextAlignment(void)
       return;
     }
   WinUIThemeToolbarInMenuBarSettingChanged();
+  WinUIThemeOverlayScrollersSettingChanged();
 }
 
 /* Once the app's own launch code has run (it may build its menus then). */

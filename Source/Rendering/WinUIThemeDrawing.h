@@ -63,6 +63,10 @@ CGFloat WinUIThemeOverlayCornerRadius(WinUITheme *theme);
 /* YES when scroll bars overlay the content and hide (WinUIThemeScrollers.m). */
 BOOL WinUIThemeUsesOverlayScrollers(void);
 
+/* After a defaults change: when overlay scroll bars turned on or off, lay
+   out the open scroll views again (WinUIThemeScrollers.m). */
+void WinUIThemeOverlayScrollersSettingChanged(void);
+
 /* YES while focus rings show: after a key press, until a pointer press
    (WinUIThemeFocus.m). */
 BOOL WinUIThemeKeyboardFocusVisible(void);
