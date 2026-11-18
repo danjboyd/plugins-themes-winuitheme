@@ -92,6 +92,15 @@ foreach ($name in $Configuration) {
   # A fresh home for each configuration, so one can't leave defaults that
   # change the next.
   $testHome = Enter-GNUstepTestHome -Backend $Backend
+  # The pasteboard daemon (gpbs) a probe starts with --auto outlives it by
+  # about 8 s, then exits. The next configuration started inside that
+  # window found the dying gpbs, and its first pasteboard request (an
+  # editable combo box taking focus) failed with "port was invalidated":
+  # desert, after the quick dusk, every time. So each configuration waits
+  # for the gpbs its predecessor started to exit. Nothing is stopped: gpbs
+  # is the desktop's pasteboard server, and ones already running are left
+  # alone.
+  $gpbsBefore = @(Get-Process -Name gpbs -ErrorAction SilentlyContinue | ForEach-Object { $_.Id })
   try {
     $process = Start-Process -FilePath $probeExe `
                              -WorkingDirectory (Split-Path -Parent $probeExe) `
@@ -126,6 +135,12 @@ foreach ($name in $Configuration) {
     }
   } finally {
     Exit-GNUstepTestHome $testHome
+  }
+  $started = @(Get-Process -Name gpbs -ErrorAction SilentlyContinue | Where-Object { $gpbsBefore -notcontains $_.Id })
+  foreach ($daemon in $started) {
+    if (-not $daemon.WaitForExit(20000)) {
+      Write-Output "NOTE  gpbs $($daemon.Id), started by this run, still running after 20 s; the next configuration may meet it"
+    }
   }
   if (-not $finished) {
     Write-Output "FAIL  probe: timed out after $TimeoutSeconds s"
