@@ -15077,6 +15077,120 @@ QuirkProbeAnimates(NSView *view, void (*change)(NSView *, BOOL), NSString **deta
   return QuirkProbeAnimatesBy(view, change, 40, detail);
 }
 
+/* The switch knob's centre along its middle pixel row, in pixels: the
+   centroid of the pixels that stand out from the row's median (the
+   track), skipping `inset` pixels at each end (the track's outline). NO
+   when nothing stands out. */
+static BOOL
+QuirkProbeKnobCentre(NSBitmapImageRep *rep, NSInteger inset, CGFloat *centre)
+{
+  NSInteger width = [rep pixelsWide];
+  NSInteger y = [rep pixelsHigh] / 2;
+  NSInteger count = width - 2 * inset;
+  NSInteger x;
+  CGFloat *row = NULL;
+  CGFloat *sorted = NULL;
+  CGFloat median, sum = 0.0, weights = 0.0;
+
+  if (count < 4)
+    {
+      return NO;
+    }
+  row = malloc(sizeof(CGFloat) * count);
+  sorted = malloc(sizeof(CGFloat) * count);
+  for (x = 0; x < count; x++)
+    {
+      NSUInteger r, g, b;
+
+      QuirkProbePixel(rep, x + inset, y, &r, &g, &b);
+      row[x] = (r + g + b) / 3.0;
+      sorted[x] = row[x];
+    }
+  /* An insertion sort: a row is a few dozen pixels. */
+  for (x = 1; x < count; x++)
+    {
+      CGFloat value = sorted[x];
+      NSInteger i = x - 1;
+
+      while (i >= 0 && sorted[i] > value)
+        {
+          sorted[i + 1] = sorted[i];
+          i--;
+        }
+      sorted[i + 1] = value;
+    }
+  median = sorted[count / 2];
+  for (x = 0; x < count; x++)
+    {
+      CGFloat weight = fabs(row[x] - median);
+
+      if (weight > 40.0)
+        {
+          sum += weight * (x + inset + 0.5);
+          weights += weight;
+        }
+    }
+  free(row);
+  free(sorted);
+  if (weights <= 0.0)
+    {
+      return NO;
+    }
+  *centre = sum / weights;
+  return YES;
+}
+
+/* motion-switch-slides by the knob's position, for a fractional gui scale
+   (#212): there libs-gui redraws the non-opaque switch over its old
+   pixels once per frame, so its antialiased outline and knob edges build
+   up and never match a single redraw, though the knob has arrived. The
+   knob must start at least half its travel from where it's going and end
+   within a pixel of it; a knob that jumps there at once fails. */
+static BOOL
+QuirkProbeSwitchKnobSlides(NSView *view, NSString **detail)
+{
+  NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+  NSBitmapImageRep *target = nil;
+  NSBitmapImageRep *start = nil;
+  NSBitmapImageRep *end = nil;
+  CGFloat scale, travel, targetX = -1.0, startX = -1.0, endX = -1.0;
+  NSInteger inset;
+  BOOL found;
+
+  QuirkProbeDispatchEvents(0.2);
+  [defaults setBool: NO forKey: @"WinUIThemeAnimations"];
+  QuirkProbeCheck(view, YES);
+  [view setNeedsDisplay: YES];
+  QuirkProbeDispatchEvents(0.1);
+  target = QuirkProbeRender(view);
+  QuirkProbeCheck(view, NO);
+  [view display];
+  [defaults setBool: YES forKey: @"WinUIThemeAnimations"];
+  QuirkProbeCheck(view, YES);
+  [view display];
+  start = QuirkProbeRender(view);
+  QuirkProbeDispatchEvents(0.3);
+  end = QuirkProbeRender(view);
+  [defaults setBool: NO forKey: @"WinUIThemeAnimations"];
+  QuirkProbeCheck(view, NO);
+  [view display];
+  [defaults setBool: YES forKey: @"WinUIThemeAnimations"];
+
+  scale = [target pixelsWide] / MAX(1.0, NSWidth([view bounds]));
+  travel = (NSWidth([view bounds]) - NSHeight([view bounds])) * scale;
+  inset = (NSInteger)ceil(2.0 * scale);
+  found = QuirkProbeKnobCentre(target, inset, &targetX)
+    && QuirkProbeKnobCentre(start, inset, &startX)
+    && QuirkProbeKnobCentre(end, inset, &endX);
+  *detail = found
+    ? [NSString stringWithFormat: @"knob at %.1f px as it changes, %.1f after 300ms, %.1f drawn at once (travel %.1f)",
+                                  startX, endX, targetX, travel]
+    : @"no knob found in the switch's middle row";
+  return found && travel > 0.0
+    && fabs(startX - targetX) >= travel / 2.0
+    && fabs(endX - targetX) <= 1.0;
+}
+
 /* Motion (#105): a button's pointer-over fill fades in over WinUI's 83ms
    rather than jumping, and the theme's clock redraws it until it arrives;
    with animations off (Windows' "Animation effects", here the
@@ -15178,6 +15292,22 @@ QuirkProbeAnimates(NSView *view, void (*change)(NSView *, BOOL), NSString **deta
   if (QuirkProbeAnimates(toggle, QuirkProbeCheck, &detail))
     {
       [self pass: @"motion-switch-slides" detail: detail];
+    }
+  else if (QuirkProbeGuiScaledFractionally())
+    {
+      NSString *knob = nil;
+
+      /* A fractional gui scale: the edges build up (see
+         QuirkProbeSwitchKnobSlides), so where the knob is decides. */
+      if (QuirkProbeSwitchKnobSlides(toggle, &knob))
+        {
+          [self pass: @"motion-switch-slides" detail: [NSString stringWithFormat:
+            @"%@; %@: at a fractional gui scale the antialiased edges build up over the frames, the knob arrives", knob, detail]];
+        }
+      else
+        {
+          [self fail: @"motion-switch-slides" detail: [NSString stringWithFormat: @"%@; %@", knob, detail]];
+        }
     }
   else
     {
