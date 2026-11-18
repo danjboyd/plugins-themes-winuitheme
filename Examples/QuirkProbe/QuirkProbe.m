@@ -11111,6 +11111,7 @@ QuirkProbeFontAdvancesWhole(NSFont *font)
       [self skip: @"scroller-hidden-at-rest" detail: @"high contrast keeps classic scroll bars"];
       [self skip: @"scroller-indicator-fades" detail: @"high contrast keeps classic scroll bars"];
       [self skip: @"scroller-classic-setting" detail: @"high contrast keeps classic scroll bars"];
+      [self skip: @"scroller-setting-live" detail: @"high contrast keeps classic scroll bars"];
       [self skip: @"scroller-freed-mid-fade" detail: @"high contrast keeps classic scroll bars"];
       [self skip: @"scroller-hover-expands" detail: @"high contrast keeps classic scroll bars"];
       return;
@@ -11211,6 +11212,36 @@ QuirkProbeFontAdvancesWhole(NSFont *font)
             (unsigned long)middle, (unsigned long)beside]];
         }
     }
+
+  /* Live, as Theme Settings declares it: the setting lays an open scroll
+     view out again, with no -tile from the app. */
+  {
+    NSRect classicClip, classicStrip, overlayClip;
+
+    [defaults setBool: NO forKey: @"WinUIThemeOverlayScrollbars"];
+    QuirkProbeDispatchEvents(0.1);
+    [window display];
+    classicClip = [[scrollView contentView] frame];
+    classicStrip = [[scrollView verticalScroller] frame];
+    [defaults setBool: YES forKey: @"WinUIThemeOverlayScrollbars"];
+    QuirkProbeDispatchEvents(0.1);
+    [window display];
+    overlayClip = [[scrollView contentView] frame];
+    if (NSMaxX(classicClip) <= NSMinX(classicStrip) + 0.5
+        && NSMaxX(overlayClip) > NSMinX(classicStrip) + 0.5)
+      {
+        [self pass: @"scroller-setting-live" detail: [NSString stringWithFormat:
+          @"turned off, the content stops at %.0f, the strip's start; back on, it runs to %.0f",
+          NSMaxX(classicClip), NSMaxX(overlayClip)]];
+      }
+    else
+      {
+        [self fail: @"scroller-setting-live" detail: [NSString stringWithFormat:
+          @"changing WinUIThemeOverlayScrollbars in an open window: off, the content ends at %.0f "
+          @"(strip at %.0f); on again, at %.0f",
+          NSMaxX(classicClip), NSMinX(classicStrip), NSMaxX(overlayClip)]];
+      }
+  }
 
   /* Classic: the content stops at the strip, which is always drawn. */
   [defaults setBool: NO forKey: @"WinUIThemeOverlayScrollbars"];

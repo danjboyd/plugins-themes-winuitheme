@@ -76,6 +76,54 @@ WinUIThemeUsesOverlayScrollers(void)
   return [[(WinUITheme *)theme settings] dynamicScrollbarsEnabled];
 }
 
+/* Whether scroll bars overlaid when last looked at: -1 not yet. */
+static int WinUIThemeOverlayScrollersWere = -1;
+
+static void
+WinUIThemeRetileScrollViews(NSView *view)
+{
+  NSEnumerator *subviews = [[view subviews] objectEnumerator];
+  NSView *subview;
+
+  if ([view isKindOfClass: [NSScrollView class]])
+    {
+      NSScrollView *scrollView = (NSScrollView *)view;
+
+      [scrollView tile];
+      [scrollView reflectScrolledClipView: [scrollView contentView]];
+      [scrollView setNeedsDisplay: YES];
+    }
+  while ((subview = [subviews nextObject]) != nil)
+    {
+      WinUIThemeRetileScrollViews(subview);
+    }
+}
+
+/* The setting is read as a scroll view lays itself out, so one already
+   open kept the old layout (content beside the strip, or under none)
+   until it next resized, though Theme Settings applies it live. */
+void
+WinUIThemeOverlayScrollersSettingChanged(void)
+{
+  int now = WinUIThemeUsesOverlayScrollers() ? 1 : 0;
+  BOOL changed = (WinUIThemeOverlayScrollersWere != -1 && now != WinUIThemeOverlayScrollersWere);
+  NSEnumerator *windows;
+  NSWindow *window;
+
+  WinUIThemeOverlayScrollersWere = now;
+  if (changed == NO || NSApp == nil)
+    {
+      return;
+    }
+  windows = [[NSApp windows] objectEnumerator];
+  while ((window = [windows nextObject]) != nil)
+    {
+      NSView *frameView = [[window contentView] superview];
+
+      WinUIThemeRetileScrollViews(frameView != nil ? frameView : [window contentView]);
+    }
+}
+
 /* A scroll view's overlay scrollers: shown how much, the pointer over
    which, when to start fading. */
 @interface WinUIThemeOverlayState : NSObject
