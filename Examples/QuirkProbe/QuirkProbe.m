@@ -944,6 +944,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkDPIAwareness;
 - (void) checkFontHintingSystemDpi;
 - (void) checkMica;
+- (void) runCheck: (SEL)check;
 - (void) checkToolTipScaled;
 - (void) checkFileDialogFilters;
 - (void) createLateWindow: (NSTimer *)timer;
@@ -16311,6 +16312,29 @@ QuirkProbeFilterPatterns(NSArray *filters)
   exit((int)_failed);
 }
 
+/* Runs one check of the launch sequence. An exception in a check used to
+   leave -applicationDidFinishLaunching: (the notification centre logs it
+   as "Problem posting"), so the rest of the checks and -finish never ran
+   and the run only ended at the harness's timeout, with no summary. Seen
+   in the desert configuration: NSPasteboardCommunicationException ("port
+   was invalidated") as an editable combo box became first responder.
+   Now that check fails, naming the exception, and the next one runs, as
+   the late-window checks already do. */
+- (void) runCheck: (SEL)check
+{
+  NS_DURING
+    {
+      [self performSelector: check];
+    }
+  NS_HANDLER
+    {
+      [self fail: [NSString stringWithFormat: @"exception-%@", NSStringFromSelector(check)]
+          detail: [NSString stringWithFormat: @"stopped by %@: %@",
+                                              [localException name], [localException reason]]];
+    }
+  NS_ENDHANDLER
+}
+
 - (void) applicationDidFinishLaunching: (NSNotification *)notification
 {
   NSString *output = [[NSUserDefaults standardUserDefaults] stringForKey: @"ProbeOutput"];
@@ -16351,108 +16375,108 @@ QuirkProbeFilterPatterns(NSArray *filters)
       return;
     }
 
-  [self checkTheme];
-  [self checkAccentColor];
-  [self checkSubclassImageCell];
-  [self checkToolbarImageItem];
-  [self checkToolbarSeparator];
-  [self checkDecorationFitsTallWindow];
-  [self checkToolbarIconSize];
-  [self checkToolbarInMenuBar];
-  [self checkToolbarInMenuBarSavedFrame];
-  [self checkToolbarInMenuBarViews];
-  [self checkToolbarOverflowPriority];
-  [self checkToolbarInsertionIndex];
-  [self checkToolbarOverflowReturns];
-  [self checkToolbarFlexibleSpaceScaled];
-  [self checkScrollerEdge];
-  [self checkTableHeader];
-  [self checkTextAlignment];
-  [self checkMultilineLabels];
-  [self checkSwitches];
-  [self checkStepper];
-  [self checkDefaultButtons];
-  [self checkAlertLayout];
-  [self checkTemplateImages];
-  [self checkEarlyTemplateImages];
-  [self checkButtonChrome];
-  [self checkSizeToFit];
-  [self checkTypography];
-  [self checkSlider];
-  [self checkSliderTicks];
-  [self checkProgress];
-  [self checkProgressStates];
-  [self checkLevelIndicator];
-  [self checkDatePicker];
-  [self checkBrowser];
-  [self checkBrowserTitles];
-  [self checkSplitViewDividers];
-  [self checkColorWell];
-  [self checkBoxes];
-  [self checkContrastTheme];
-  [self checkSegmentedControl];
-  [self checkSegmentedTrackOnSurface];
-  [self checkButtonFillOnSurface];
-  [self checkControlFillOnSurface];
-  [self checkInputFillOnSurface];
-  [self checkRangeFillOnSurface];
-  [self checkCellSizes];
-  [self checkTabView];
-  [self checkMetricsChoice];
-  [self checkNibWindowCompact];
-  [self checkTableDefaults];
-  [self checkLiveSettings];
-  [self checkLiveTextSize];
-  [self checkContextMenuEdges];
-  [self checkSubmenuClick];
-  [self checkIndicators];
-  [self checkMenuFlyout];
-  [self checkOverlayScrollers];
-  [self checkScrollOriginSettles];
-  [self checkOverlayAutohide];
-  [self checkFocusVisual];
-  [self checkFocusRedisplayPerKey];
-  [self checkTextBox];
-  [self checkLineReaderControls];
-  [self checkHairlineSnap];
-  [self checkFocusedPlaceholder];
-  [self checkContrastPopUpSelection];
-  [self checkComboBoxes];
-  [self checkListSelection];
-  [self checkSelectedRowText];
-  [self checkToolTip];
-  [self checkToolTipScaled];
-  [self checkInspectorIndicators];
-  [self checkSearchField];
-  [self checkHorizontalOnlyScroller];
-  [self checkAutohideSnapOverflow];
-  [self checkWindowTabs];
-  [self checkWindowSingleTab];
-  [self checkMenuStyleMoreInTitleBar];
-  [self checkMenuStyleMoreNoTabs];
-  [self checkWindowTabSwitchShowsFirst];
-  [self checkSegmentLabelCentred];
-  [self checkSegmentedControlDisabled];
-  [self checkButtonStyleAccent];
-  [self checkDefaultButtonYieldsAccent];
-  [self checkColorWellDropDown];
-  [self checkScrollViewTileSettles];
-  [self checkClientCaption];
-  [self checkClientCaptionScaled];
-  [self checkMoveLoopTimers];
-  [self checkMoveLoopModal];
-  [self checkDPIAwareness];
-  [self checkFontHintingSystemDpi];
-  [self checkMica];
-  [self checkPopUpClick];
-  [self checkContextMenuClick];
-  [self checkHoverUnderPointer];
-  [self checkFileDialogFilters];
-  [self checkScrollerStripNarrowsContent];
-  [self checkWindowsTitles];
-  [self checkMotion];
-  [self checkPopoverFlyout];
-  [self checkPopupWindows];
+  [self runCheck: @selector(checkTheme)];
+  [self runCheck: @selector(checkAccentColor)];
+  [self runCheck: @selector(checkSubclassImageCell)];
+  [self runCheck: @selector(checkToolbarImageItem)];
+  [self runCheck: @selector(checkToolbarSeparator)];
+  [self runCheck: @selector(checkDecorationFitsTallWindow)];
+  [self runCheck: @selector(checkToolbarIconSize)];
+  [self runCheck: @selector(checkToolbarInMenuBar)];
+  [self runCheck: @selector(checkToolbarInMenuBarSavedFrame)];
+  [self runCheck: @selector(checkToolbarInMenuBarViews)];
+  [self runCheck: @selector(checkToolbarOverflowPriority)];
+  [self runCheck: @selector(checkToolbarInsertionIndex)];
+  [self runCheck: @selector(checkToolbarOverflowReturns)];
+  [self runCheck: @selector(checkToolbarFlexibleSpaceScaled)];
+  [self runCheck: @selector(checkScrollerEdge)];
+  [self runCheck: @selector(checkTableHeader)];
+  [self runCheck: @selector(checkTextAlignment)];
+  [self runCheck: @selector(checkMultilineLabels)];
+  [self runCheck: @selector(checkSwitches)];
+  [self runCheck: @selector(checkStepper)];
+  [self runCheck: @selector(checkDefaultButtons)];
+  [self runCheck: @selector(checkAlertLayout)];
+  [self runCheck: @selector(checkTemplateImages)];
+  [self runCheck: @selector(checkEarlyTemplateImages)];
+  [self runCheck: @selector(checkButtonChrome)];
+  [self runCheck: @selector(checkSizeToFit)];
+  [self runCheck: @selector(checkTypography)];
+  [self runCheck: @selector(checkSlider)];
+  [self runCheck: @selector(checkSliderTicks)];
+  [self runCheck: @selector(checkProgress)];
+  [self runCheck: @selector(checkProgressStates)];
+  [self runCheck: @selector(checkLevelIndicator)];
+  [self runCheck: @selector(checkDatePicker)];
+  [self runCheck: @selector(checkBrowser)];
+  [self runCheck: @selector(checkBrowserTitles)];
+  [self runCheck: @selector(checkSplitViewDividers)];
+  [self runCheck: @selector(checkColorWell)];
+  [self runCheck: @selector(checkBoxes)];
+  [self runCheck: @selector(checkContrastTheme)];
+  [self runCheck: @selector(checkSegmentedControl)];
+  [self runCheck: @selector(checkSegmentedTrackOnSurface)];
+  [self runCheck: @selector(checkButtonFillOnSurface)];
+  [self runCheck: @selector(checkControlFillOnSurface)];
+  [self runCheck: @selector(checkInputFillOnSurface)];
+  [self runCheck: @selector(checkRangeFillOnSurface)];
+  [self runCheck: @selector(checkCellSizes)];
+  [self runCheck: @selector(checkTabView)];
+  [self runCheck: @selector(checkMetricsChoice)];
+  [self runCheck: @selector(checkNibWindowCompact)];
+  [self runCheck: @selector(checkTableDefaults)];
+  [self runCheck: @selector(checkLiveSettings)];
+  [self runCheck: @selector(checkLiveTextSize)];
+  [self runCheck: @selector(checkContextMenuEdges)];
+  [self runCheck: @selector(checkSubmenuClick)];
+  [self runCheck: @selector(checkIndicators)];
+  [self runCheck: @selector(checkMenuFlyout)];
+  [self runCheck: @selector(checkOverlayScrollers)];
+  [self runCheck: @selector(checkScrollOriginSettles)];
+  [self runCheck: @selector(checkOverlayAutohide)];
+  [self runCheck: @selector(checkFocusVisual)];
+  [self runCheck: @selector(checkFocusRedisplayPerKey)];
+  [self runCheck: @selector(checkTextBox)];
+  [self runCheck: @selector(checkLineReaderControls)];
+  [self runCheck: @selector(checkHairlineSnap)];
+  [self runCheck: @selector(checkFocusedPlaceholder)];
+  [self runCheck: @selector(checkContrastPopUpSelection)];
+  [self runCheck: @selector(checkComboBoxes)];
+  [self runCheck: @selector(checkListSelection)];
+  [self runCheck: @selector(checkSelectedRowText)];
+  [self runCheck: @selector(checkToolTip)];
+  [self runCheck: @selector(checkToolTipScaled)];
+  [self runCheck: @selector(checkInspectorIndicators)];
+  [self runCheck: @selector(checkSearchField)];
+  [self runCheck: @selector(checkHorizontalOnlyScroller)];
+  [self runCheck: @selector(checkAutohideSnapOverflow)];
+  [self runCheck: @selector(checkWindowTabs)];
+  [self runCheck: @selector(checkWindowSingleTab)];
+  [self runCheck: @selector(checkMenuStyleMoreInTitleBar)];
+  [self runCheck: @selector(checkMenuStyleMoreNoTabs)];
+  [self runCheck: @selector(checkWindowTabSwitchShowsFirst)];
+  [self runCheck: @selector(checkSegmentLabelCentred)];
+  [self runCheck: @selector(checkSegmentedControlDisabled)];
+  [self runCheck: @selector(checkButtonStyleAccent)];
+  [self runCheck: @selector(checkDefaultButtonYieldsAccent)];
+  [self runCheck: @selector(checkColorWellDropDown)];
+  [self runCheck: @selector(checkScrollViewTileSettles)];
+  [self runCheck: @selector(checkClientCaption)];
+  [self runCheck: @selector(checkClientCaptionScaled)];
+  [self runCheck: @selector(checkMoveLoopTimers)];
+  [self runCheck: @selector(checkMoveLoopModal)];
+  [self runCheck: @selector(checkDPIAwareness)];
+  [self runCheck: @selector(checkFontHintingSystemDpi)];
+  [self runCheck: @selector(checkMica)];
+  [self runCheck: @selector(checkPopUpClick)];
+  [self runCheck: @selector(checkContextMenuClick)];
+  [self runCheck: @selector(checkHoverUnderPointer)];
+  [self runCheck: @selector(checkFileDialogFilters)];
+  [self runCheck: @selector(checkScrollerStripNarrowsContent)];
+  [self runCheck: @selector(checkWindowsTitles)];
+  [self runCheck: @selector(checkMotion)];
+  [self runCheck: @selector(checkPopoverFlyout)];
+  [self runCheck: @selector(checkPopupWindows)];
   [self after: QuirkProbeSettleDelay perform: @selector(createLateWindow:)];
 }
 
