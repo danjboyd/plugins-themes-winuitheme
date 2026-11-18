@@ -904,6 +904,7 @@ QuirkProbeTabInk(NSBitmapImageRep *rep, NSView *view, NSView *bar, NSRect rect,
 - (void) checkButtonFillOnSurface;
 - (void) checkControlFillOnSurface;
 - (void) checkInputFillOnSurface;
+- (void) checkRangeFillOnSurface;
 - (void) checkCellSizes;
 - (void) checkTabView;
 - (void) checkMetricsChoice;
@@ -7770,6 +7771,113 @@ QuirkProbeWashOver(CGFloat surface, CGFloat alpha, BOOL toWhite)
   else
     {
       [self fail: @"input-fill-on-surface" detail: [wrong componentsJoinedByString: @"; "]];
+    }
+}
+
+/* The slider track and an off switch's knob are WinUI washes
+   (ControlStrongFill, TextFillSecondary) over whatever is under them: on a
+   card they mix over the card, not the window, as buttons (#209) and text
+   boxes (#211) do. Each is measured by its pixel that stands out most from
+   the surface just above the control, along its middle row. */
+- (void) checkRangeFillOnSurface
+{
+  NSWindow *window = [self windowWithFrame: NSMakeRect(260, 160, 440, 260)
+                                     title: @"QuirkProbe Range Surface"];
+  NSView *content = [window contentView];
+  NSBox *card = AUTORELEASE([[NSBox alloc] initWithFrame: NSMakeRect(10, 10, 420, 120)]);
+  NSView *controls[4];
+  /* Across which part of the control's middle row to look. */
+  CGFloat from[2] = { 0.55, 0.0 }, to[2] = { 0.95, 0.5 };
+  NSString *names[2] = { @"slider track", @"off switch knob" };
+  NSMutableArray *results = [NSMutableArray array];
+  NSMutableArray *wrong = [NSMutableArray array];
+  NSBitmapImageRep *rep = nil;
+  CGFloat scale;
+  NSUInteger i;
+
+  if (QuirkProbeHasArgument(@"--high-contrast", nil))
+    {
+      [self skip: @"range-fill-on-surface" detail: @"high contrast uses system colours"];
+      return;
+    }
+  [card setBoxType: NSBoxPrimary];
+  [card setBorderType: NSBezelBorder];
+  [card setTitlePosition: NSNoTitle];
+  [content addSubview: card];
+  for (i = 0; i < 2; i++)
+    {
+      NSView *parent = (i == 0) ? content : [card contentView];
+      CGFloat y = (i == 0) ? 190.0 : 30.0;
+      NSSlider *slider = AUTORELEASE([[NSSlider alloc] initWithFrame: NSMakeRect(10, y, 200, 24)]);
+      NSSwitch *toggle = AUTORELEASE([[NSSwitch alloc] initWithFrame: NSMakeRect(240, y, 40, 20)]);
+
+      [slider setMinValue: 0.0];
+      [slider setMaxValue: 100.0];
+      [slider setDoubleValue: 0.0];
+      [toggle setState: NSControlStateValueOff];
+      [parent addSubview: slider];
+      [parent addSubview: toggle];
+      controls[i * 2] = slider;
+      controls[i * 2 + 1] = toggle;
+    }
+  [window orderFront: nil];
+  [window makeFirstResponder: nil];
+  [window display];
+  rep = QuirkProbeRender(content);
+  scale = QuirkProbeScale(rep, content);
+  [self saveView: content named: @"range-fill-on-surface"];
+  for (i = 0; i < 2; i++)
+    {
+      CGFloat fills[2], surfaces[2], alpha, predicted;
+      NSUInteger side;
+
+      for (side = 0; side < 2; side++)
+        {
+          NSView *control = controls[side * 2 + i];
+          NSRect frame = [control convertRect: [control bounds] toView: content];
+          NSInteger y = (NSInteger)((NSHeight([content bounds]) - NSMidY(frame)) * scale);
+          NSInteger surfaceY = (NSInteger)((NSHeight([content bounds]) - NSMaxY(frame) - 6.0) * scale);
+          NSInteger x0 = (NSInteger)((NSMinX(frame) + NSWidth(frame) * from[i]) * scale);
+          NSInteger x1 = (NSInteger)((NSMinX(frame) + NSWidth(frame) * to[i]) * scale);
+          NSInteger x;
+          NSUInteger r, g, b;
+          CGFloat best = -1.0, value = 0.0;
+
+          QuirkProbePixel(rep, (x0 + x1) / 2, surfaceY, &r, &g, &b);
+          surfaces[side] = (r + g + b) / 3.0;
+          for (x = x0; x <= x1; x++)
+            {
+              CGFloat here;
+
+              QuirkProbePixel(rep, x, y, &r, &g, &b);
+              here = (r + g + b) / 3.0;
+              if (fabs(here - surfaces[side]) > best)
+                {
+                  best = fabs(here - surfaces[side]);
+                  value = here;
+                }
+            }
+          fills[side] = value;
+        }
+      alpha = QuirkProbeWashAlpha(surfaces[0], fills[0]);
+      predicted = QuirkProbeWashOver(surfaces[1], alpha, fills[0] >= surfaces[0]);
+      [results addObject: [NSString stringWithFormat:
+        @"%@: on the window %.0f on %.0f (wash %.3f), on the card %.0f on %.0f (%.1f predicted)",
+        names[i], fills[0], surfaces[0], alpha, fills[1], surfaces[1], predicted]];
+      if (fabs(fills[1] - predicted) > 2.0)
+        {
+          [wrong addObject: [results lastObject]];
+        }
+    }
+  [window orderOut: nil];
+
+  if ([wrong count] == 0)
+    {
+      [self pass: @"range-fill-on-surface" detail: [results componentsJoinedByString: @"; "]];
+    }
+  else
+    {
+      [self fail: @"range-fill-on-surface" detail: [wrong componentsJoinedByString: @"; "]];
     }
 }
 
@@ -16221,6 +16329,7 @@ QuirkProbeFilterPatterns(NSArray *filters)
   [self checkButtonFillOnSurface];
   [self checkControlFillOnSurface];
   [self checkInputFillOnSurface];
+  [self checkRangeFillOnSurface];
   [self checkCellSizes];
   [self checkTabView];
   [self checkMetricsChoice];

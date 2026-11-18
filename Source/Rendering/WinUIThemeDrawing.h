@@ -238,6 +238,14 @@ NSRect WinUIThemeSwitchTrackRect(NSRect rect);
 void WinUIThemeRangeColors(WinUITheme *theme, BOOL enabled,
                            NSColor **trackOut, NSColor **valueOut,
                            NSColor **thumbOut, NSColor **borderOut, NSColor **bottomOut);
+/* The same, the washes mixed over `surface` (nil: the window), as WinUI's
+   alpha fills show the card under them. */
+void WinUIThemeRangeColorsOver(WinUITheme *theme, NSColor *surface, BOOL enabled,
+                               NSColor **trackOut, NSColor **valueOut,
+                               NSColor **thumbOut, NSColor **borderOut, NSColor **bottomOut);
+/* What a slider, progress bar, level indicator or switch in `view` lies
+   on: nil (the window) without a view or in high contrast. */
+NSColor *WinUIThemeRangeSurface(WinUITheme *theme, NSView *view);
 NSRect WinUIThemeSliderTrackRect(WinUITheme *theme, NSRect rect, BOOL horizontal);
 /* SystemFillColorCaution, or SystemFillColorCritical when `critical`, in
    the palette's mode; `fallback` in high contrast or disabled. */
