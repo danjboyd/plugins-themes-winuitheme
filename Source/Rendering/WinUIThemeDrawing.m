@@ -1476,64 +1476,6 @@ WinUIThemeDrawTextBoxChromeInState(WinUITheme *theme, NSRect frame, NSView *view
 }
 
 void
-WinUIThemeDrawSegmentChrome(WinUITheme *theme,
-                            NSRect frame,
-                            BOOL enabled,
-                            BOOL selected,
-                            BOOL focused,
-                            BOOL roundedLeft,
-                            BOOL roundedRight)
-{
-  BOOL dark = [[theme settings] prefersDarkAppearance];
-  NSColor *surface = WinUIThemeColorFromTheme(theme,
-                                              @"fieldBackgroundColor",
-                                              [NSColor controlBackgroundColor]);
-  NSColor *window = WinUIThemeColorFromTheme(theme,
-                                             @"windowBackgroundColor",
-                                             [NSColor windowBackgroundColor]);
-  NSColor *separator = WinUIThemeColorFromTheme(theme,
-                                                @"separatorColor",
-                                                [NSColor controlShadowColor]);
-  NSColor *accent = WinUIThemeColorFromTheme(theme,
-                                             @"accentColor",
-                                             [NSColor selectedControlColor]);
-  NSColor *fillColor = nil;
-  NSColor *borderColor = nil;
-  CGFloat radius = WinUIThemeControlCornerRadius(theme);
-
-  if (enabled == NO)
-    {
-      fillColor = selected
-        ? WinUIThemeBlendColor(surface, accent, dark ? 0.22 : 0.10)
-        : WinUIThemeBlendColor(surface, window, dark ? 0.20 : 0.30);
-      borderColor = WinUIThemeBlendColor(separator, surface, dark ? 0.34 : 0.26);
-    }
-  else if (selected)
-    {
-      fillColor = WinUIThemeBlendColor(surface, accent, dark ? 0.30 : 0.13);
-      borderColor = focused
-        ? WinUIThemeBlendColor(separator, accent, dark ? 0.72 : 0.52)
-        : WinUIThemeBlendColor(separator, accent, dark ? 0.52 : 0.34);
-    }
-  else
-    {
-      fillColor = surface;
-      borderColor = focused
-        ? WinUIThemeBlendColor(separator, accent, dark ? 0.66 : 0.44)
-        : WinUIThemeBlendColor(separator,
-                               dark ? [NSColor whiteColor] : [NSColor blackColor],
-                               dark ? 0.14 : 0.04);
-    }
-
-  WinUIThemeDrawRoundedSegment(frame,
-                               radius,
-                               roundedLeft,
-                               roundedRight,
-                               fillColor,
-                               borderColor);
-}
-
-void
 WinUIThemeResolveEntryColors(WinUITheme *theme,
                              NSView *view,
                              BOOL enabled,
