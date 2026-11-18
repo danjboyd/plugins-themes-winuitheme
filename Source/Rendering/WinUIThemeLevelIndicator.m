@@ -239,7 +239,8 @@ WinUIThemeDrawRating(NSRect frame, BOOL flipped, NSInteger count, double rating,
       *(NSRect *)((char *)self + ivar_getOffset(frameIvar)) = cellFrame;
     }
 
-  WinUIThemeRangeColors(theme, enabled, &track, &accent, NULL, NULL, NULL);
+  WinUIThemeRangeColorsOver(theme, WinUIThemeRangeSurface(theme, controlView), enabled,
+                            &track, &accent, NULL, NULL, NULL);
 
   if (style == NSRatingLevelIndicatorStyle)
     {

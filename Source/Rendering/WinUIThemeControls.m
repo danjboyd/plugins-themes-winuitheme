@@ -750,9 +750,29 @@ WinUIThemeRangeColors(WinUITheme *theme, BOOL enabled,
                       NSColor **trackOut, NSColor **valueOut,
                       NSColor **thumbOut, NSColor **borderOut, NSColor **bottomOut)
 {
+  WinUIThemeRangeColorsOver(theme, nil, enabled, trackOut, valueOut, thumbOut, borderOut, bottomOut);
+}
+
+NSColor *
+WinUIThemeRangeSurface(WinUITheme *theme, NSView *view)
+{
+  if (view == nil || [[theme settings] highContrastEnabled])
+    {
+      return nil;
+    }
+  return WinUIThemeSurfaceColorBehindView(theme, view);
+}
+
+void
+WinUIThemeRangeColorsOver(WinUITheme *theme, NSColor *surface, BOOL enabled,
+                          NSColor **trackOut, NSColor **valueOut,
+                          NSColor **thumbOut, NSColor **borderOut, NSColor **bottomOut)
+{
   BOOL dark = [[theme settings] prefersDarkAppearance];
   NSColor *window = WinUIThemeColorFromTheme(theme, @"windowBackgroundColor",
                                              [NSColor windowBackgroundColor]);
+  /* The track's washes over the card under it (#209, #211). */
+  NSColor *under = (surface != nil) ? surface : window;
   NSColor *ink = dark ? [NSColor whiteColor] : [NSColor blackColor];
   NSColor *accent = WinUIThemeColorFromTheme(theme, @"accentColor", [NSColor selectedControlColor]);
   NSColor *track = nil, *value = nil, *thumb = nil, *border = nil, *bottom = nil;
@@ -770,8 +790,8 @@ WinUIThemeRangeColors(WinUITheme *theme, BOOL enabled,
     }
   else
     {
-      track = WinUIThemeBlendColor(window, ink, enabled ? (dark ? 0.54 : 0.45) : (dark ? 0.25 : 0.22));
-      value = enabled ? accent : WinUIThemeBlendColor(window, ink, dark ? 0.16 : 0.22);
+      track = WinUIThemeBlendColor(under, ink, enabled ? (dark ? 0.54 : 0.45) : (dark ? 0.25 : 0.22));
+      value = enabled ? accent : WinUIThemeBlendColor(under, ink, dark ? 0.16 : 0.22);
       thumb = dark ? [NSColor colorWithCalibratedWhite: 0x45 / 255.0 alpha: 1.0]
                    : [NSColor whiteColor];
       border = WinUIThemeBlendColor(thumb, ink, dark ? 0.07 : 0.06);
@@ -1280,6 +1300,7 @@ static char WinUIThemeButtonStyleKey;
    opacity; these blend it over the window background. */
 static void
 WinUIThemeSwitchColors(WinUITheme *theme,
+                       NSColor *surface,
                        BOOL on,
                        BOOL enabled,
                        NSColor **fillOut,
@@ -1288,9 +1309,10 @@ WinUIThemeSwitchColors(WinUITheme *theme,
 {
   BOOL dark = [[theme settings] prefersDarkAppearance];
   NSColor *text = WinUIThemeColorFromTheme(theme, @"labelColor", [NSColor controlTextColor]);
-  NSColor *window = WinUIThemeColorFromTheme(theme,
-                                             @"windowBackgroundColor",
-                                             [NSColor windowBackgroundColor]);
+  /* Over the card under the switch, if any (WinUIThemeRangeSurface). */
+  NSColor *window = (surface != nil)
+    ? surface
+    : WinUIThemeColorFromTheme(theme, @"windowBackgroundColor", [NSColor windowBackgroundColor]);
   NSColor *accent = WinUIThemeColorFromTheme(theme,
                                              @"accentColor",
                                              [NSColor selectedControlColor]);
@@ -1364,8 +1386,10 @@ WinUIThemeSwitchOnAmount(NSControlStateValue value)
       return;
     }
 
-  WinUIThemeSwitchColors(self, YES, enabled, &onFill, &onStroke, &onKnob);
-  WinUIThemeSwitchColors(self, NO, enabled, &offFill, &offStroke, &offKnob);
+  WinUIThemeSwitchColors(self, WinUIThemeRangeSurface(self, [NSView focusView]), YES, enabled,
+                         &onFill, &onStroke, &onKnob);
+  WinUIThemeSwitchColors(self, WinUIThemeRangeSurface(self, [NSView focusView]), NO, enabled,
+                         &offFill, &offStroke, &offKnob);
   /* Off's outline fades out as on's fill fades in. */
   if (offStroke != nil && on < 1.0)
     {
@@ -1420,8 +1444,10 @@ WinUIThemeSwitchOnAmount(NSControlStateValue value)
   width = height + NSHeight(trackRect) * 0.15 * press;
   centerX += (width - height) / 2.0 * (1.0 - 2.0 * on);
 
-  WinUIThemeSwitchColors(self, YES, enabled, &fillColor, &strokeColor, &onKnob);
-  WinUIThemeSwitchColors(self, NO, enabled, &fillColor, &strokeColor, &offKnob);
+  WinUIThemeSwitchColors(self, WinUIThemeRangeSurface(self, view), YES, enabled,
+                         &fillColor, &strokeColor, &onKnob);
+  WinUIThemeSwitchColors(self, WinUIThemeRangeSurface(self, view), NO, enabled,
+                         &fillColor, &strokeColor, &offKnob);
   [WinUIThemeBlendColor(offKnob, onKnob, on) set];
   [[NSBezierPath bezierPathWithRoundedRect:
      NSMakeRect(centerX - width / 2.0, NSMidY(trackRect) - height / 2.0, width, height)
@@ -1464,7 +1490,8 @@ WinUIThemeSwitchOnAmount(NSControlStateValue value)
 
   (void)rect;
   (void)count;
-  WinUIThemeRangeColors(self, enabled, &track, &bar, NULL, NULL, NULL);
+  WinUIThemeRangeColorsOver(self, WinUIThemeRangeSurface(self, progress), enabled,
+                            &track, &bar, NULL, NULL, NULL);
 
   if ([progress style] == NSProgressIndicatorSpinningStyle)
     {
@@ -1576,7 +1603,8 @@ WinUIThemeDrawSliderTicks(WinUITheme *theme, NSSliderCell *cell, NSRect rect,
     {
       return;
     }
-  WinUIThemeRangeColors(theme, WinUIThemeControlEnabled(cell), &color, NULL, NULL, NULL, NULL);
+  WinUIThemeRangeColorsOver(theme, WinUIThemeRangeSurface(theme, [cell controlView]),
+                            WinUIThemeControlEnabled(cell), &color, NULL, NULL, NULL, NULL);
   [color set];
   for (index = 0; index < count; index++)
     {
@@ -1629,7 +1657,8 @@ WinUIThemeDrawSliderTicks(WinUITheme *theme, NSSliderCell *cell, NSRect rect,
       return;
     }
 
-  WinUIThemeRangeColors(self, WinUIThemeControlEnabled(cell), &track, NULL, NULL, NULL, NULL);
+  WinUIThemeRangeColorsOver(self, WinUIThemeRangeSurface(self, [cell controlView]),
+                            WinUIThemeControlEnabled(cell), &track, NULL, NULL, NULL, NULL);
   WinUIThemeFillAndStrokeRoundedRect(trackRect, 2.0, track, nil, 0.0);
 }
 
@@ -1678,7 +1707,8 @@ WinUIThemeDrawSliderTicks(WinUITheme *theme, NSSliderCell *cell, NSRect rect,
       return;
     }
 
-  WinUIThemeRangeColors(self, WinUIThemeControlEnabled(cell), NULL, &value, NULL, NULL, NULL);
+  WinUIThemeRangeColorsOver(self, WinUIThemeRangeSurface(self, [cell controlView]),
+                            WinUIThemeControlEnabled(cell), NULL, &value, NULL, NULL, NULL);
   WinUIThemeFillAndStrokeRoundedRect(NSIntegralRect(activeRect), 2.0, value, nil, 0.0);
 }
 
@@ -1725,7 +1755,8 @@ WinUIThemeDrawSliderTicks(WinUITheme *theme, NSSliderCell *cell, NSRect rect,
                               floor(NSMidY(knobRect) - track / 2.0) + track / 2.0 - thumb / 2.0 + 0.5,
                               thumb - 1.0, thumb - 1.0);
     }
-  WinUIThemeRangeColors(self, enabled, NULL, &dot, &fill, &border, &bottom);
+  WinUIThemeRangeColorsOver(self, WinUIThemeRangeSurface(self, controlView), enabled,
+                            NULL, &dot, &fill, &border, &bottom);
 
   if ([controlView isKindOfClass: [NSView class]])
     {
