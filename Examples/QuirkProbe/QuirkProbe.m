@@ -10917,12 +10917,22 @@ QuirkProbeFontAdvancesWhole(NSFont *font)
     NSWindow *third = [self windowWithFrame: NSMakeRect(160, 160, 300, 120)
                                       title: @"QuirkProbe Tab Three"];
     NSRect groupFrame = [second frame];
+    NSRect screenFrame = [[second screen] frame];
 
     [second addTabbedWindow: third ordered: NSWindowAbove];
     [third makeMainWindow];
     if ([third menu] == nil)
       {
         [self skip: @"window-tab-keeps-group-frame" detail: @"the new tab got no menu bar"];
+      }
+    else if (NSContainsRect(screenFrame, groupFrame) == NO)
+      {
+        /* A screen too small for the group (a 1024x768 CI runner at
+           1.5): the gui keeps the new tab on the screen, so its frame
+           can't be the group's. */
+        [self skip: @"window-tab-keeps-group-frame" detail:
+          [NSString stringWithFormat: @"the group's frame %@ runs off the screen %@",
+                    NSStringFromRect(groupFrame), NSStringFromRect(screenFrame)]];
       }
     else if (NSEqualRects([third frame], groupFrame))
       {
