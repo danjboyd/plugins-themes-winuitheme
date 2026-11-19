@@ -113,8 +113,16 @@ This VM has no GPU, one monitor, and blocks SendInput mouse buttons.
 - [x] CI: at least a build of the theme and QuirkProbe on every push:
       `.github/workflows/build.yml` builds both on `windows-latest` with
       MSYS2's packages (the stock libs-back) and runs QuirkProbe's light
-      configuration. The carried backend, the other configurations and
-      the pointer checks still run by hand.
+      and scaled-125 configurations. `quirkprobe-matrix.yml` runs all eleven
+      configurations on the stock backend, one job each, on
+      demand. The carried backend and the pointer checks still run by
+      hand.
+- App tests don't run on the shared Windows VM (iep-ocr01-win) for now:
+  every GNUstep app writes its port name to the user's
+  `HKCU\Software\GNUstepNSMessagePort`, whatever its GNUstep home, and the
+  owner's session must not get registry writes (decided 2026-11-18). Builds
+  still run there; how screen and desktop checks run again (a test user, CI
+  only, or a separate VM) is still to be decided.
 
 ### 6. Known gaps written down
 
