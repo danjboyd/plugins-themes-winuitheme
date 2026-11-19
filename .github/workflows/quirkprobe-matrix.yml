@@ -8,6 +8,12 @@ name: quirkprobe-matrix
 # Windows VM (GNUstep apps write their port names to the user's
 # HKCU\Software\GNUstepNSMessagePort), so this is where the matrix runs.
 # Pointer checks stay off (-Pointer is not passed).
+#
+# backend=carry lays danjboyd/libs-back's carry-0.32.0.5 package (the back end
+# WinUITheme's installers ship, and gnustep-packager's MSI workflow installs)
+# over the runner's MSYS2 after checking its SHA-256. The scaled-* configurations
+# force GSScaleFactor, which contradicts the carried back end's per-monitor DPI
+# on a 100% monitor (see Invoke-QuirkProbe.ps1), so run them on stock.
 
 on:
   workflow_dispatch:
@@ -16,6 +22,14 @@ on:
         description: "Comma-separated configurations (empty runs all)"
         required: false
         default: ""
+      backend:
+        description: "libs-back to run on: stock (MSYS2's) or carry (danjboyd/libs-back carry-0.32.0.5)"
+        required: false
+        default: stock
+        type: choice
+        options:
+          - stock
+          - carry
 
 permissions:
   contents: read
@@ -41,7 +55,7 @@ jobs:
           echo "list=$list" >> "$GITHUB_OUTPUT"
 
   probe:
-    name: QuirkProbe ${{ matrix.configuration }}
+    name: QuirkProbe ${{ matrix.configuration }} (${{ github.event.inputs.backend || 'stock' }})
     needs: configurations
     runs-on: windows-latest
     timeout-minutes: 45
@@ -69,6 +83,16 @@ jobs:
             mingw-w64-clang-x86_64-gnustep-gui
             mingw-w64-clang-x86_64-gnustep-back
             mingw-w64-clang-x86_64-lldb
+
+      - name: Carried libs-back
+        if: github.event.inputs.backend == 'carry'
+        env:
+          URL: https://github.com/danjboyd/libs-back/releases/download/carry-0.32.0.5/mingw-w64-clang-x86_64-gnustep-back-0.32.0.5-1-any.pkg.tar.zst
+          SHA256: 6c8ca789443246b5208f5ecfb9021e98e95eaeefa8bd74022356da427fe1ed94
+        run: |
+          curl -sSfL -o /tmp/back.pkg.tar.zst "$URL"
+          echo "$SHA256  /tmp/back.pkg.tar.zst" | sha256sum -c -
+          pacman -U --noconfirm /tmp/back.pkg.tar.zst
 
       - name: Toolchain
         run: |
@@ -98,7 +122,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: quirkprobe-${{ matrix.configuration }}
+          name: quirkprobe-${{ matrix.configuration }}-${{ github.event.inputs.backend || 'stock' }}
           path: |
             ${{ runner.temp }}/quirkprobe.txt
             ${{ runner.temp }}/quirkprobe
