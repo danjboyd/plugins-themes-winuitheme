@@ -3,14 +3,13 @@ name: quirkprobe-matrix
 # Runs every QuirkProbe configuration on a GitHub-hosted Windows runner, one
 # job per configuration, with MSYS2's CLANG64 GNUstep packages (the stock
 # libs-back). build.yml runs only light and scaled-125 on each push; this
-# covers the rest nightly and on demand. App tests no longer run on the shared
+# runs all of them on demand (Actions > quirkprobe-matrix > Run workflow, or
+# gh workflow run quirkprobe-matrix.yml). App tests no longer run on the shared
 # Windows VM (GNUstep apps write their port names to the user's
 # HKCU\Software\GNUstepNSMessagePort), so this is where the matrix runs.
 # Pointer checks stay off (-Pointer is not passed).
 
 on:
-  schedule:
-    - cron: "0 7 * * *"
   workflow_dispatch:
     inputs:
       configurations:

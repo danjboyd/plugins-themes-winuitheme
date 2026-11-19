@@ -114,8 +114,8 @@ This VM has no GPU, one monitor, and blocks SendInput mouse buttons.
       `.github/workflows/build.yml` builds both on `windows-latest` with
       MSYS2's packages (the stock libs-back) and runs QuirkProbe's light
       and scaled-125 configurations. `quirkprobe-matrix.yml` runs all eleven
-      configurations on the stock backend, one job each, nightly and
-      on demand. The carried backend and the pointer checks still run by
+      configurations on the stock backend, one job each, on
+      demand. The carried backend and the pointer checks still run by
       hand.
 - App tests don't run on the shared Windows VM (iep-ocr01-win) for now:
   every GNUstep app writes its port name to the user's
