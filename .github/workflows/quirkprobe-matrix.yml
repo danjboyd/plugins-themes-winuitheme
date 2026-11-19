@@ -1,0 +1,106 @@
+name: quirkprobe-matrix
+
+# Runs every QuirkProbe configuration on a GitHub-hosted Windows runner, one
+# job per configuration, with MSYS2's CLANG64 GNUstep packages (the stock
+# libs-back). build.yml runs only light and scaled-125 on each push; this
+# covers the rest nightly and on demand. App tests no longer run on the shared
+# Windows VM (GNUstep apps write their port names to the user's
+# HKCU\Software\GNUstepNSMessagePort), so this is where the matrix runs.
+# Pointer checks stay off (-Pointer is not passed).
+
+on:
+  schedule:
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+    inputs:
+      configurations:
+        description: "Comma-separated configurations (empty runs all)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  configurations:
+    name: Pick configurations
+    runs-on: ubuntu-latest
+    outputs:
+      list: ${{ steps.pick.outputs.list }}
+    steps:
+      - id: pick
+        env:
+          REQUESTED: ${{ github.event.inputs.configurations }}
+        run: |
+          all='light dark high-contrast light-150 dark-150 large-text compact dusk desert scaled-125 scaled-150'
+          if [ -n "$REQUESTED" ]; then all=$(echo "$REQUESTED" | tr ',' ' '); fi
+          list=$(printf '%s\n' $all | jq -R . | jq -cs .)
+          echo "list=$list" >> "$GITHUB_OUTPUT"
+
+  probe:
+    name: QuirkProbe ${{ matrix.configuration }}
+    needs: configurations
+    runs-on: windows-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration: ${{ fromJSON(needs.configurations.outputs.list) }}
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: CLANG64
+          release: false
+          update: true
+          install: >-
+            make
+            mingw-w64-clang-x86_64-clang
+            mingw-w64-clang-x86_64-gnustep-make
+            mingw-w64-clang-x86_64-gnustep-base
+            mingw-w64-clang-x86_64-gnustep-gui
+            mingw-w64-clang-x86_64-gnustep-back
+            mingw-w64-clang-x86_64-lldb
+
+      - name: Toolchain
+        run: |
+          clang --version | head -1
+          pacman -Q mingw-w64-clang-x86_64-gnustep-make mingw-w64-clang-x86_64-gnustep-base \
+            mingw-w64-clang-x86_64-gnustep-gui mingw-w64-clang-x86_64-gnustep-back
+
+      # See build.yml: gnustep-base 1.31.1-10's header needs libs-base#809.
+      - name: Patch gnustep-base header
+        run: |
+          sed -i 's/BLOCK_SCOPE GSScheduledBlock _block;/GSScheduledBlock _block;/' \
+            /clang64/include/Foundation/NSBackgroundActivityScheduler.h
+
+      - name: Build the theme and QuirkProbe
+        run: |
+          . /clang64/share/GNUstep/Makefiles/GNUstep.sh
+          make -j4 messages=yes
+          make -C Examples/QuirkProbe -j4
+
+      - name: QuirkProbe (${{ matrix.configuration }})
+        shell: pwsh
+        run: |
+          ./Tests/Scripts/Invoke-QuirkProbe.ps1 -Configuration ${{ matrix.configuration }} -TimeoutSeconds 300 -OutputDirectory "$env:RUNNER_TEMP/quirkprobe" | Tee-Object -FilePath "$env:RUNNER_TEMP/quirkprobe.txt"
+          exit $LASTEXITCODE
+
+      - name: Upload QuirkProbe output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quirkprobe-${{ matrix.configuration }}
+          path: |
+            ${{ runner.temp }}/quirkprobe.txt
+            ${{ runner.temp }}/quirkprobe
+          if-no-files-found: ignore

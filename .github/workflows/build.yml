@@ -2,8 +2,9 @@ name: build
 
 # Builds the theme, QuirkProbe and ThemeDemo on Windows on every push and pull request,
 # with MSYS2's CLANG64 GNUstep packages (the stock libs-back, not the carried
-# one), then runs QuirkProbe's light and scaled-125 configurations. The full matrix, the
-# carried backend and the pointer checks still run by hand (see
+# one), then runs QuirkProbe's light and scaled-125 configurations. quirkprobe-matrix.yml runs
+# all eleven configurations nightly and on demand; the carried backend and
+# the pointer checks still run by hand (see
 # Docs/RELEASE_READINESS.md, "Tests and measurements").
 
 on:
