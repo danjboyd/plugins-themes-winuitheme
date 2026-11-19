@@ -115,8 +115,9 @@ This VM has no GPU, one monitor, and blocks SendInput mouse buttons.
       MSYS2's packages (the stock libs-back) and runs QuirkProbe's light
       and scaled-125 configurations. `quirkprobe-matrix.yml` runs all eleven
       configurations on the stock backend, one job each, on
-      demand. The carried backend and the pointer checks still run by
-      hand.
+      demand; with `backend=carry` it runs them on the carried libs-back
+      (carry-0.32.0.5, SHA-256 checked) instead, all but the scaled-*
+      configurations. The pointer checks still run by hand.
 - App tests don't run on the shared Windows VM (iep-ocr01-win) for now:
   every GNUstep app writes its port name to the user's
   `HKCU\Software\GNUstepNSMessagePort`, whatever its GNUstep home, and the
